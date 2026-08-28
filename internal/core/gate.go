@@ -89,7 +89,8 @@ func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {
 			}
 			if v, ok := ctx.Get(f.Field); ok {
 				b, _ := json.Marshal(v)
-				fmt.Printf("  %s %s = %s\n", mark, f.Field, truncate(string(b), 120))
+				// v9.1: было 120 — резало reasons/массивы, теперь 500 (фидбек внешнего автора №4)
+				fmt.Printf("  %s %s = %s\n", mark, f.Field, truncate(string(b), 500))
 			} else {
 				fmt.Printf("  %s %s = <нет данных>\n", mark, f.Field)
 			}

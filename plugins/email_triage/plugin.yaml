@@ -1,0 +1,33 @@
+id: email_triage
+version: 0.1.0
+platform_api: "^0.1"
+description: "Триаж email: фан-ин 3 входа (email + optional syntax_ok/disposable), риск-скоринг — проверка optional без привязки и bind"
+author: "external author #4 (M5, 2026-08-28) — email_triage"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+# Контракт v0.2: манифест БЕЗ from — привязку обязан дать пайплайн через bind
+# Проверка бага #10: optional без привязки = warning, не error
+input:
+  email:
+    type: string
+    format: email
+  syntax_ok:
+    type: boolean
+    optional: true
+  disposable:
+    type: boolean
+    optional: true
+
+output:
+  risk: { type: number }
+  verdict: { type: string }
+  reasons: { type: array }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

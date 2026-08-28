@@ -1,0 +1,50 @@
+format_version: "0.2"
+
+# Демо из пакета внешнего автора №4: фан-ин 3 входа, optional-порты, манифест БЕЗ from
+# foreach + per-item scope + on_error: skip + гейт с правкой
+# Ожидаемый ран: 3 ok / 1 aborted (bad-email уронит только свой элемент)
+
+pipeline:
+  name: email_triage_chain
+  input:
+    emails:
+      - "info@gmail.com"          # good
+      - "user@mailinator.com"     # disposable → bad
+      - "test@yandex.ru"          # good
+      - "bad-email"               # bad syntax → triage error → aborted
+
+  foreach: input.emails
+  foreach_item: item
+  item_type: string
+  item_format: email
+
+  steps:
+    - id: syntax
+      plugin: plugins/syntax_mx_checker
+      bind: { email: input.item }
+      on_error: skip
+      timeout: 10s
+
+    - id: disposable
+      plugin: plugins/disposable_checker
+      bind: { email: input.item }
+      on_error: skip
+      timeout: 5s
+
+    - id: triage
+      plugin: plugins/email_triage
+      bind:
+        email: input.item
+        syntax_ok: steps.syntax.syntax
+        disposable: steps.disposable.disposable
+      on_error: stop
+      timeout: 10s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.triage.risk, editable: true, type: number }
+        - { field: steps.triage.verdict, editable: true, type: string }
+        - { field: steps.triage.reasons, editable: false }
+      actions: [accept, reject]
+      on_reject: continue
