@@ -2,7 +2,6 @@ package core
 
 import "orchestrator/internal/pipeline"
 
-// Validate — теперь живёт в internal/pipeline, здесь shim
 func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 	return pipeline.Validate(pf, eng)
 }

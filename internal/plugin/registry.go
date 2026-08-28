@@ -12,11 +12,15 @@ import (
 )
 
 type Engine struct {
+	Cache map[string]*pipeline.Manifest
 	cache map[string]*pipeline.Manifest
 }
 
 func NewEngine() *Engine {
-	return &Engine{cache: map[string]*pipeline.Manifest{}}
+	return &Engine{
+		Cache: make(map[string]*pipeline.Manifest),
+		cache: make(map[string]*pipeline.Manifest),
+	}
 }
 
 func IsBuiltin(ref string) bool { return strings.HasPrefix(ref, "core/") }
@@ -29,7 +33,16 @@ func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
+	if e.cache == nil {
+		e.cache = make(map[string]*pipeline.Manifest)
+	}
+	if e.Cache == nil {
+		e.Cache = make(map[string]*pipeline.Manifest)
+	}
 	if m, ok := e.cache[ref]; ok {
+		return m, nil
+	}
+	if m, ok := e.Cache[ref]; ok {
 		return m, nil
 	}
 	raw, err := os.ReadFile(filepath.Join(ref, "plugin.yaml"))
@@ -45,5 +58,6 @@ func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	}
 	m.Dir = ref
 	e.cache[ref] = &m
+	e.Cache[ref] = &m
 	return &m, nil
 }

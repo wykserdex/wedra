@@ -9,11 +9,11 @@ format_version: "0.2"
 pipeline:
   name: csv_load
   input:
-    csv_path: "testdata/sample.csv"  # относительно plugins/csv_loader/ (PROTOCOL §1)
+    csv_path: "testdata/sample.csv"  # относительно plugins/community/csv_loader/ (PROTOCOL §1)
 
   steps:
     - id: load
-      plugin: plugins/csv_loader
+      plugin: plugins/community/csv_loader
       bind: { path: input.csv_path }
       on_error: stop
       timeout: 10s

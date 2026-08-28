@@ -16,7 +16,7 @@ pipeline:
 
   steps:
     - id: draft
-      plugin: plugins/llm_gemini
+      plugin: plugins/official/llm_gemini
       on_error: retry                       # 429/5xx от LLM — норма, ретраим
       retry: { attempts: 3, delay: 3s, backoff: exponential }
       timeout: 45s
@@ -31,7 +31,7 @@ pipeline:
       # refine читает одобренный человеком вариант, а не сырой черновик
 
     - id: refine
-      plugin: plugins/llm_openai
+      plugin: plugins/official/llm_openai
       on_error: retry
       retry: { attempts: 3, delay: 3s, backoff: exponential }
       timeout: 45s

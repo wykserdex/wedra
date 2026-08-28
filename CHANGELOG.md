@@ -1,5 +1,20 @@
 # Changelog — честная 0.x
 
+## v0.13 (2026-08-29) — честный перенос логики из монолита (ответ на фидбек v10)
+
+Главный фидбек: v10 рефакторинг косметический, логика осталась в `internal/core` (~2.5k строк), а новые пакеты — заглушки. В v0.13 довёл до конца:
+
+- **execution/runner.go — real move**: вся логика из `core/runner.go` перенесена в `execution`. Теперь `execution.Run` — источник правды (3 фазы pre/loop/post, agg `steps.<id>_all`, resume через `RunStore`). `core/runner.go` — тонкий shim `→ execution.Run`. Убран хрупкий `strings.Contains("\"type\":\"item_end\"")` — теперь `journal.FilesystemStore.MaxItemIndex()` через `Reader.Events()` с нормальным `json.Unmarshal` и проверкой `ev["type"]=="item_end"`.
+- **journal/store.go — real impl**: `FilesystemStore` с методами `Create`, `OpenAppend`, `AppendEvent`, `SaveArtifact`, `LoadContext`, `MaxItemIndex` (без хрупкого парсинга). Добавлен `SQLiteStore` заготовка (делегирует в FS, DBPath для будущего). `Journal.Event` теперь пишет `type` + `ts` + поля, `Snapshot` — `context.json`.
+- **gate/service.go — real move**: `gateMaterialize`, `runGate` из `core/gate.go` перенесены в `gate.Service` с методами `Materialize` и `Run`. `core/gate.go` — shim `→ gate.Service`. Убраны дубли `truncate`, `basename`, `kindOf` — теперь в gate.
+- **pipeline/planner.go — real DAG + цикл**: `PlanPipeline` строит `DAG{Nodes:[id,plugin,phase,bind,after_foreach], Edges:[from,to,via]}` с фазами pre/foreach/post. `validator.go` добавил `DetectCycle()` — DFS с `visited 0/1/2`, находит цикл `a → b → a` и возвращает ошибку `цикл в DAG: ...`. Теперь `Validate` ловит циклы до рана, а `plan` выводит DAG.
+- **pipeline/model.go**: `Permissions.Network` теперь `[]NetworkPermission{host,port,any_host,note}` вместо `[]map[string]interface{}` — схема явная.
+- **core/* — теперь shim'ы**: `context.go → context.Ctx`, `journal.go → journal.Journal`, `manifest.go → plugin.Engine` (с Cache для тестов), `types.go → pipeline.*`, `validate.go → pipeline.Validate`, `executor.go → plugin.Exec` с совместимостью `ExecResult{Status,TimedOut,shouldRetry}`, `fileref.go — real logic с хинтом КОРНЯ ПРОЕКТА`.
+- **Плагины — убран дубляж**: удалены плоские `plugins/csv_loader`, `dir_lister`, `disposable_checker`, `email_triage`, `llm_*`, `syntax_mx_checker`, `text_analyzer`, `my_summarizer` из корня `plugins/`. Теперь только `plugins/official/` (5: disposable_checker, llm_anthropic, llm_gemini, llm_openai, syntax_mx_checker) + `plugins/community/` (5: csv_loader, dir_lister, email_triage, text_analyzer, my_summarizer). Все `pipelines/*.yaml` и `examples/pipelines/*.yaml` обновлены на `plugins/community/*` и `plugins/official/*`. `TestPluginTestShippedPlugins` уже сканирует `plugins/*` и `plugins/*/*`.
+- **Артефакты**: удалены `orchestrator-v0.11.zip`, `orchestrator-v0.12.1.zip` из гита, добавлен `*.zip` в `.gitignore`. `var/runs/` только `.gitkeep`.
+- **Мелочи**: `execution.Sanitize` теперь реальный (не `return s`), `gate.Materialize` реальный, `cli/validate.go` план выводит DAG и фазу, убран TODO про циклы, `execution/scheduler.go` и `plugin/transport.go` — без «заглушка» комментариев, с реальной логикой.
+- **Тесты**: `go test ./... ok`, `csv_foreach` + `csv_foreach_summary` зелёные, цикл `a→b→a` ловится валидатором, resume через `RunStore`.
+
 ## v0.12.1 (2026-08-28) — patch после аудита v0.12
 
 Аудит v0.12 нашёл 6 проблем — все закрыты:

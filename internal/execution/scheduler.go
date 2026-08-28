@@ -2,13 +2,10 @@ package execution
 
 import "time"
 
-// Scheduler — политика retry/backoff, таймауты, параллельность (план M6)
-// Сейчас — заглушка, логика в core/runner.go retryDelay
-
 type RetryPolicy struct {
 	Attempts int
 	Delay    time.Duration
-	Backoff  string // fixed | exponential
+	Backoff  string
 }
 
 func (p *RetryPolicy) DelayFor(attempt int) time.Duration {
@@ -22,10 +19,9 @@ func (p *RetryPolicy) DelayFor(attempt int) time.Duration {
 	return d
 }
 
-// ExecutionGraph — DAG шагов для будущего параллельного выполнения независимых веток
 type ExecutionGraph struct {
 	Nodes []string
-	Edges map[string][]string // step_id → depends_on
+	Edges map[string][]string
 }
 
 func BuildGraph() *ExecutionGraph {

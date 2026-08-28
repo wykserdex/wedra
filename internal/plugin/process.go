@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,7 +16,6 @@ import (
 
 type Manifest = pipeline.Manifest
 
-// ExecResult — результат запуска плагина, теперь в internal/plugin
 type ExecResult struct {
 	Output    map[string]interface{}
 	ErrCode   string
@@ -27,117 +27,183 @@ type ExecResult struct {
 	Duration  time.Duration
 }
 
-func (r *ExecResult) OK() bool { return r.ExitCode == 0 && r.ErrCode == "" }
+func (r *ExecResult) OK() bool { return !r.Platform && r.ExitCode == 0 && r.ErrCode == "" }
+func (r *ExecResult) ShouldRetry() bool {
+	if r.ErrCode == "timeout" {
+		return true
+	}
+	return r.Retryable
+}
 
-func (r *ExecResult) ShouldRetry() bool { return r.Retryable }
+type wireResponse struct {
+	Status string                 `json:"status"`
+	Output map[string]interface{} `json:"output"`
+	Error  *struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		Retryable bool   `json:"retryable"`
+	} `json:"error"`
+}
 
-// Exec — запуск процесса плагина (вынесено из core/executor.go)
+func pythonInterpreter() (string, error) {
+	for _, name := range []string{"python3", "python"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("не найден интерпретатор python (python3/python)")
+}
+
 func Exec(m *Manifest, inputJSON []byte, timeout time.Duration) *ExecResult {
-	start := time.Now()
-	res := &ExecResult{}
-	if m.Dir == "" {
-		res.Platform = true
-		res.ErrCode = "manifest_no_dir"
-		res.ErrMsg = "у манифеста нет Dir"
-		res.ExitCode = 2
-		return res
-	}
-	entry := filepath.Join(m.Dir, m.Runtime.Entry)
-	var cmd *exec.Cmd
-	switch m.Runtime.Type {
-	case "python":
-		py := pythonInterpreter()
-		cmd = exec.Command(py, entry)
-	default:
-		cmd = exec.Command(entry)
-	}
-	cmd.Dir = m.Dir
-	cmd.Stdin = bytes.NewReader(inputJSON)
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	return ExecWithEnv(m, inputJSON, timeout, nil)
+}
+
+func ExecWithEnv(m *Manifest, inputJSON []byte, timeout time.Duration, extraEnv []string) *ExecResult {
+	return execPluginEnv(m, inputJSON, timeout, extraEnv)
+}
+
+func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []string) *ExecResult {
+	res := &ExecResult{ExitCode: -1}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	// Go 1.22: CommandContext
-	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-	cmd.Dir = m.Dir
-	cmd.Stdin = bytes.NewReader(inputJSON)
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
 
-	err := cmd.Run()
-	res.Duration = time.Since(start)
-	res.Stderr = errBuf.String()
-	if ctx.Err() == context.DeadlineExceeded {
-		res.Platform = true
-		res.ErrCode = "timeout"
-		res.ErrMsg = fmt.Sprintf("таймаут %s", timeout)
+	var cmd *exec.Cmd
+	switch m.Runtime.Type {
+	case "python":
+		py, err := pythonInterpreter()
+		if err != nil {
+			res.Platform, res.ErrCode, res.ErrMsg = true, "runtime_missing", err.Error()
+			res.ExitCode = 2
+			return res
+		}
+		entry, err := filepath.Abs(filepath.Join(m.Dir, m.Runtime.Entry))
+		if err != nil {
+			res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", err.Error()
+			res.ExitCode = 2
+			return res
+		}
+		cmd = exec.CommandContext(ctx, py, entry)
+	case "binary":
+		entry, err := filepath.Abs(filepath.Join(m.Dir, m.Runtime.Entry))
+		if err != nil {
+			res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", err.Error()
+			res.ExitCode = 2
+			return res
+		}
+		cmd = exec.CommandContext(ctx, entry)
+	default:
+		res.Platform, res.ErrCode, res.ErrMsg = true, "runtime_unknown", "runtime.type: "+m.Runtime.Type
 		res.ExitCode = 2
 		return res
 	}
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			res.ExitCode = exitErr.ExitCode()
+
+	cmd.Dir = m.Dir
+	cmd.Stdin = bytes.NewReader(input)
+	if len(extraEnv) > 0 {
+		cmd.Env = mergeEnv(os.Environ(), extraEnv)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+
+	start := time.Now()
+	runErr := cmd.Run()
+	res.Duration = time.Since(start)
+	res.Stderr = stderr.String()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		res.Platform = true
+		res.ErrCode, res.ErrMsg = "timeout", "плагин превысил таймаут "+timeout.String()
+		res.ExitCode = 2
+		return res
+	}
+	if runErr != nil {
+		var ee *exec.ExitError
+		if errors.As(runErr, &ee) {
+			res.ExitCode = ee.ExitCode()
 		} else {
+			res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", runErr.Error()
 			res.ExitCode = 2
-			res.Platform = true
-			res.ErrCode = "exec_failed"
-			res.ErrMsg = err.Error()
+			return res
+		}
+	} else {
+		res.ExitCode = 0
+	}
+
+	var wr wireResponse
+	outTrim := bytes.TrimSpace(stdout.Bytes())
+	if len(outTrim) > 0 {
+		if err := json.Unmarshal(outTrim, &wr); err != nil {
+			res.Platform, res.ErrCode = true, "protocol_violation"
+			res.ErrMsg = fmt.Sprintf("на stdout не JSON по протоколу (exit %d): %s", res.ExitCode, truncate(string(outTrim), 200))
+			if res.ExitCode == 0 {
+				res.ExitCode = 2
+			}
 			return res
 		}
 	}
-	// парсим stdout как конверт
-	var env struct {
-		Status string                 `json:"status"`
-		Output map[string]interface{} `json:"output"`
-		Error  *struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(outBuf.Bytes(), &env); err != nil {
-		res.Platform = true
-		res.ErrCode = "protocol_violation"
-		res.ErrMsg = fmt.Sprintf("stdout не JSON: %v, output: %s", err, truncate(outBuf.String(), 500))
-		if res.ExitCode == 0 {
+
+	switch {
+	case res.ExitCode == 0:
+		if wr.Status != "ok" {
+			res.Platform, res.ErrCode = true, "protocol_violation"
+			res.ErrMsg = "exit 0, но status != ok"
 			res.ExitCode = 2
+			return res
 		}
-		return res
-	}
-	if env.Status == "ok" {
-		res.Output = env.Output
-		res.ExitCode = 0
-		return res
-	}
-	if env.Status == "error" && env.Error != nil {
-		res.ErrCode = env.Error.Code
-		res.ErrMsg = env.Error.Message
-		res.Retryable = env.Error.Retryable
-		if res.ExitCode == 0 {
-			res.ExitCode = 1
+		res.Output = wr.Output
+		if res.Output == nil {
+			res.Output = map[string]interface{}{}
 		}
-		// exit >=2 → platform
-		if res.ExitCode >= 2 {
-			res.Platform = true
+	case res.ExitCode == 1:
+		res.ErrCode, res.ErrMsg = "plugin_error", "доменная ошибка без описания"
+		if wr.Error != nil {
+			res.ErrCode = wr.Error.Code
+			res.ErrMsg = wr.Error.Message
+			res.Retryable = wr.Error.Retryable
 		}
-		return res
-	}
-	res.Platform = true
-	res.ErrCode = "protocol_violation"
-	res.ErrMsg = "неизвестный status в конверте"
-	if res.ExitCode == 0 {
-		res.ExitCode = 2
+	default:
+		res.Platform = true
+		if wr.Error != nil && wr.Error.Code != "" {
+			res.ErrCode = "platform:" + wr.Error.Code
+			res.ErrMsg = wr.Error.Message
+			if res.ErrMsg == "" {
+				res.ErrMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+			}
+			res.Retryable = wr.Error.Retryable
+		} else {
+			res.ErrCode, res.ErrMsg = "crash", fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+		}
 	}
 	return res
 }
 
-func pythonInterpreter() string {
-	if _, err := os.Stat("/usr/bin/python3"); err == nil {
-		return "python3"
+func mergeEnv(base, extra []string) []string {
+	m := map[string]string{}
+	for _, kv := range base {
+		if i := indexByte(kv, '='); i >= 0 {
+			m[kv[:i]] = kv[i+1:]
+		}
 	}
-	return "python"
+	for _, kv := range extra {
+		if i := indexByte(kv, '='); i >= 0 {
+			m[kv[:i]] = kv[i+1:]
+		}
+	}
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+func indexByte(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 func truncate(s string, n int) string {
@@ -145,4 +211,21 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func EnforceOutput(m *Manifest, out map[string]interface{}) (clean map[string]interface{}, dropped []string, err error) {
+	clean = map[string]interface{}{}
+	for k, v := range out {
+		if _, declared := m.Output[k]; declared {
+			clean[k] = v
+		} else {
+			dropped = append(dropped, k)
+		}
+	}
+	for name, port := range m.Output {
+		if _, ok := clean[name]; !ok && !port.Optional {
+			return nil, dropped, fmt.Errorf("нарушение контракта: плагин %s не вернул обязательное поле %q", m.ID, name)
+		}
+	}
+	return clean, dropped, nil
 }

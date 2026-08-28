@@ -20,19 +20,19 @@ pipeline:
 
   steps:
     - id: syntax
-      plugin: plugins/syntax_mx_checker
+      plugin: plugins/official/syntax_mx_checker
       bind: { email: input.item }
       on_error: skip
       timeout: 10s
 
     - id: disposable
-      plugin: plugins/disposable_checker
+      plugin: plugins/official/disposable_checker
       bind: { email: input.item }
       on_error: skip
       timeout: 5s
 
     - id: triage
-      plugin: plugins/email_triage
+      plugin: plugins/community/email_triage
       bind:
         email: input.item
         syntax_ok: steps.syntax.syntax

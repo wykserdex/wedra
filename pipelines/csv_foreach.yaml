@@ -8,12 +8,12 @@ pipeline:
   item_type: object
   steps:
     - id: load
-      plugin: plugins/csv_loader
+      plugin: plugins/community/csv_loader
       on_error: stop
       bind:
         path: input.csv_path
     - id: check
-      plugin: plugins/text_analyzer
+      plugin: plugins/community/text_analyzer
       on_error: skip
       bind:
         text: input.row.name

@@ -4,39 +4,46 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"orchestrator/internal/pipeline"
 )
 
 type FileRefManifest = pipeline.Manifest
 
-// FileRefWarnings — проверка относительных file_ref до запуска (вынесено из core/fileref.go)
 func FileRefWarnings(m *pipeline.Manifest, input map[string]interface{}) []string {
+	root, _ := os.Getwd()
 	var warns []string
-	for name, port := range m.Input {
+	names := make([]string, 0, len(m.Input))
+	for name := range m.Input {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		port := m.Input[name]
 		if port.Format != "file_ref" {
 			continue
 		}
-		v, ok := input[name]
-		if !ok {
+		v, ok := input[name].(string)
+		if !ok || v == "" || filepath.IsAbs(v) {
 			continue
 		}
-		s, ok := v.(string)
-		if !ok {
+		pluginAbs, err := filepath.Abs(m.Dir)
+		if err != nil {
 			continue
 		}
-		if filepath.IsAbs(s) {
+		if _, err := os.Stat(filepath.Join(pluginAbs, v)); err == nil {
 			continue
 		}
-		// относительный путь — проверяем от cwd плагина
-		if _, err := os.Stat(filepath.Join(m.Dir, s)); err != nil {
-			// есть от корня репозитория?
-			if _, err2 := os.Stat(s); err2 == nil {
-				warns = append(warns, fmt.Sprintf("file_ref %s=%q не найден от %s, но есть от корня — используйте путь от корня или скопируйте файл", name, s, m.Dir))
-			} else {
-				warns = append(warns, fmt.Sprintf("file_ref %s=%q не найден (cwd плагина %s)", name, s, m.Dir))
+		msg := fmt.Sprintf(
+			"вход %s = %q — относительный путь не найден от рабочей директории плагина (%s): subprocess плагина стартует в его собственной директории",
+			name, v, pluginAbs)
+		if root != "" {
+			if _, err := os.Stat(filepath.Join(root, v)); err == nil {
+				msg += "; такой путь есть от КОРНЯ ПРОЕКТА — вероятно, вы имели в виду его: укажите путь абсолютно или относительно директории плагина"
 			}
 		}
+		warns = append(warns, msg)
 	}
 	return warns
 }
