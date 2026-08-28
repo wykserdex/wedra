@@ -73,7 +73,7 @@ func TestFileRefWarning_NonFileRefPortsIgnored(t *testing.T) {
 		ID:  "x",
 		Dir: pluginDir,
 		Input: map[string]Port{
-			"path": {Type: "string"},             // без format
+			"path": {Type: "string"},                 // без format
 			"dir":  {Type: "string", Format: "text"}, // чужой формат
 		},
 	}

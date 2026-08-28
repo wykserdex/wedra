@@ -69,8 +69,8 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 
 	var cmd *exec.Cmd
 	switch m.Runtime.Type {
-		// entry → абсолютный путь: cmd.Dir меняет cwd дочернего процесса,
-		// относительный путь до entry сломался бы
+	// entry → абсолютный путь: cmd.Dir меняет cwd дочернего процесса,
+	// относительный путь до entry сломался бы
 	case "python":
 		py, err := pythonInterpreter()
 		if err != nil {
@@ -157,9 +157,22 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 			res.Retryable = wr.Error.Retryable
 		}
 	default: // exit >= 2 — платформенная ошибка (краш, нарушение контракта)
+		// фикс №3 (внешний автор, 2026-08-28): раньше конверт плагина выбрасывался,
+		// error.code всегда был crash, и автор не мог различить bad_input vs assert.
+		// Теперь парсим конверт и на exit>=2: ErrCode = platform:<code> (fallback crash),
+		// Platform остаётся true — ран всё равно стопится, но триаж возможен.
 		res.Platform, res.Status = true, "error"
-		res.ErrCode, res.ErrMsg = "crash",
-			fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+		if wr.Error != nil && wr.Error.Code != "" {
+			res.ErrCode = "platform:" + wr.Error.Code
+			res.ErrMsg = wr.Error.Message
+			if res.ErrMsg == "" {
+				res.ErrMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+			}
+			res.Retryable = wr.Error.Retryable
+		} else {
+			res.ErrCode, res.ErrMsg = "crash",
+				fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+		}
 	}
 	return res
 }

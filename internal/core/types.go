@@ -47,7 +47,7 @@ type Step struct {
 	OnError string            `yaml:"on_error"` // stop | skip | retry (дефолт stop)
 	Retry   *Retry            `yaml:"retry"`
 	Timeout Duration          `yaml:"timeout"`
-	Bind    map[string]string `yaml:"bind"`     // v0.2: порт → путь в контексте, перекрывает from манифеста
+	Bind    map[string]string `yaml:"bind"` // v0.2: порт → путь в контексте, перекрывает from манифеста
 
 	// core/human_gate
 	Form     []FormField `yaml:"form"`

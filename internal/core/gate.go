@@ -29,19 +29,52 @@ func kindOf(v interface{}) string {
 // gateMaterialize: на accept все поля формы материализуются под неймспейсом
 // гейта (с правками поверх) — downstream ВСЕГДА читает из steps.<gate_id>,
 // а не гадает, были правки или нет (PROTOCOL.md §7).
+// Фикс M5-фидбек №1 (внешний автор, 2026-08-28): два поля с одинаковым basename
+// (steps.before.file_count и steps.after.file_count) раньше затирали друг друга.
+// Теперь при коллизии basename ключ = <step_id>_<basename> (before_file_count),
+// что сохраняет данные и делает коллизию видимой. Без коллизии — старый flat-ключ.
 func gateMaterialize(st *Step, ctx *Ctx, edits map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{}
+	// считаем коллизии basename
+	bnCount := map[string]int{}
 	for _, f := range st.Form {
-		name := basename(f.Field)
-		if v, ok := edits[name]; ok {
-			out[name] = v
+		bnCount[basename(f.Field)]++
+	}
+	for _, f := range st.Form {
+		bn := basename(f.Field)
+		key := bn
+		if bnCount[bn] > 1 {
+			// квалифицируем именем источника: steps.<step_id>.<...>
+			parts := strings.Split(f.Field, ".")
+			if len(parts) >= 3 && parts[0] == "steps" {
+				key = parts[1] + "_" + bn
+			} else {
+				// fallback для input.* или неожиданных путей
+				key = strings.ReplaceAll(f.Field, ".", "_")
+			}
+		}
+		if v, ok := edits[key]; ok {
+			out[key] = v
+			continue
+		}
+		// обратная совместимость: правка могла прийти под старым basename (до фикса)
+		if v, ok := edits[bn]; ok && bnCount[bn] == 1 {
+			out[key] = v
 			continue
 		}
 		if v, ok := ctx.Get(f.Field); ok {
-			out[name] = v
+			out[key] = v
 		}
 	}
 	return out
+}
+
+func extractStepID(field string) string {
+	parts := strings.Split(field, ".")
+	if len(parts) >= 3 && parts[0] == "steps" {
+		return parts[1]
+	}
+	return ""
 }
 
 // runGate — встроенная нода core/human_gate, CLI-версия (PROTOCOL.md §7).
@@ -77,7 +110,11 @@ func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	// правки editable-полей
+	// правки editable-полей — считаем коллизии, чтобы не затирать (фикс №1)
+	bnCountForEdits := map[string]int{}
+	for _, f := range st.Form {
+		bnCountForEdits[basename(f.Field)]++
+	}
 	edits := map[string]interface{}{}
 	for _, f := range st.Form {
 		if !f.Editable {
@@ -98,7 +135,17 @@ func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {
 			fmt.Printf("    ! тип %s не подходит под %s — правка пропущена\n", kindOf(v), f.Type)
 			continue
 		}
-		edits[basename(f.Field)] = v // пишется под неймспейсом гейта, источник не затирается
+		bn := basename(f.Field)
+		key := bn
+		if bnCountForEdits[bn] > 1 {
+			parts := strings.Split(f.Field, ".")
+			if len(parts) >= 3 && parts[0] == "steps" {
+				key = parts[1] + "_" + bn
+			} else {
+				key = strings.ReplaceAll(f.Field, ".", "_")
+			}
+		}
+		edits[key] = v // пишется под неймспейсом гейта, источник не затирается
 	}
 
 	actions := st.Actions
