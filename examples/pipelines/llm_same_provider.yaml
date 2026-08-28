@@ -16,7 +16,7 @@ pipeline:
 
   steps:
     - id: draft
-      plugin: plugins/llm_gemini
+      plugin: plugins/official/llm_gemini
       # без bind: дефолтная разводка манифеста (input.topic, input.draft_system)
       on_error: retry
       retry: { attempts: 3, delay: 2s, backoff: exponential }
@@ -30,7 +30,7 @@ pipeline:
       on_reject: stop
 
     - id: refine
-      plugin: plugins/llm_gemini            # ← тот же плагин второй раз
+      plugin: plugins/official/llm_gemini            # ← тот же плагин второй раз
       bind:                                 # v0.2: пайплайн перекрывает разводку манифеста
         prompt: steps.review.text           #     текст, одобренный человеком
         system: input.refine_system         #     инструкция для другой роли

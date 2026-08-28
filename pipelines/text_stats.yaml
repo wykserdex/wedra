@@ -13,7 +13,7 @@ pipeline:
 
   steps:
     - id: stats
-      plugin: plugins/text_analyzer
+      plugin: plugins/community/text_analyzer
       on_error: stop
       timeout: 10s
 

@@ -5,7 +5,7 @@ format_version: "0.2"
 # вся разводка задана здесь через bind (контракт v0.2).
 #
 # ВНИМАНИЕ про пути: cwd subprocess плагина = ЕГО директория (PROTOCOL §1).
-# "testdata/before" здесь — относительно plugins/dir_lister/, а не корня репо.
+# "testdata/before" здесь — относительно plugins/community/dir_lister/, а не корня репо.
 # Если напишете путь "как из корня" — ядро предупредит ⚠ ДО запуска плагина (v5).
 #
 # Запуск:  ./tool run pipelines/dir_snapshots.yaml
@@ -18,13 +18,13 @@ pipeline:
 
   steps:
     - id: before
-      plugin: plugins/dir_lister
+      plugin: plugins/community/dir_lister
       bind: { path: input.dir_before }
       on_error: stop
       timeout: 10s
 
     - id: after
-      plugin: plugins/dir_lister            # ← тот же плагин второй раз
+      plugin: plugins/community/dir_lister            # ← тот же плагин второй раз
       bind: { path: input.dir_after }
       on_error: stop
       timeout: 10s

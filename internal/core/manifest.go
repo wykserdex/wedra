@@ -9,17 +9,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Engine резолвит ссылки на плагины и кэширует манифесты.
-// Теперь живёт и в internal/plugin, здесь копия для совместимости тестов (engineWith использует cache)
 type Engine struct {
+	Cache map[string]*Manifest
 	cache map[string]*Manifest
 }
 
 func NewEngine() *Engine {
-	return &Engine{cache: map[string]*Manifest{}}
+	return &Engine{
+		Cache: make(map[string]*Manifest),
+		cache: make(map[string]*Manifest),
+	}
 }
 
-func IsBuiltin(ref string) bool { return strings.HasPrefix(ref, "core/") }
+func IsBuiltin(ref string) bool {
+	return strings.HasPrefix(ref, "core/")
+}
 
 func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 	if IsBuiltin(ref) {
@@ -29,7 +33,16 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
+	if e.cache == nil {
+		e.cache = make(map[string]*Manifest)
+	}
+	if e.Cache == nil {
+		e.Cache = make(map[string]*Manifest)
+	}
 	if m, ok := e.cache[ref]; ok {
+		return m, nil
+	}
+	if m, ok := e.Cache[ref]; ok {
 		return m, nil
 	}
 	raw, err := os.ReadFile(filepath.Join(ref, "plugin.yaml"))
@@ -45,5 +58,6 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 	}
 	m.Dir = ref
 	e.cache[ref] = &m
+	e.Cache[ref] = &m
 	return &m, nil
 }

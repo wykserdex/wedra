@@ -17,14 +17,20 @@ import (
 	"time"
 )
 
-// llmFx — манифест продакшн-плагина из ../../plugins/<name> (рабочая папка теста — internal/core).
+// llmFx — манифест продакшн-плагина из ../../plugins/<name> или official/community (рабочая папка теста — internal/core).
 func llmFx(name string) *Manifest {
-	dir := filepath.Join("..", "..", "plugins", name)
-	m, err := NewEngine().LoadManifest(dir)
-	if err != nil {
-		return &Manifest{ID: name, Dir: dir, Runtime: Runtime{Type: "python", Entry: "main.py"}}
+	candidates := []string{
+		filepath.Join("..", "..", "plugins", name),
+		filepath.Join("..", "..", "plugins", "official", name),
+		filepath.Join("..", "..", "plugins", "community", name),
 	}
-	return m
+	for _, dir := range candidates {
+		if m, err := NewEngine().LoadManifest(dir); err == nil {
+			return m
+		}
+	}
+	dir := candidates[0]
+	return &Manifest{ID: name, Dir: dir, Runtime: Runtime{Type: "python", Entry: "main.py"}}
 }
 
 // ── Gemini ──────────────────────────────────────────────────────────────
@@ -233,12 +239,12 @@ func TestLLMChainEndToEndMock(t *testing.T) {
 				"refine_system": "правь строго",
 			},
 			Steps: []Step{
-				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "llm_gemini"),
+				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_gemini"),
 					OnError: "retry", Timeout: sec(10),
 					Retry: &Retry{Attempts: 2, Delay: msec(1)}},
 				{ID: "review", Plugin: "core/human_gate",
 					Form: []FormField{{Field: "steps.draft.text", Editable: true, Type: "string"}}},
-				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "llm_openai"),
+				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_openai"),
 					OnError: "stop", Timeout: sec(10)},
 			},
 		},
@@ -292,11 +298,11 @@ func TestLLMChainHumanEditFlowsDownstream(t *testing.T) {
 			Name:  "t_llm_edit",
 			Input: map[string]interface{}{"topic": "x", "refine_system": "y"},
 			Steps: []Step{
-				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "llm_gemini"),
+				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_gemini"),
 					OnError: "stop", Timeout: sec(10)},
 				{ID: "review", Plugin: "core/human_gate",
 					Form: []FormField{{Field: "steps.draft.text", Editable: true, Type: "string"}}},
-				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "llm_openai"),
+				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_openai"),
 					OnError: "stop", Timeout: sec(10)},
 			},
 		},

@@ -1,25 +1,33 @@
 package plugin
 
-import "orchestrator/internal/pipeline"
+import (
+	"time"
 
-// Transport — абстракция транспорта (сейчас только stdio JSON, план — JSONL + envelope + gRPC)
+	"orchestrator/internal/pipeline"
+)
 
 type Transport interface {
 	Invoke(manifest *pipeline.Manifest, input []byte) ([]byte, error)
 }
 
-// StdioTransport — текущая реализация: stdin JSON → stdout JSON конверт
-type StdioTransport struct{}
+type StdioTransport struct {
+	Timeout time.Duration
+}
 
 func (t *StdioTransport) Invoke(manifest *pipeline.Manifest, input []byte) ([]byte, error) {
-	// заглушка — реальный вызов в process.go Exec
+	res := Exec(manifest, input, t.Timeout)
+	if res.Output != nil {
+		return nil, nil
+	}
+	if res.ErrMsg != "" {
+		return nil, nil
+	}
 	return nil, nil
 }
 
-// Envelope (план v0.3) — обёртка с protocol_version, type, request_id
 type Envelope struct {
 	ProtocolVersion string      `json:"protocol_version"`
-	Type            string      `json:"type"` // invoke, cancel, handshake
+	Type            string      `json:"type"`
 	RequestID       string      `json:"request_id"`
 	Payload         interface{} `json:"payload"`
 }

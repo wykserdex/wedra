@@ -85,10 +85,17 @@ type Runtime struct {
 	Requires []string `yaml:"requires"`
 }
 
+type NetworkPermission struct {
+	Host    string `yaml:"host"`
+	Port    int    `yaml:"port"`
+	AnyHost bool   `yaml:"any_host"`
+	Note    string `yaml:"note"`
+}
+
 type Permissions struct {
-	Network    []map[string]interface{} `yaml:"network"`
-	Filesystem string                   `yaml:"filesystem"`
-	Secrets    []string                 `yaml:"secrets"`
+	Network    []NetworkPermission `yaml:"network"`
+	Filesystem string              `yaml:"filesystem"`
+	Secrets    []string            `yaml:"secrets"`
 }
 
 type Manifest struct {

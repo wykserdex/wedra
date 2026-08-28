@@ -126,7 +126,7 @@ func TestValidateGateRejectsBind(t *testing.T) {
 func TestBindSamePluginTwiceEndToEnd(t *testing.T) {
 	requirePython(t)
 	t.Setenv("LLM_MOCK", "1")
-	absLLM := filepath.Join("..", "..", "plugins", "llm_gemini")
+	absLLM := filepath.Join("..", "..", "plugins", "official", "llm_gemini")
 
 	pf := &PipelineFile{
 		FormatVersion: "0.2",
@@ -190,7 +190,7 @@ func TestBindMissingPathRuntimeError(t *testing.T) {
 				"topic": "x",
 			},
 			Steps: []Step{
-				{ID: "d", Plugin: filepath.Join("..", "..", "plugins", "llm_gemini"),
+				{ID: "d", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_gemini"),
 					OnError: "stop", Timeout: sec(5),
 					Bind: map[string]string{"prompt": "input.not_here"}},
 			},

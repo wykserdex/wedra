@@ -11,13 +11,13 @@ pipeline:
 
   steps:
     - id: syntax
-      plugin: plugins/syntax_mx_checker
+      plugin: plugins/official/syntax_mx_checker
       bind: { email: input.email }        # v0.2: разводка живёт в пайплайне
       on_error: stop
       timeout: 10s
 
     - id: disposable
-      plugin: plugins/disposable_checker
+      plugin: plugins/official/disposable_checker
       bind: { email: input.email }
       on_error: skip
       timeout: 5s

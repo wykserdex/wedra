@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Ранги форматов — копия из core/validate.go, теперь живёт в pipeline
 var formatRank = map[string]int{
 	"": 0, "string": 0,
 	"text": 1, "file_ref": 1,
@@ -79,7 +78,6 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 			itemKey = "item"
 		}
 		if key == itemKey && p.Foreach != "" {
-			// v0.12: если путь вида input.<item>.<field> — считаем any (объект)
 			if len(parts) > 2 {
 				return srcInfo{Name: path, Type: "string", Format: "text"}, ""
 			}
@@ -89,31 +87,23 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 		if !ok {
 			return srcInfo{}, "в input пайплайна нет поля " + key
 		}
-		// вложенный доступ input.csv_path.xxx — для file_ref не нужен, но для объектов разрешим any
 		if len(parts) > 2 {
 			return srcInfo{Name: path, Type: "", Format: ""}, ""
 		}
 		return srcInfo{Name: path, Type: KindOf(val), Literal: val}, ""
 	case "steps":
-		// v0.12.1: поддержка steps.<id>_all (агрегат post-foreach)
-		// два формата:
-		//   steps.<id>.<field>      — обычный
-		//   steps.<id>_all          — агрегат всего выхода шага (array)
-		//   steps.<id>.<field>_all  — не используем, но допускаем как any
 		if len(parts) == 2 && strings.HasSuffix(parts[1], "_all") {
 			base := strings.TrimSuffix(parts[1], "_all")
 			ps, ok := prior[base]
 			if !ok {
 				return srcInfo{}, "шаг " + base + " не найден выше по цепочке (агрегат " + path + ")"
 			}
-			// агрегат — array любого содержимого
 			return srcInfo{Name: path, Type: "array", Format: "any", Step: ps.step}, ""
 		}
 		if len(parts) < 3 {
 			return srcInfo{}, "ожидается путь steps.<step_id>.<поле>: " + path
 		}
 		sid, field := parts[1], parts[2]
-		// если sid = check_all → база check
 		if strings.HasSuffix(sid, "_all") {
 			base := strings.TrimSuffix(sid, "_all")
 			ps, ok := prior[base]
@@ -131,7 +121,6 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 		}
 		port, ok := ps.manifest.Output[field]
 		if !ok {
-			// если поле оканчивается на _all — это агрегат одного поля, считаем any
 			if strings.HasSuffix(field, "_all") {
 				baseField := strings.TrimSuffix(field, "_all")
 				if _, ok2 := ps.manifest.Output[baseField]; ok2 {
@@ -160,9 +149,11 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			warns = append(warns, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
 		}
 	}
+	if cycle := DetectCycle(pf); cycle != "" {
+		errs = append(errs, cycle)
+	}
 	p := &pf.Pipeline
 	if p.Foreach != "" {
-		// v0.12: foreach может быть input.* ИЛИ steps.<id>.<field>
 		if strings.HasPrefix(p.Foreach, "input.") {
 			key := strings.TrimPrefix(p.Foreach, "input.")
 			if _, ok := p.Input[key]; !ok {
@@ -173,8 +164,6 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			if len(parts) < 3 {
 				errs = append(errs, "foreach: steps.* должен быть вида steps.<id>.<field>")
 			} else {
-				// проверим что такой шаг существует в пайплайне (должен быть выше по списку — но на этапе валидации ещё не знаем порядок выполнения)
-				// для v0.12 требуем чтобы шаг с таким id существовал где-то в пайплайне
 				found := false
 				for _, st := range p.Steps {
 					if st.ID == parts[1] {
@@ -305,10 +294,6 @@ func portNames(m map[string]Port) string {
 	return strings.Join(ks, ", ")
 }
 
-func checkPortFormats(pfx, name string, port Port, errs []string) []string {
-	return CheckPortFormats(pfx, name, port, errs)
-}
-
 func CheckPortFormats(pfx, name string, port Port, errs []string) []string {
 	if port.Format == "" {
 		return errs
@@ -329,17 +314,11 @@ func CheckPortFormats(pfx, name string, port Port, errs []string) []string {
 
 func ValidatePluginDir(dir string) []string {
 	var errs []string
-	// minimal check without engine to avoid import cycle — reuse filesystem
 	raw, err := os.ReadFile(filepath.Join(dir, "plugin.yaml"))
 	if err != nil {
 		return append(errs, err.Error())
 	}
 	var m Manifest
-	// yaml unmarshal — use same as core
-	// we need yaml.v3
-	// import dynamically
-	// for simplicity use our own parser via gopkg.in/yaml.v3 (imported below? need import)
-	// we'll do it via func
 	if err := unmarshalYAML(raw, &m); err != nil {
 		return append(errs, err.Error())
 	}
@@ -363,10 +342,10 @@ func ValidatePluginDir(dir string) []string {
 		if port.Type == "" {
 			errs = append(errs, "input "+name+": нет type")
 		}
-		errs = checkPortFormats("input", name, port, errs)
+		errs = CheckPortFormats("input", name, port, errs)
 	}
 	for name, port := range m.Output {
-		errs = checkPortFormats("output", name, port, errs)
+		errs = CheckPortFormats("output", name, port, errs)
 	}
 	if len(m.Output) == 0 {
 		errs = append(errs, "output пуст")
@@ -374,7 +353,6 @@ func ValidatePluginDir(dir string) []string {
 	return errs
 }
 
-// helpers — copied from common
 func KindOf(v interface{}) string {
 	switch v.(type) {
 	case string:
@@ -397,7 +375,89 @@ func Basename(p string) string {
 	return parts[len(parts)-1]
 }
 
-// yaml helper
 func unmarshalYAML(raw []byte, m *Manifest) error {
 	return yaml.Unmarshal(raw, m)
+}
+
+func DetectCycle(pf *PipelineFile) string {
+	adj := map[string][]string{}
+	nodes := map[string]bool{}
+	for _, st := range pf.Pipeline.Steps {
+		nodes[st.ID] = true
+		adj[st.ID] = []string{}
+	}
+	for _, st := range pf.Pipeline.Steps {
+		deps := map[string]bool{}
+		for _, v := range st.Bind {
+			if strings.HasPrefix(v, "steps.") {
+				parts := strings.Split(v, ".")
+				if len(parts) >= 2 {
+					deps[parts[1]] = true
+				}
+			}
+		}
+		for _, f := range st.Form {
+			if strings.HasPrefix(f.Field, "steps.") {
+				parts := strings.Split(f.Field, ".")
+				if len(parts) >= 2 {
+					id := parts[1]
+					if strings.HasSuffix(id, "_all") {
+						id = strings.TrimSuffix(id, "_all")
+					}
+					deps[id] = true
+				}
+			}
+		}
+		for dep := range deps {
+			if dep == st.ID {
+				return fmt.Sprintf("цикл: шаг %s зависит от самого себя (%v)", st.ID, st.Bind)
+			}
+			if _, ok := nodes[dep]; ok {
+				adj[dep] = append(adj[dep], st.ID)
+			}
+		}
+	}
+	visited := map[string]int{}
+	var stack []string
+	var cyclePath []string
+
+	var dfs func(string) bool
+	dfs = func(u string) bool {
+		visited[u] = 1
+		stack = append(stack, u)
+		for _, v := range adj[u] {
+			if visited[v] == 0 {
+				if dfs(v) {
+					return true
+				}
+			} else if visited[v] == 1 {
+				idx := -1
+				for i, n := range stack {
+					if n == v {
+						idx = i
+						break
+					}
+				}
+				if idx >= 0 {
+					cyclePath = append([]string{}, stack[idx:]...)
+					cyclePath = append(cyclePath, v)
+				} else {
+					cyclePath = []string{v, u, v}
+				}
+				return true
+			}
+		}
+		visited[u] = 2
+		stack = stack[:len(stack)-1]
+		return false
+	}
+
+	for id := range nodes {
+		if visited[id] == 0 {
+			if dfs(id) {
+				return fmt.Sprintf("цикл в DAG: %s", strings.Join(cyclePath, " → "))
+			}
+		}
+	}
+	return ""
 }
