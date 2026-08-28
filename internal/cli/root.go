@@ -3,6 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
+
+	"orchestrator/internal/api"
 )
 
 // Root — точка сборки CLI, теперь в internal/cli вместо cmd/tool/main.go
@@ -27,7 +30,11 @@ func Run() {
 	case "gui", "serve":
 		RunGUI(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("orchestrator v0.12 (CLI focus, M6 meat), protocol v0.2")
+		ver := api.Version
+		if raw, err := os.ReadFile("VERSION"); err == nil {
+			ver = strings.TrimSpace(string(raw))
+		}
+		fmt.Printf("orchestrator v%s (CLI focus, M6 meat), protocol v0.2\n", ver)
 	case "validate":
 		handlePipeline(append([]string{"validate"}, os.Args[2:]...))
 	default:
@@ -38,7 +45,11 @@ func Run() {
 }
 
 func printHelp() {
-	fmt.Print(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v0.12, CLI focus)
+	ver := api.Version
+	if raw, err := os.ReadFile("VERSION"); err == nil {
+		ver = strings.TrimSpace(string(raw))
+	}
+	fmt.Printf(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v%s, CLI focus)
 
 Команды (мясо, не косметика):
   orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs]
@@ -58,9 +69,9 @@ func printHelp() {
   orchestrator run <file.yaml> == pipeline run
   orchestrator validate <file.yaml> == pipeline validate
 
-Версия: v0.12 (CLI focus, честная 0.x), протокол v0.2
+Версия: v%s (CLI focus, честная 0.x), протокол v0.2
 См. PROTOCOL.md, TUTORIAL_PLUGINS.md, CHANGELOG.md
-`)
+`, ver, ver)
 }
 
 func handlePipeline(args []string) {

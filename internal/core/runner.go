@@ -10,9 +10,9 @@ import (
 )
 
 type RunOptions struct {
-	Yes     bool   // auto-accept human_gate (CI/демо)
+	Yes     bool   // auto-accept human_gate
 	RunsDir string // var/runs
-	Quiet   bool   // без консольного вывода (тесты)
+	Quiet   bool
 	Resume  string // run_id для --resume
 }
 
@@ -22,7 +22,6 @@ func (o RunOptions) logf(format string, a ...interface{}) {
 	}
 }
 
-// RunStats — итог рана; на него опирается exit-код CLI (см. PROTOCOL.md §6).
 type RunStats struct {
 	OK      int
 	Aborted int
@@ -44,7 +43,6 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
 	}
-	// --resume: грузим предыдущий контекст и продолжаем
 	var ctx *Ctx
 	var startItemIdx int
 	var runID string
@@ -52,10 +50,7 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 	var err error
 
 	if opts.Resume != "" {
-		// resume: используем старый runDir как базу, но пишем в новый? Для простоты — продолжаем в той же директории
-		// v0.12: resume продолжает в том же runDir, дописывая journal
 		prevDir := filepath.Join(opts.RunsDir, opts.Resume)
-		// загружаем context.json
 		raw, err := os.ReadFile(filepath.Join(prevDir, "context.json"))
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: не читается context.json: %w", opts.Resume, err)
@@ -65,13 +60,11 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 			return stats, fmt.Errorf("--resume %s: битый context.json: %w", opts.Resume, err)
 		}
 		ctx = &Ctx{Data: data}
-		// находим последний item_end
 		eventsRaw, _ := os.ReadFile(filepath.Join(prevDir, "journal.jsonl"))
 		lines := strings.Split(string(eventsRaw), "\n")
 		maxIdx := -1
 		for _, line := range lines {
-			if strings.Contains(line, "\"type\":\"item_end\"") || strings.Contains(line, "\"type\": \"item_end\"") {
-				// парсим item_index
+			if strings.Contains(line, "\"type\":\"item_end\"") {
 				var ev map[string]interface{}
 				if err := json.Unmarshal([]byte(line), &ev); err == nil {
 					if idx, ok := ev["item_index"].(float64); ok {
@@ -104,15 +97,21 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		ctx = NewCtx(pf.Pipeline.Input)
 	}
 
-	// v0.12: foreach может быть input.* ИЛИ steps.<id>.<field>
+	// v0.12: foreach может быть input.* ИЛИ steps.<id>.<field> + after_foreach
 	var items []interface{}
 	var preSteps []*Step
-	var foreachSteps []*Step
+	var loopSteps []*Step
+	var postSteps []*Step
 
 	if pf.Pipeline.Foreach == "" {
 		items = []interface{}{nil}
 		for i := range pf.Pipeline.Steps {
-			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+			st := &pf.Pipeline.Steps[i]
+			if st.AfterForeach {
+				postSteps = append(postSteps, st)
+			} else {
+				loopSteps = append(loopSteps, st)
+			}
 		}
 	} else if strings.HasPrefix(pf.Pipeline.Foreach, "input.") {
 		v, ok := ctx.Get(pf.Pipeline.Foreach)
@@ -125,16 +124,19 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		}
 		items = arr
 		for i := range pf.Pipeline.Steps {
-			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+			st := &pf.Pipeline.Steps[i]
+			if st.AfterForeach {
+				postSteps = append(postSteps, st)
+			} else {
+				loopSteps = append(loopSteps, st)
+			}
 		}
 	} else if strings.HasPrefix(pf.Pipeline.Foreach, "steps.") {
-		// steps.<id>.<field> — двухфазный ран
 		parts := strings.Split(pf.Pipeline.Foreach, ".")
 		if len(parts) < 3 {
 			return stats, fmt.Errorf("foreach: %s должен быть вида steps.<id>.<field>", pf.Pipeline.Foreach)
 		}
 		srcID := parts[1]
-		// находим индекс srcID
 		srcIdx := -1
 		for i, st := range pf.Pipeline.Steps {
 			if st.ID == srcID {
@@ -145,14 +147,17 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		if srcIdx == -1 {
 			return stats, fmt.Errorf("foreach: шаг %s не найден", srcID)
 		}
-		// preSteps = 0..srcIdx
 		for i := 0; i <= srcIdx; i++ {
 			preSteps = append(preSteps, &pf.Pipeline.Steps[i])
 		}
 		for i := srcIdx + 1; i < len(pf.Pipeline.Steps); i++ {
-			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+			st := &pf.Pipeline.Steps[i]
+			if st.AfterForeach {
+				postSteps = append(postSteps, st)
+			} else {
+				loopSteps = append(loopSteps, st)
+			}
 		}
-		// если не resume — прогоняем preSteps один раз
 		if opts.Resume == "" {
 			opts.logf("  → фаза 1: получение массива %s из %d шагов", pf.Pipeline.Foreach, len(preSteps))
 			for _, st := range preSteps {
@@ -168,7 +173,6 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 			}
 			j.Snapshot(ctx)
 		}
-		// теперь массив должен быть в контексте
 		v, ok := ctx.Get(pf.Pipeline.Foreach)
 		if !ok {
 			return stats, fmt.Errorf("foreach: после pre-фазы путь %s не найден", pf.Pipeline.Foreach)
@@ -187,14 +191,43 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		itemKey = "item"
 	}
 
-	// если resume — пропускаем уже пройденные элементы
 	if startItemIdx > 0 {
 		if startItemIdx >= len(items) {
 			opts.logf("  resume: все %d элементов уже пройдены", len(items))
+			// всё равно пробуем post-шаги если есть
+			if len(postSteps) > 0 {
+				opts.logf("  → фаза 3: post-foreach %d шагов", len(postSteps))
+				for _, st := range postSteps {
+					if _, err := runStep(eng, st, ctx, j, opts); err != nil {
+						j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
+						return stats, fmt.Errorf("шаг %s (post-foreach): %w", st.ID, err)
+					}
+				}
+			}
 			j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted, "resumed": true})
 			return stats, nil
 		}
 		opts.logf("  resume: пропускаем %d элементов, продолжаем с %d/%d", startItemIdx, startItemIdx+1, len(items))
+	}
+
+	// агрегация для post-шагов: собираем выходы loop-шагов per-item
+	// v0.12.1: при resume инициализируем agg из снапшота steps.<id>_all, чтобы не терять предыдущие элементы
+	agg := map[string][]interface{}{}
+	if startItemIdx > 0 {
+		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+			for _, st := range loopSteps {
+				if raw, ok := stepsMap[st.ID+"_all"]; ok {
+					if arr, ok := raw.([]interface{}); ok {
+						// берём первые startItemIdx элементов, если они есть
+						if len(arr) >= startItemIdx {
+							agg[st.ID] = append([]interface{}{}, arr[:startItemIdx]...)
+						} else {
+							agg[st.ID] = append([]interface{}{}, arr...)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	for idx, it := range items {
@@ -203,13 +236,10 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		}
 		if pf.Pipeline.Foreach != "" {
 			if len(preSteps) == 0 {
-				// input-foreach: scope per-item, сбрасываем steps каждый элемент
 				ctx.ResetSteps()
 			} else {
-				// steps-foreach: preSteps остаются, сбрасываем только foreach-шаги (если были)
-				// для простоты — удаляем из ctx.Data["steps"] все кроме preSteps
 				if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
-					for _, st := range foreachSteps {
+					for _, st := range loopSteps {
 						delete(stepsMap, st.ID)
 					}
 				}
@@ -220,13 +250,7 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		j.Event("item_start", map[string]interface{}{"item_index": idx, "item": it})
 
 		itemStatus := "ok"
-		stepsToRun := foreachSteps
-		if pf.Pipeline.Foreach == "" {
-			stepsToRun = foreachSteps
-		}
-		// для steps-foreach: если preSteps есть, они уже выполнены, бежим только foreachSteps
-		// для input-foreach: foreachSteps = все шаги
-		for _, st := range stepsToRun {
+		for _, st := range loopSteps {
 			action, err := runStep(eng, st, ctx, j, opts)
 			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
@@ -238,6 +262,10 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 				j.Event("item_aborted", map[string]interface{}{"item_index": idx, "at_step": st.ID})
 				break
 			}
+			// собираем для агрегации post-фазы
+			if v, ok := ctx.Data["steps"].(map[string]interface{})[st.ID]; ok {
+				agg[st.ID] = append(agg[st.ID], v)
+			}
 		}
 		j.Snapshot(ctx)
 		j.Event("item_end", map[string]interface{}{"item_index": idx, "status": itemStatus})
@@ -246,6 +274,32 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		} else {
 			stats.OK++
 		}
+	}
+
+	// фаза 3: post-foreach — один раз после всех элементов, с агрегатами
+	if len(postSteps) > 0 {
+		opts.logf("\n▶ фаза 3: post-foreach %d шагов (агрегаты: %d)", len(postSteps), len(agg))
+		// кладём агрегаты в контекст как steps.<id>_all
+		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+			for id, arr := range agg {
+				stepsMap[id+"_all"] = arr
+			}
+		}
+		j.Event("post_phase_start", map[string]interface{}{"steps": len(postSteps)})
+		for _, st := range postSteps {
+			action, err := runStep(eng, st, ctx, j, opts)
+			if err != nil {
+				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
+				j.Snapshot(ctx)
+				return stats, fmt.Errorf("шаг %s (post-foreach): %w", st.ID, err)
+			}
+			if action == "abort_item" {
+				stats.Aborted++
+				break
+			}
+		}
+		j.Snapshot(ctx)
+		j.Event("post_phase_end", map[string]interface{}{})
 	}
 
 	j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted})
@@ -257,7 +311,6 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 	if IsBuiltin(st.Plugin) {
 		return runGate(st, ctx, j, opts), nil
 	}
-
 	m, err := eng.LoadManifest(st.Plugin)
 	if err != nil {
 		return "", err
@@ -271,7 +324,6 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 		j.Event("file_ref_warning", map[string]interface{}{"step": st.ID, "message": formatHintForLog(w)})
 	}
 	rawIn, _ := json.Marshal(input)
-
 	timeout := st.Timeout.Duration
 	if timeout == 0 {
 		timeout = 60 * time.Second
@@ -283,7 +335,6 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 			attempts = st.Retry.Attempts
 		}
 	}
-
 	var res *ExecResult
 	for attempt := 1; attempt <= attempts; attempt++ {
 		opts.logf("  → %-12s (попытка %d/%d)", st.ID, attempt, attempts)
@@ -301,7 +352,6 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 		opts.logf("    … retry через %s (%s: %s)", delay, res.ErrCode, res.ErrMsg)
 		time.Sleep(delay)
 	}
-
 	if res.OK() {
 		out, dropped, err := EnforceOutput(m, res.Output)
 		if len(dropped) > 0 {
@@ -313,11 +363,9 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 		ctx.SetStep(st.ID, out)
 		return "ok", nil
 	}
-
 	if res.Platform {
 		return "", fmt.Errorf("платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
 	}
-
 	switch st.OnError {
 	case "skip":
 		opts.logf("    ! пропущен по on_error=skip: %s", res.ErrMsg)
@@ -356,7 +404,7 @@ func buildInput(m *Manifest, st *Step, ctx *Ctx) (map[string]interface{}, error)
 			if port.Optional {
 				continue
 			}
-			return nil, fmt.Errorf("вход %q: путь %s не найден в контексте (должна была поймать статическая валидация)", name, from)
+			return nil, fmt.Errorf("вход %q: путь %s не найден в контексте", name, from)
 		}
 		in[name] = v
 	}

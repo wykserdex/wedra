@@ -49,6 +49,9 @@ type Step struct {
 	Timeout Duration          `yaml:"timeout"`
 	Bind    map[string]string `yaml:"bind"`
 
+	// v0.12: after_foreach — шаг выполняется один раз после foreach, а не per-item
+	AfterForeach bool `yaml:"after_foreach"`
+
 	// core/human_gate
 	Form     []FormField `yaml:"form"`
 	Actions  []string    `yaml:"actions"`
