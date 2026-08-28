@@ -14,8 +14,8 @@ import (
 
 const fxPlugins = "testdata/plugins/"
 
-func sec(n int) Duration  { return Duration{time.Duration(n) * time.Second} }
-func msec(n int) Duration { return Duration{time.Duration(n) * time.Millisecond} }
+func sec(n int) Duration  { return Duration{Duration: time.Duration(n) * time.Second} }
+func msec(n int) Duration { return Duration{Duration: time.Duration(n) * time.Millisecond} }
 
 func resetCounter(t *testing.T, plugin string) {
 	t.Helper()

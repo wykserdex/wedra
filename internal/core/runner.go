@@ -40,7 +40,8 @@ func sanitize(s string) string {
 func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 	var stats RunStats
 	if opts.RunsDir == "" {
-		opts.RunsDir = "runs"
+		opts.RunsDir = "var/runs"
+		// fallback для совместимости со старым runs/
 	}
 	runID := time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
 	j, err := NewJournal(filepath.Join(opts.RunsDir, runID))

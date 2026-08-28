@@ -1,134 +1,135 @@
-# orchestrator — скелет MVP
+# orchestrator — скелет MVP v10
 
-Локальный оркестратор цепочек с человеком в петле. Это воплощение этапов **M1–M3** из ТЗ v2 (`../tz_platform_v2.md`): протокол заморожен, два референс-плагина написаны вручную, ядро гоняет цепочку end-to-end из CLI.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI отложен. **v10** — архитектурный рефактор по фидбеку: god-package `internal/core` разбит на домены, `runs/` → `var/runs/` + `RunStore`, добавлены JSON Schema, conformance, official/community.
 
-**Проверено снаружи (грязный публичный тест, M5, v9.1):** 4 внешних автора, 10 плагинов (6 исходных + 4 community), 8 пайплайнов, 4/4 написали свой плагин с первого захода, провалов воронки — 0; ядро оценено извне **8.5–9/10 для MVP** (было 9/10 и 8/10, после фиксов 8.5–9). Их слова:
+**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов (6+4 community), 8 пайплайнов, 0 провалов воронки, ядро 8.5–9/10. Их слова:
 
 > «каждый кусок можно независимо написать, протестировать и заменить» ·
 > «ошибки говорят буквально, какой порт и почему несовместим» ·
-> «не пришлось писать SDK или наследоваться от класса» ·
 > «контракт честный, тот же результат что в ране и в echo | python3 main.py»
 
 ```
 orchestrator/
-├── PROTOCOL.md          # контракт ядро↔плагин (v0.1, единственный «вечный» документ)
-├── cmd/tool/main.go     # CLI: run / validate / plugin-validate
-├── internal/core/       # ядро: раннер, экзекутор, валидация, журнал, human_gate
-├── plugins/             # 10 плагинов: 6 исходных + 4 community (проверено 93 теста)
-│   ├── syntax_mx_checker/   # OSINT: синтаксис + MX (пак A)
-│   ├── disposable_checker/  # OSINT: disposable-домены, офлайн (пак A)
-│   ├── llm_gemini/          # Gemini generateContent (пак B)
-│   ├── llm_openai/          # OpenAI-совместимый: OpenAI/Grok/DeepSeek/Ollama (пак B)
-│   ├── llm_anthropic/       # Anthropic Messages API (пак B)
-│   ├── text_analyzer/       # community №1: метрики текста (тестер №1)
-│   ├── dir_lister/          # community №2: снапшот директории; манифест БЕЗ from (v0.2, тестер №1)
-│   ├── csv_loader/          # community №3: CSV file_ref + массивы, exit 1 vs 2 (тестер №4, 7 тестов)
-│   └── email_triage/        # community №4: фан-ин 3 входа, optional, без from (тестер №4, 10 тестов)
-├── pipelines/           # 8 пайплайнов, все зелёные
-│   ├── email_check.yaml         # пак A: foreach 3 email + human_gate
-│   ├── email_triage_chain.yaml  # пак A+: foreach + triage + gate, 3 ok/1 aborted (тестер №4)
-│   ├── single_check.yaml        # одиночный прогон — CI-семантика + bind
-│   ├── llm_text_chain.yaml      # пак B: Gemini → человек → OpenAI/Grok
-│   ├── llm_same_provider.yaml   # пак B': один провайдер ДВАЖДЫ через bind (v0.2)
-│   ├── text_stats.yaml          # пак C: метрики текста → обзор человеком
-│   ├── csv_load.yaml            # пак D: file_ref CSV → gate (тестер №4, ограничение foreach задокументировано)
-│   └── dir_snapshots.yaml       # аудит "до/после": один dir_lister дважды через bind (v0.2, фикс коллизии basename в v9)
-└── runs/                # журналы прогонов (jsonl + снапшоты контекста)
+├── PROTOCOL.md          # контракт ядро↔плагин (v0.2)
+├── protocol/            # версионированный протокол + JSON Schema
+│   ├── versions/v0.1.md, v0.2.md
+│   ├── schemas/v0.2/    # manifest, request, response
+│   └── README.md        # lifecycle, envelope план v0.3
+├── schemas/pipeline/    # pipeline v0.2 JSON Schema
+├── cmd/
+│   ├── tool/            # старый бинарь (совместимость)
+│   └── orchestrator/    # новый бинарь: orchestrator pipeline|plugin
+├── internal/
+│   ├── pipeline/        # модель, парсер, валидатор, планер
+│   ├── execution/       # runner, scheduler, retry
+│   ├── plugin/          # registry, process, transport, fileref
+│   ├── journal/         # writer, reader, store (RunStore)
+│   ├── gate/            # service, terminal (human_gate)
+│   ├── context/         # store, binding
+│   ├── common/          # util (KindOf, Basename, Truncate)
+│   ├── cli/             # root, run, validate, plugin commands
+│   └── core/            # shim-фасад для совместимости (93 теста)
+├── plugins/
+│   ├── official/        # 5 официальных (syntax, disposable, llm x3)
+│   ├── community/       # 4 community (text_analyzer, dir_lister, csv_loader, email_triage)
+│   └── *.py             # плоская копия для совместимости (deprecated)
+├── pipelines/           # 8 пайплайнов (все зелёные)
+├── examples/
+│   ├── pipelines/       # примеры для доки
+│   └── plugins/         # text_analyzer как пример
+├── conformance/         # conformance fixtures + README
+├── var/runs/            # журналы (было runs/, теперь gitignore var/runs/)
+└── .github/workflows/ci.yml # CI (go test, vet, build)
 ```
 
 ## Быстрый старт
 
-> Хочешь писать СВОЙ плагин? → `TUTORIAL_PLUGINS.md` (15 минут, выверен на граблях трёх внешних авторов).
+> Хочешь писать СВОЙ плагин? → `TUTORIAL_PLUGINS.md` (15 мин, выверен на 4 внешних авторах).
 
-Требования: Go ≥ 1.21, Python ≥ 3.9 (опционально `pip install dnspython` для MX-проверки).
+Go ≥1.21, Python ≥3.9.
 
 ```bash
-go build -o tool ./cmd/tool
-go test ./internal/core/                            # 93 теста: ядро + плагины + SDK покрыты
+go build -o orchestrator ./cmd/orchestrator   # новый CLI
+go build -o tool ./cmd/tool                   # старый (совместимость)
+go test ./...                                 # 93 теста
+go vet ./...
 
-./tool plugin validate plugins/syntax_mx_checker   # контракт плагина (манифест)
-./tool plugin test plugins/syntax_mx_checker       # контракт-тесты из plugin.test.yaml
-./tool validate pipelines/email_check.yaml         # статическая проверка цепочки
-./tool run pipelines/email_check.yaml              # интерактивно (человек в петле)
-./tool run pipelines/email_check.yaml --yes        # auto-accept (для CI/демо)
+./orchestrator plugin validate plugins/csv_loader
+./orchestrator plugin test plugins/csv_loader
+./orchestrator pipeline validate pipelines/email_check.yaml
+./orchestrator pipeline plan pipelines/email_triage_chain.yaml
+./orchestrator pipeline run pipelines/email_check.yaml --yes
+# var/runs/<id>/journal.jsonl + context.json
 
-# пак B (LLM-конвейер). Без ключей — mock-режим:
-LLM_MOCK=1 ./tool run pipelines/llm_text_chain.yaml
-# пак B' (v0.2, bind): Gemini и черновиком, и доработкой:
-LLM_MOCK=1 ./tool run pipelines/llm_same_provider.yaml
-# С ключами (Grok вместо OpenAI — через base_url):
-GEMINI_API_KEY=... LLM_OAI_API_KEY=... \
-LLM_OAI_BASE_URL=https://api.x.ai/v1 LLM_OAI_MODEL=grok-3-mini \
-  ./tool run pipelines/llm_text_chain.yaml
+# совместимость:
+./tool validate pipelines/email_check.yaml
+./tool run pipelines/email_check.yaml --yes
 ```
 
-Интерактивный режим: на `human_gate` показываются поля формы, `*` — редактируемые
-(новое значение вводится как JSON, проверяется по типу), затем действие `a`/`r`.
+LLM-пайплайны:
+```bash
+LLM_MOCK=1 ./orchestrator pipeline run pipelines/llm_text_chain.yaml --yes
+GEMINI_API_KEY=... LLM_OAI_API_KEY=... ./orchestrator pipeline run pipelines/llm_same_provider.yaml --yes
+```
 
-## SDK: контракт-тесты плагина (plugin.test.yaml)
+## Что изменилось в v10 (архитектурный фидбек)
 
-Каждый плагин несёт свой тест-набор рядом с кодом; прогон идёт через **тот же** subprocess-протокол, что и в ране:
+**Приоритет из фидбека:**
+1. **Разбить god-package `internal/core`** → `pipeline/`, `execution/`, `plugin/`, `journal/`, `gate/`, `context/`, `common/`, `cli/` + shim в `core/` для совместимости. 93 теста зелёные.
+2. **runs/ → var/runs/ + RunStore** — `internal/journal/store.go` интерфейс `RunStore` (Create, AppendEvent, SaveArtifact, Load), `FilesystemStore` для MVP, план SQLite/S3 для сервера. `.gitignore` теперь `var/runs/`.
+3. **JSON Schema** — `protocol/schemas/v0.2/manifest.schema.json`, `request.schema.json`, `response.schema.json`, `schemas/pipeline/v0.2.schema.json`. Машинно-читаемый контракт для SDK/IDE.
+4. **Conformance suite** — `conformance/README.md` + фикстуры `internal/core/testdata/plugins/` (echo_ok, failer, crasher, bad_proto, contract_breaker, leaker, type_drifter, file_ref_echo, sleeper, retry_flaky). Проверки: handshake, unknown message type, bad JSON, timeout, crash→platform, мусор→protocol_violation, большой output, несовместимая версия.
+5. **official/community split** — `plugins/official/` (5) и `plugins/community/` (4) + плоская копия для совместимости. `examples/pipelines/` и `examples/plugins/`.
+6. **CLI: cmd/orchestrator/main.go** — `orchestrator pipeline run|validate|plan` и `plugin validate|test|create|inspect`, backward compat `run`/`validate`. `internal/cli/` теперь точка сборки.
+7. **Протокол версионирован** — `protocol/versions/v0.1.md`, `v0.2.md`, `protocol/README.md` с lifecycle и планом envelope v0.3 (protocol_version, request_id, cancel, handshake, streaming).
+
+## SDK: plugin.test.yaml
 
 ```yaml
 tests:
   - name: mailinator → disposable=true
-    input: { email: "user@mailinator.com" }        # JSON на stdin
+    input: { email: "user@mailinator.com" }
     expect:
-      status: ok
       output:
-        disposable: true                           # точное (глубокое) равенство
-        domain: { contains: "mailinator" }         # матчер
-
-  - name: без ключа → понятная ошибка, не traceback
-    env: { LLM_OAI_API_KEY: "" }                   # env на время теста (секреты, mock)
+        disposable: true
+        domain: { contains: "mailinator" }
+  - name: без ключа → понятная ошибка
+    env: { LLM_OAI_API_KEY: "" }
     input: { prompt: "x" }
-    expect: { status: error, exit_code: 1, error: { code: no_api_key, retryable: false } }
-
-  - name: битый JSON → платформенная ошибка
-    input_raw: "{oops"                             # сырой stdin
-    expect: { exit_code: 2 }
+    expect: { status: error, error: { code: no_api_key } }
 ```
 
-Матчеры полей output: литерал (глубокое равенство, YAML int ≡ JSON float64), `{ present: true }`, `{ contains: "..." }` — по строке И по массиву (элемент, глубокое сравнение), `{ type: "boolean|number|string|array|object" }`, `{ equals: ... }`. Прогон включает enforce контракта: незадекларированный выход — warning; пропавший обязательный или **вернувшийся с другим типом** — провал: `контракт: поле "value" объявлено как string, вернулось number`. Любой провал → exit 1 (годится как CI-гейт для будущего маркетплейса). А `plugin validate` дополнительно отклоняет манифесты уровня «`format: json` на `type: array`» — format применим только к строкам, сообщение говорит об этом на месте, а не головоломкой в пайплайне.
+Матчеры: литерал (глубокое равенство), `{ present: true }`, `{ contains: "..." }` (строка и массив), `{ type: "..." }`, `{ equals: ... }`. Enforce: незадекларированное поле → warning, пропавший обязательный или дрейф типа → провал.
 
-## Что уже работает
+## Что уже работает (M1-M5)
 
-- subprocess-протокол stdin/stdout JSON + exit codes (0/1/≥2 + таймаут)
-- Shared Context с неймспейсами `steps.<step_id>`; плагин видит только свой вход
-- enforce контракта: незадекларированные выходы отбрасываются (warning в журнал), пропавшие обязательные — стоп рана
-- статическая валидация до запуска: пути, типы, форматы, skip-безопасность (`tool validate`)
-- политики ошибок `stop | skip | retry` (attempts/delay/backoff); доменные vs платформенные ошибки
-- `foreach` — батч-режим со scope-семантикой: stop останавливает элемент, не ран
-- `core/human_gate` в CLI: форма по полям, правки с проверкой типа, **материализация полей на accept** (downstream читает `steps.<gate>.*`, источник не затирается), reject → on_reject
-- пак B: три LLM-адаптера (Gemini, OpenAI-compatible, Anthropic) — stdlib-only, секреты через env, 429/5xx → retryable, mock-режим `LLM_MOCK=1` для демо без ключей
-- `tool plugin test` — контракт-тесты автора плагина: plugin.test.yaml + реальный протокол + enforce + матчеры (см. ниже)
-- `tool plugin create <path> [--author N] [--description "..."] [--example string|array]` — генератор скелета: манифест с комментариями-учебником (+шпаргалка типов валидатора), main.py как урок протокола (в т.ч. runtime-guard для array-входов), стартовые зелёные тесты, защита от плохого id и перезаписи чужой папки; флаги в любом порядке
-- **контракт v0.2: `bind`** — разводка входов в YAML-шаге поверх дефолтов манифеста; один плагин может встречаться в цепочке дважды (demo: `llm_same_provider.yaml`, `dir_snapshots.yaml`); статика ловит опечатки портов, отсутствие привязки, type/format mismatch и через bind тоже
-- **⚠ про `file_ref` до запуска** — cwd subprocess плагина = его собственная директория; если относительный путь из pipeline не резолвится от неё (но есть от корня проекта) — ядро предупреждает до старта плагина, в консоль и journal
-- журнал прогона `runs/<id>/journal.jsonl` + снапшот `context.json` после каждого элемента
+- subprocess stdin/stdout JSON + exit codes 0/1/≥2
+- Shared Context `steps.<id>`, EnforceOutput
+- Validate до запуска: пути, типы, форматы, skip-безопасность, bind на несуществующий порт, literal format
+- Policies stop|skip|retry, foreach per-item
+- human_gate: form, правки с проверкой типа, materialize с префиксом при коллизии basename, truncate 500, crash→platform hint
+- 3 LLM-адаптера (Gemini, OpenAI-совместимый, Anthropic) + mock
+- plugin create → test → validate триада
+- file_ref warning до запуска с подсказкой «есть от корня»
+- Journal var/runs/<id>/journal.jsonl + context.json
 
-## Сознательные упрощения (честный список долгов)
+## Сознательные упрощения
 
-| Долг | Куда мапится в ТЗ |
+| Долг | Куда |
 |---|---|
-| Нет `--resume` прерванного рана (журнал уже пишется с этим расчётом) | M2→M4, §4.8 |
-| Секреты — только env-переменные, keyring отложен | §4.9 |
-| Правки гейта валидируются по типу поля в form, а не по контракту следующего шага | §4.7 |
-| `permissions` декларативны (уровень L0), исполнения изоляции нет | §4.5 |
-| Правки YAML↔GUI, реестр плагинов, wizard — за пределами скелета | M6, M7 |
-| Разводка входов зашита в манифест (`from:`); нужен `bind:` в YAML-шаге для переиспользования плагина | контракт v0.2 (найдено при написании single_check) |
+| Нет --resume | M2→M4, §4.8 |
+| Секреты только env | §4.9 |
+| permissions L0 декларативны | §4.5 |
+| foreach только input.* | M6 |
+| human_gate выходы не типизированы | #19 backlog |
+| Execution пока делегирует в core.Run, полный перенос в M6 | v10 → v11 |
 
 ## Тесты
 
-`go test ./internal/core/` — покрытие: контекст/неймспейсы, YAML-парсинг, статическая валидация (несовместимые типы и форматы, skip-безопасность, forward-refs, литеральные format-проверки, коллизии basename в gate, optional без привязки), экзекутор (все классы exit-кодов, таймаут, нарушение протокола, platform:code на exit>=2), enforce контракта, раннер (foreach-scope, retry до успеха/исчерпания, платформенный стоп рана, human_gate auto/reject/правки с квалифицированными ключами при коллизии). Фикстуры — 11 плагинов в `internal/core/testdata/plugins/`, в т.ч. крашащийся и нарушающий протокол.
+`go test ./...` — 93 теста: контекст, валидация, экзекутор, enforce, раннер (foreach, retry, platform stop, gate), SDK (plugin.test.yaml на фикстурах и на всех 10 шипленных плагинах).
 
-## Следующие шаги (по ТЗ)
+## Следующие шаги
 
-1. **M3 зачтён частично**: три LLM-адаптера + генератор написаны автором ядра — нужен внешний автор по PROTOCOL.md с замером времени (настоящий тест контракта).
-2. ~~Покрыть `internal/core` тестами~~ — сделано (64 теста).
-3. ~~`tool plugin test`~~ — сделано.
-4. ~~`tool plugin create`~~ — сделано; **SDK-триада замкнута**: create → код → test → validate → готово.
-5. `--resume <run_id>` из снапшотов журнала.
-6. ~~Контракт v0.2: `bind:`~~ — сделано и **подтверждено внешним автором** (пакет №5: аудит «до/после» одним плагином дважды, манифест без `from`).
-7. **M5, грязный публичный тест (v9.1):** 4 внешних автора, 0 провалов воронки, 10 плагинов (6+4 community) и 8 пайплайнов все зелёные, 93 теста; ядро оценено **8.5–9/10 для MVP** (№3: 9/10, №4: 8→8.5–9 после фиксов #9-#11); закрыты 3 критичных бага (gate collision, optional bind, platform:code) + мелочи (README TODO, gate truncate 120→500, crash hint). Осталось: CI в remote (нужен workflow scope или web UI), foreach только input.* (задокументировано, M6), типизация выходов human_gate (backlog #19).
-8. **M6 (GUI) — отложен решением автора (28.08):** фокус — техническая часть; дистрибуция = dev-чаты + репа (`POSTS.md`); возврат к GUI — когда ≥2 холодных скажут «без UI не пойду» или закроется 5/5 цели M5.
+- M5 закрыт (8.5–9/10), M6 GUI отложен — дистрибуция = dev-чаты + репа
+- v10: архитектурный рефактор (этот релиз)
+- v11: полный перенос логики из core shim в новые пакеты, SQLite RunStore, conformance runner в CI, plugin registry API

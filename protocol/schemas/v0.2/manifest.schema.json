@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Manifest v0.2",
+  "type": "object",
+  "required": ["id", "version", "platform_api", "runtime", "output"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "version": {"type": "string"},
+    "platform_api": {"type": "string"},
+    "description": {"type": "string"},
+    "author": {"type": "string"},
+    "runtime": {
+      "type": "object",
+      "required": ["type", "entry"],
+      "properties": {
+        "type": {"type": "string", "enum": ["python", "binary"]},
+        "entry": {"type": "string"},
+        "requires": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "from": {"type": "string"},
+          "type": {"type": "string", "enum": ["string", "number", "boolean", "array", "object"]},
+          "format": {"type": "string", "enum": ["text", "email", "url", "ip", "file_ref"]},
+          "optional": {"type": "boolean"}
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {"type": "string", "enum": ["string", "number", "boolean", "array", "object"]},
+          "format": {"type": "string", "enum": ["text", "email", "url", "ip", "file_ref"]},
+          "optional": {"type": "boolean"}
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "network": {"type": "array"},
+        "filesystem": {"type": "string"},
+        "secrets": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

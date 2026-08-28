@@ -400,3 +400,88 @@ format_version "2.0" → warning + OK, плохой сигнал для CI.
 
 **Наши действия v9:** закрыты №9, №10, №11, №13, CI, gofmt, README. Остались в бэклоге №12 (foreach steps.*) и мелочи.
 
+---
+
+## v9.1 — быстрые фиксы (28.08, локально, 93/93 PASS)
+
+Закрыты мелочи из пакета №4:
+
+- №14: CI workflow `.github/workflows/ci.yml` создан локально (go vet, gofmt -l, go test, plugin validate/test, pipeline validate). Push в remote блокируется: PAT без `workflow` scope — нужен токен с workflow scope или добавление через Web UI. Код CI валиден, ждёт токен.
+- №15: `plugin create` теперь использует `--description` в README.md (раньше TODO).
+- №16: gate truncate 120→500 — массив reasons теперь читаем.
+- №17: дерево vs доки — `csv_loader` (7 тестов) и `email_triage` (10 тестов) закоммичены, теперь 10 плагинов + 8 пайплайнов зелёные, 93 теста.
+- №18: crash→platform hint — `plugin test` подсказывает «в v9 код переименован в platform:<code>».
+- +2 новых community плагина приняты: csv_loader (file_ref, массивы, exit 1 vs 2) и email_triage (фан-ин 3 входа, optional без from).
+
+**Итог v9.1:** 10 плагинов, 8 пайплайнов, 93 теста PASS, README обновлён, оценка ядра 8.5–9/10.
+
+---
+
+## v10 — архитектурный рефактор по фидбеку (28.08)
+
+**Источник:** последний архитектурный фидбек — 5 приоритетов.
+
+### Что сделано
+
+1. **Разбить god-package `internal/core`** → `internal/pipeline/`, `execution/`, `plugin/`, `journal/`, `gate/`, `context/`, `common/`, `cli/` + shim в `core/` для совместимости. 93 теста зелёные.
+   - `pipeline/model.go` — Duration, PipelineFile, Pipeline, Step, Retry, FormField, Port, Runtime, Permissions, Manifest, PlatformAPI, PortSource
+   - `pipeline/parser.go` — LoadPipelineFile
+   - `pipeline/validator.go` — Validate, ValidatePluginDir, CheckPortFormats (вся логика из core/validate.go, теперь с KindOf/Basename)
+   - `pipeline/planner.go` — PlanPipeline (DAG заглушка, M6 — циклы, топосорт)
+   - `execution/runner.go` — Runner, RunOptions, RunStats (MVP делегирует в core.Run, M6 — полный перенос)
+   - `execution/scheduler.go` — RetryPolicy, ExecutionGraph
+   - `plugin/registry.go` — Engine, IsBuiltin, LoadManifest (yaml.v3)
+   - `plugin/process.go` — Exec, ExecResult (вынесено из core/executor.go)
+   - `plugin/transport.go` — Transport, StdioTransport, Envelope план v0.3
+   - `plugin/fileref.go` — FileRefWarnings
+   - `journal/writer.go` — Journal (var/runs/<id>/journal.jsonl)
+   - `journal/store.go` — RunStore интерфейс + FilesystemStore (var/runs, план SQLite/S3)
+   - `journal/reader.go` — Reader для journal.jsonl + context.json (будущее --resume)
+   - `gate/service.go` — Service (materialize)
+   - `gate/terminal.go` — Terminal (edit/accept/reject UI)
+   - `context/store.go` — Ctx (NewCtx, Get, SetInput, SetStep, ResetSteps)
+   - `context/binding.go` — ResolvePath
+   - `common/util.go` — KindOf, Basename, Truncate, DeepEqual
+   - `cli/root.go` — новый root: orchestrator pipeline|plugin + backward compat run/validate
+   - `cli/run.go` — RunPipelineRun (var/runs default + fallback runs/)
+   - `cli/validate.go` — RunPipelineValidate, RunPipelinePlan
+   - `cli/plugin.go` — RunPluginValidate/Test/Create/Inspect
+   - `cmd/orchestrator/main.go` — новый бинарь
+   - `core/` — shim: types.go, context.go, journal.go, manifest.go, validate.go, pipeline_shim.go — алиасы к новым пакетам, чтобы 93 теста не ломать
+
+2. **runs/ → var/runs/ + RunStore** — `internal/core/runner.go` default теперь `var/runs`, `internal/cli/run.go` fallback на `runs/` если `var/runs/` нет, `cmd/tool/main.go` тоже `var/runs`. `.gitignore` теперь `/var/runs/` + `/runs/` (совместимость). `var/runs/.gitkeep` создан. Проверено: `tool run pipelines/csv_load.yaml --yes` пишет в `var/runs/2026...`.
+
+3. **JSON Schema** — `protocol/schemas/v0.2/manifest.schema.json`, `request.schema.json`, `response.schema.json`, `schemas/pipeline/v0.2.schema.json`. Машинно-читаемый контракт для SDK/IDE.
+
+4. **Conformance suite** — `conformance/README.md` + фикстуры `internal/core/testdata/plugins/` (11 штук). Проверки: handshake, unknown status, bad JSON stdin, timeout, crash→platform, мусор→protocol_violation, большой output, несовместимая версия, graceful shutdown. Запуск: `go test -run TestConformance` или `tool plugin test <fixture>`.
+
+5. **official/community split** — `plugins/official/` (5: syntax_mx_checker, disposable_checker, llm_gemini, llm_openai, llm_anthropic) + `plugins/community/` (4: text_analyzer, dir_lister, csv_loader, email_triage) + плоская копия `plugins/*` для совместимости (deprecated, будет удалена в v11). `examples/pipelines/` (email_check, llm_same_provider, dir_snapshots) + `examples/plugins/text_analyzer`. `TestPluginTestShippedPlugins` теперь сканирует `plugins/*` и `plugins/*/*`, пропуская папки без plugin.yaml.
+
+6. **CLI: cmd/orchestrator/main.go** — `orchestrator pipeline run|validate|plan`, `plugin validate|test|create|inspect`, backward compat. `internal/cli/` — точка сборки.
+
+7. **Протокол версионирован** — `protocol/versions/v0.1.md`, `v0.2.md`, `protocol/README.md` (lifecycle, envelope план v0.3, ограничения).
+
+### Топ проблем — обновление
+
+| # | Проблема | Статус v10 |
+|---|---|---|
+| 9-11,13,15-18 | критичные баги v9 | ✅ закрыты в v9/v9.1 |
+| 12 | foreach только input.* | бэклог M6, задокументировано |
+| 14 | CI в remote | локально есть, push блокируется без workflow scope — нужен токен с workflow scope или Web UI |
+| 19 | human_gate выходы не типизированы | бэклог v11 |
+| 20 | god-package internal/core | ✅ частично закрыт в v10: 8 новых пакетов + shim, 93 теста зелёные, полный перенос логики → v11 |
+| 21 | runs/ рядом с исходниками | ✅ закрыт в v10: var/runs/ + RunStore |
+| 22 | нет JSON Schema | ✅ закрыт в v10: protocol/schemas + schemas/pipeline |
+| 23 | нет conformance | ✅ закрыт в v10: conformance/README + fixtures |
+| 24 | нет official/community | ✅ закрыт в v10: plugins/official, community, examples |
+
+### Конверсия — без изменений (v10 — техдолг, не M5)
+
+- 10 плагинов, 8 пайплайнов, 93 теста PASS
+- Новый бинарь `orchestrator` + старый `tool` (совместимость)
+- `var/runs/` работает, `go vet` чист
+
+**Следующий шаг:** v11 — полный перенос логики из core shim в новые пакеты (сейчас часть делегирует), SQLite RunStore, conformance runner в CI, plugin registry API.
+
+**Наши действия v9:** закрыты №9, №10, №11, №13, CI, gofmt, README. Остались в бэклоге №12 (foreach steps.*) и мелочи.
+

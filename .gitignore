@@ -1,6 +1,9 @@
 /tool
 /bin/
 /runs/
+var/runs/
 __pycache__/
 *.pyc
 **/testdata/**/_counter
+/orchestrator
+/tmp/

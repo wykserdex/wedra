@@ -1,0 +1,25 @@
+# Контракт-тесты disposable_checker. Прогон: tool plugin test ./plugins/disposable_checker
+tests:
+  - name: mailinator → disposable=true
+    input: { email: "user@mailinator.com" }
+    expect:
+      status: ok
+      output:
+        disposable: true
+        domain: mailinator.com
+
+  - name: yandex → disposable=false
+    input: { email: "a@yandex.ru" }
+    expect:
+      status: ok
+      output:
+        disposable: false
+        domain: yandex.ru
+
+  - name: регистр/пробелы не мешают
+    input: { email: "  User@YOPMAIL.COM " }
+    expect:
+      status: ok
+      output:
+        disposable: true
+        domain: yopmail.com
