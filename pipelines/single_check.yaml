@@ -1,0 +1,31 @@
+format_version: "0.2"
+
+# Одиночный прогон (без foreach) — для CI-режима:
+# stop/reject здесь останавливает весь ран → tool завершается с exit 1.
+# Заодно демо v0.2: вход плагина привязан через bind, а не через зашитый from манифеста.
+
+pipeline:
+  name: single_check
+  input:
+    email: "user@mailinator.com"
+
+  steps:
+    - id: syntax
+      plugin: plugins/syntax_mx_checker
+      bind: { email: input.email }        # v0.2: разводка живёт в пайплайне
+      on_error: stop
+      timeout: 10s
+
+    - id: disposable
+      plugin: plugins/disposable_checker
+      bind: { email: input.email }
+      on_error: skip
+      timeout: 5s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.syntax.mx, editable: false }
+        - { field: steps.disposable.disposable, editable: false }
+      actions: [accept, reject]
+      on_reject: stop   # reject в одиночном режиме = неуспех рана (exit 1)

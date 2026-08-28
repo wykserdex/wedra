@@ -1,0 +1,6 @@
+/tool
+/bin/
+/runs/
+__pycache__/
+*.pyc
+**/testdata/**/_counter

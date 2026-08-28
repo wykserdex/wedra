@@ -1,0 +1,28 @@
+format_version: "0.1"
+
+# Пак C (зародыш): работа с текстом/файлами — ниша, пришедшая от внешнего автора,
+# а не из нашего плана. Текст → метрики → человек просматривает статистику.
+
+pipeline:
+  name: text_stats
+  input:
+    text: |
+      Оркестратор не знает, что делают плагины.
+      Плагины не знают, куда потом пойдут их данные.
+      Между ними — только контракт.
+
+  steps:
+    - id: stats
+      plugin: plugins/text_analyzer
+      on_error: stop
+      timeout: 10s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.stats.lines, editable: false }
+        - { field: steps.stats.words, editable: false }
+        - { field: steps.stats.unique_words, editable: false }
+        - { field: steps.stats.longest_word, editable: false }
+      actions: [accept, reject]
+      on_reject: stop

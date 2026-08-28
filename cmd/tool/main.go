@@ -1,0 +1,223 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+
+	"gopkg.in/yaml.v3"
+	"orchestrator/internal/core"
+)
+
+func usage() {
+	fmt.Fprintln(os.Stderr, `orchestrator — оркестратор плагинов (контракт: PROTOCOL.md)
+
+  tool run <pipeline.yaml> [--yes] [--runs <dir>]   запуск цепочки
+                                                     --yes: auto-accept human_gate (CI/демо)
+  tool validate <pipeline.yaml>                     статическая проверка цепочки
+  tool plugin validate <dir>                        проверка манифеста плагина
+  tool plugin test <dir> [--spec file.yaml]         контракт-тесты из plugin.test.yaml
+  tool plugin create <path> [--author N] [--description ".."] [--example string|array]  скелет плагина (сразу зелёный)
+
+  exit-коды run: 0 — ран доехал до конца; 1 — рановая неудача
+  (платформенная ошибка; в одиночном режиме — также stop/reject)`)
+	os.Exit(2)
+}
+
+func fatal(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		os.Exit(1)
+	}
+}
+
+func report(errs, warns []string) {
+	for _, w := range warns {
+		fmt.Println("  · предупреждение:", w)
+	}
+	for _, e := range errs {
+		fmt.Println("  ✗", e)
+	}
+}
+
+func loadPipeline(path string) (*core.PipelineFile, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var pf core.PipelineFile
+	if err := yaml.Unmarshal(raw, &pf); err != nil {
+		return nil, fmt.Errorf("YAML: %w", err)
+	}
+	return &pf, nil
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+	}
+	switch os.Args[1] {
+	case "run":
+		runCmd(os.Args[2:])
+	case "validate":
+		validateCmd(os.Args[2:])
+	case "plugin":
+		if len(os.Args) < 3 {
+			usage()
+		}
+		switch os.Args[2] {
+		case "validate":
+			pluginValidateCmd(os.Args[3:])
+		case "test":
+			pluginTestCmd(os.Args[3:])
+		case "create":
+			pluginCreateCmd(os.Args[3:])
+		default:
+			usage()
+		}
+	case "plugin-validate": // алиасы
+		pluginValidateCmd(os.Args[2:])
+	case "plugin-test":
+		pluginTestCmd(os.Args[2:])
+	case "plugin-create":
+		pluginCreateCmd(os.Args[2:])
+	default:
+		usage()
+	}
+}
+
+func runCmd(args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	yes := fs.Bool("yes", false, "auto-accept human_gate")
+	runsDir := fs.String("runs", "runs", "каталог журналов прогонов")
+
+	// flag-пакет Go стопорится на первом позиционном аргументе,
+	// поэтому наши два флага вытаскиваем вручную — в любом порядке
+	var positional, flags []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-yes", "--yes", "-y":
+			flags = append(flags, "-yes")
+		case "-runs", "--runs":
+			if i+1 < len(args) {
+				flags = append(flags, "-runs", args[i+1])
+				i++
+			}
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+	_ = fs.Parse(append(flags, positional...))
+	if fs.NArg() < 1 {
+		usage()
+	}
+
+	pf, err := loadPipeline(fs.Arg(0))
+	fatal(err)
+
+	eng := core.NewEngine()
+	errs, warns := core.Validate(pf, eng)
+	report(errs, warns)
+	if len(errs) > 0 {
+		fmt.Fprintln(os.Stderr, "цепочка не прошла статическую валидацию")
+		os.Exit(1)
+	}
+
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: *yes, RunsDir: *runsDir})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ОШИБКА РАНА:", err)
+		os.Exit(1)
+	}
+	// одиночный ран, остановленный доменной ошибкой или reject'ом — неуспех для CI
+	if pf.Pipeline.Foreach == "" && stats.Aborted > 0 {
+		os.Exit(1)
+	}
+}
+
+func validateCmd(args []string) {
+	if len(args) < 1 {
+		usage()
+	}
+	pf, err := loadPipeline(args[0])
+	fatal(err)
+	errs, warns := core.Validate(pf, core.NewEngine())
+	report(errs, warns)
+	if len(errs) > 0 {
+		os.Exit(1)
+	}
+	fmt.Println("OK: цепочка совместима")
+}
+
+func pluginValidateCmd(args []string) {
+	if len(args) < 1 {
+		usage()
+	}
+	errs := core.ValidatePluginDir(args[0])
+	for _, e := range errs {
+		fmt.Println("  ✗", e)
+	}
+	if len(errs) > 0 {
+		os.Exit(1)
+	}
+	fmt.Println("OK: манифест плагина корректен")
+}
+
+func pluginTestCmd(args []string) {
+	if len(args) < 1 {
+		usage()
+	}
+	dir := args[0]
+	spec := ""
+	for i := 1; i+1 < len(args); i++ {
+		if args[i] == "--spec" {
+			spec = args[i+1]
+			i++
+		}
+	}
+	fmt.Printf("▶ plugin test %s\n", dir)
+	passed, failed, err := core.RunPluginTests(dir, spec, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("■ plugin test: %d passed, %d failed\n", passed, failed)
+	if failed > 0 {
+		os.Exit(1)
+	}
+}
+
+// pluginCreateCmd создаёт скелет и СРАЗУ доказывает его работоспособность:
+// валидация манифеста + прогон стартовых контракт-тестов.
+func pluginCreateCmd(args []string) {
+	dir, opts, err := core.ParseCreateArgs(args) // флаги --author/--description в любом порядке
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		usage()
+	}
+	id, err := core.CreatePluginWith(dir, opts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ошибка:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("▶ создан плагин %s → %s\n", id, dir)
+	fmt.Println("  plugin.yaml + main.py + plugin.test.yaml + README.md")
+
+	if errs := core.ValidatePluginDir(dir); len(errs) > 0 {
+		fmt.Fprintln(os.Stderr, "внутренняя ошибка генератора — скелет невалиден:")
+		report(errs, nil)
+		os.Exit(1)
+	}
+	fmt.Println("  ✓ манифест валиден")
+
+	passed, failed, err := core.RunPluginTests(dir, "", false)
+	if err != nil {
+		fmt.Printf("  · тесты не запустились (%v) — проверьте python3 и запустите: tool plugin test %s\n", err, dir)
+	} else if failed > 0 {
+		fmt.Fprintln(os.Stderr, "внутренняя ошибка генератора — стартовые тесты красные")
+		os.Exit(1)
+	} else {
+		fmt.Printf("  ✓ %d стартовых теста зелёные\n", passed)
+	}
+
+	fmt.Printf("\nДальше: правьте %s/main.py, затем tool plugin test %s\n", dir, dir)
+}

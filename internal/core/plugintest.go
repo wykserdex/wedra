@@ -1,0 +1,314 @@
+package core
+
+// tool plugin test <dir> — контракт-тесты для авторов плагинов (ТЗ v2 §6.1).
+// Плагин гоняется на фикстурах из plugin.test.yaml через ТОТ ЖЕ механизм
+// subprocess+stdin/stdout, что использует ядро. Плюс enforce контракта:
+// теоретический тест отличается от практического тем, что практический
+// проходит через настоящий рантайм.
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// ── Схема plugin.test.yaml ──────────────────────────────────────────────
+
+type PluginTestCase struct {
+	Name     string                 `yaml:"name"`
+	Env      map[string]string      `yaml:"env"`       // env на время теста (секреты, mock-режимы)
+	Input    map[string]interface{} `yaml:"input"`     // JSON на stdin
+	InputRaw string                 `yaml:"input_raw"` // сырой stdin — для тестов битого JSON
+	Timeout  Duration               `yaml:"timeout"`   // дефолт 10s
+	Expect   Expectation            `yaml:"expect"`
+}
+
+type ErrorExpectation struct {
+	Code      string `yaml:"code"`
+	Retryable *bool  `yaml:"retryable"`
+}
+
+type Expectation struct {
+	Status   string                 `yaml:"status"` // ok | error | (пусто — не проверять)
+	ExitCode *int                   `yaml:"exit_code"`
+	Output   map[string]interface{} `yaml:"output"` // значение: литерал ИЛИ матчер
+	Error    *ErrorExpectation      `yaml:"error"`
+}
+
+type PluginTestFile struct {
+	Tests []PluginTestCase `yaml:"tests"`
+}
+
+// Матчеры для полей output:
+//   value: 42                    — точное (глубокое) равенство
+//   value: { present: true }     — поле существует
+//   value: { contains: "foo" }   — строка содержит подстроку; МАССИВ содержит элемент (любой тип)
+//   value: { type: "array" }     — тип (boolean|number|string|array|object)
+var matcherKeys = map[string]bool{"present": true, "contains": true, "type": true, "equals": true}
+
+type CaseResult struct {
+	Name     string
+	Pass     bool
+	Ms       int64
+	Details  []string
+	Warnings []string
+}
+
+func deepEqual(a, b interface{}) bool {
+	ab, _ := json.Marshal(a)
+	bb, _ := json.Marshal(b)
+	return bytes.Equal(ab, bb)
+}
+
+func isMatcherMap(m map[string]interface{}) bool {
+	if len(m) == 0 {
+		return false
+	}
+	for k := range m {
+		if !matcherKeys[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// matchContains: строка — подстрока; массив — вхождение элемента (глубокое сравнение).
+// Сообщения различают случаи: «ожидали подстроку, получили [host_is_ip]» обманывал,
+// когда элемент визуально был в массиве (фидбек тестера №1).
+func matchContains(path string, want, got interface{}, fail func(string, ...interface{})) {
+	switch g := got.(type) {
+	case string:
+		needle, ok := want.(string)
+		if !ok {
+			fail("%s: contains по строке требует строку, получили %v", path, want)
+			return
+		}
+		if !strings.Contains(g, needle) {
+			fail("%s: строка не содержит подстроки %q: %s", path, needle, truncate(g, 80))
+		}
+	case []interface{}:
+		for _, el := range g {
+			if deepEqual(el, want) {
+				return
+			}
+		}
+		fail("%s: массив не содержит элемент %v: %s", path, want, truncate(fmt.Sprint(g), 80))
+	default:
+		fail("%s: contains применим к строке или массиву, получили %s (%s)",
+			path, kindOf(got), truncate(fmt.Sprint(got), 80))
+	}
+}
+
+func matchValue(path string, want, got interface{}, fail func(string, ...interface{})) {
+	if m, ok := want.(map[string]interface{}); ok && isMatcherMap(m) {
+		for k, v := range m {
+			switch k {
+			case "present": // наличие ключа уже проверено вызывающим
+			case "contains":
+				matchContains(path, v, got, fail)
+			case "type":
+				wantType, _ := v.(string)
+				if kindOf(got) != wantType {
+					fail("%s: тип %q не совпал с ожидаемым %q", path, kindOf(got), wantType)
+				}
+			case "equals":
+				if !deepEqual(v, got) {
+					fail("%s: ожидали %v, получили %v", path, v, got)
+				}
+			}
+		}
+		return
+	}
+	if !deepEqual(want, got) {
+		fail("%s: ожидали %v, получили %v", path, want, truncate(fmt.Sprint(got), 80))
+	}
+}
+
+func mapToEnv(m map[string]string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+func mergeEnv(base, extra []string) []string {
+	out := append([]string(nil), base...)
+	idx := map[string]int{}
+	for i, kv := range out {
+		k, _, _ := strings.Cut(kv, "=")
+		idx[k] = i
+	}
+	for _, kv := range extra {
+		k, _, _ := strings.Cut(kv, "=")
+		if i, ok := idx[k]; ok {
+			out[i] = kv
+		} else {
+			idx[k] = len(out)
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+func runCase(m *Manifest, tc PluginTestCase) CaseResult {
+	cr := CaseResult{Name: tc.Name, Pass: true}
+	fail := func(format string, a ...interface{}) {
+		cr.Pass = false
+		cr.Details = append(cr.Details, fmt.Sprintf(format, a...))
+	}
+	warn := func(format string, a ...interface{}) {
+		cr.Warnings = append(cr.Warnings, fmt.Sprintf(format, a...))
+	}
+
+	var stdin []byte
+	if tc.InputRaw != "" {
+		stdin = []byte(tc.InputRaw)
+	} else {
+		b, err := json.Marshal(tc.Input)
+		if err != nil {
+			fail("input не сериализуется в JSON: %v", err)
+			return cr
+		}
+		stdin = b
+	}
+
+	timeout := tc.Timeout.Duration
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+
+	start := time.Now()
+	res := execPluginEnv(m, stdin, timeout, mapToEnv(tc.Env))
+	cr.Ms = time.Since(start).Milliseconds()
+
+	exp := tc.Expect
+	if exp.ExitCode != nil && res.ExitCode != *exp.ExitCode {
+		fail("exit_code: ожидали %d, получили %d", *exp.ExitCode, res.ExitCode)
+	}
+	switch exp.Status {
+	case "ok":
+		if !res.OK() {
+			fail("ожидали ok, получили exit=%d code=%s msg=%s", res.ExitCode, res.ErrCode, res.ErrMsg)
+		}
+	case "error":
+		if res.OK() {
+			fail("ожидали error, получили ok")
+		}
+	}
+
+	// enforce контракта на успешных ответах — то, что сделает ядро в ране
+	if res.OK() {
+		if _, dropped, cvErr := EnforceOutput(m, res.Output); cvErr != nil {
+			fail("контракт: %v", cvErr)
+		} else {
+			for _, d := range dropped {
+				warn("незадекларированное поле отброшено: %s", d)
+			}
+		}
+		// типы по манифесту: дрейф типа не должен проходить молча
+		for name, port := range m.Output {
+			v, present := res.Output[name]
+			if !present {
+				continue // отсутствие проверено EnforceOutput
+			}
+			if v == nil && port.Optional {
+				continue
+			}
+			if port.Type != "" && kindOf(v) != port.Type {
+				fail("контракт: поле %q объявлено как %s, вернулось %s",
+					name, port.Type, kindOf(v))
+			}
+		}
+	}
+
+	for key, wantVal := range exp.Output {
+		got, ok := res.Output[key]
+		if !ok {
+			fail("output.%s отсутствует", key)
+			continue
+		}
+		matchValue("output."+key, wantVal, got, fail)
+	}
+
+	if exp.Error != nil {
+		if exp.Error.Code != "" && res.ErrCode != exp.Error.Code {
+			fail("error.code: ожидали %q, получили %q (%s)", exp.Error.Code, res.ErrCode, res.ErrMsg)
+		}
+		if exp.Error.Retryable != nil && res.Retryable != *exp.Error.Retryable {
+			fail("error.retryable: ожидали %v, получили %v", *exp.Error.Retryable, res.Retryable)
+		}
+	}
+	if !cr.Pass && strings.TrimSpace(res.Stderr) != "" {
+		cr.Details = append(cr.Details, "stderr: "+truncate(res.Stderr, 300))
+	}
+	return cr
+}
+
+func printCase(cr CaseResult, quiet bool) {
+	if quiet {
+		return
+	}
+	if cr.Pass {
+		fmt.Printf("  ✓ %s (%dms)\n", cr.Name, cr.Ms)
+	} else {
+		fmt.Printf("  ✗ %s (%dms)\n", cr.Name, cr.Ms)
+		for _, d := range cr.Details {
+			fmt.Printf("      %s\n", d)
+		}
+	}
+	for _, w := range cr.Warnings {
+		fmt.Printf("      · %s\n", w)
+	}
+}
+
+// RunPluginTests прогоняет plugin.test.yaml плагина. specPath == "" → <dir>/plugin.test.yaml.
+func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err error) {
+	m, err := NewEngine().LoadManifest(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	if specPath == "" {
+		specPath = filepath.Join(dir, "plugin.test.yaml")
+	}
+	raw, err := os.ReadFile(specPath)
+	if err != nil {
+		return 0, 0, fmt.Errorf("нет файла тестов %s: %w", specPath, err)
+	}
+	var spec PluginTestFile
+	if err := yaml.Unmarshal(raw, &spec); err != nil {
+		return 0, 0, fmt.Errorf("%s: %w", specPath, err)
+	}
+	if len(spec.Tests) == 0 {
+		return 0, 0, fmt.Errorf("%s: ни одного теста", specPath)
+	}
+
+	if len(m.Permissions.Secrets) > 0 && !quiet {
+		fmt.Printf("  ℹ манифест заявляет секреты %v — сетевые тесты требуют env (или mock-режима)\n",
+			m.Permissions.Secrets)
+	}
+
+	for _, tc := range spec.Tests {
+		name := tc.Name
+		if name == "" {
+			name = "(без имени)"
+		}
+		res := runCase(m, PluginTestCase{Timeout: tc.Timeout, Env: tc.Env, Input: tc.Input, InputRaw: tc.InputRaw, Expect: tc.Expect, Name: name})
+		printCase(res, quiet)
+		if res.Pass {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	return passed, failed, nil
+}

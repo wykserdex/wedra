@@ -1,0 +1,40 @@
+format_version: "0.2"
+
+# Демо из пакета №5 (тестер №1): аудит директории "до/после".
+# ОДИН плагин (dir_lister) дважды — его манифест вообще без from,
+# вся разводка задана здесь через bind (контракт v0.2).
+#
+# ВНИМАНИЕ про пути: cwd subprocess плагина = ЕГО директория (PROTOCOL §1).
+# "testdata/before" здесь — относительно plugins/dir_lister/, а не корня репо.
+# Если напишете путь "как из корня" — ядро предупредит ⚠ ДО запуска плагина (v5).
+#
+# Запуск:  ./tool run pipelines/dir_snapshots.yaml
+
+pipeline:
+  name: dir_snapshots
+  input:
+    dir_before: "testdata/before"
+    dir_after:  "testdata/after"
+
+  steps:
+    - id: before
+      plugin: plugins/dir_lister
+      bind: { path: input.dir_before }
+      on_error: stop
+      timeout: 10s
+
+    - id: after
+      plugin: plugins/dir_lister            # ← тот же плагин второй раз
+      bind: { path: input.dir_after }
+      on_error: stop
+      timeout: 10s
+
+    - id: review
+      plugin: core/human_gate               # ручная сверка двух снапшотов в одном окне
+      form:
+        - { field: steps.before.file_count, editable: false }
+        - { field: steps.before.by_extension, editable: false }
+        - { field: steps.after.file_count, editable: false }
+        - { field: steps.after.by_extension, editable: false }
+      actions: [accept, reject]
+      on_reject: stop

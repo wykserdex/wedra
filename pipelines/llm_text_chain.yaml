@@ -1,0 +1,37 @@
+format_version: "0.1"
+
+# Пак B из ТЗ v2: текстовый конвейер с человеком в петле.
+#   тема → Gemini (черновик) → [человек: правка/отклонение] → OpenAI/Grok (доработка)
+#
+# Без ключей:  LLM_MOCK=1 ./tool run pipelines/llm_text_chain.yaml
+# С ключами:   GEMINI_API_KEY=... LLM_OAI_API_KEY=... ./tool run pipelines/llm_text_chain.yaml
+# Для Grok:    LLM_OAI_BASE_URL=https://api.x.ai/v1 LLM_OAI_MODEL=grok-3-mini
+
+pipeline:
+  name: llm_text_chain
+  input:
+    topic: "арбузы: почему их стоит есть летом"
+    draft_system: "Ты — копирайтер. Напиши один абзац (3-4 предложения) по заданной теме."
+    refine_system: "Ты — строгий редактор. Улучши переданный текст: убери воду, добавь конкретику, сохрани объём."
+
+  steps:
+    - id: draft
+      plugin: plugins/llm_gemini
+      on_error: retry                       # 429/5xx от LLM — норма, ретраим
+      retry: { attempts: 3, delay: 3s, backoff: exponential }
+      timeout: 45s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.draft.text, editable: true, type: string, format: text }
+      actions: [accept, reject]
+      on_reject: stop
+      # accept (с правкой или без) материализует текст под steps.review.text —
+      # refine читает одобренный человеком вариант, а не сырой черновик
+
+    - id: refine
+      plugin: plugins/llm_openai
+      on_error: retry
+      retry: { attempts: 3, delay: 3s, backoff: exponential }
+      timeout: 45s

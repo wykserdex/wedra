@@ -1,0 +1,21 @@
+# Контракт-тесты плагина. Прогон: tool plugin test <эта папка>
+# Плагин гоняется через тот же subprocess-протокол, что и ядро в ране.
+tests:
+  - name: считает слова и символы
+    input: { text: "hello world" }
+    expect:
+      status: ok
+      output:
+        words: 2                 # точное равенство
+        chars: { equals: 11 }    # то же через матчер
+
+  - name: пустой вход → доменная ошибка empty_input, не retryable
+    input: { text: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+# Полезные матчеры: { present: true } { contains: "..." } { type: "array" }
+# env: { KEY: "value" } — переменные на время теста (секреты, mock-режимы)
+# input_raw: "{oops"   — сырой stdin, для тестов битого JSON (ожидайте exit 2)
