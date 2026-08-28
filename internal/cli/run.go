@@ -18,6 +18,7 @@ func RunPipelineRun(args []string) {
 	file := args[0]
 	yes := false
 	runsDir := ""
+	resume := ""
 	for _, a := range args[1:] {
 		if a == "--yes" {
 			yes = true
@@ -25,10 +26,12 @@ func RunPipelineRun(args []string) {
 		if len(a) > 11 && a[:11] == "--runs-dir=" {
 			runsDir = a[11:]
 		}
+		if len(a) > 9 && a[:9] == "--resume=" {
+			resume = a[9:]
+		}
 	}
 	if runsDir == "" {
 		runsDir = "var/runs"
-		// fallback на runs/ для совместимости если var/runs нет
 		if _, err := os.Stat(runsDir); os.IsNotExist(err) {
 			runsDir = "runs"
 		}
@@ -50,7 +53,7 @@ func RunPipelineRun(args []string) {
 		}
 		os.Exit(1)
 	}
-	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir})
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume})
 	if err != nil {
 		fmt.Println("ран упал:", err)
 		os.Exit(1)

@@ -483,5 +483,83 @@ format_version "2.0" → warning + OK, плохой сигнал для CI.
 
 **Следующий шаг:** v11 — полный перенос логики из core shim в новые пакеты (сейчас часть делегирует), SQLite RunStore, conformance runner в CI, plugin registry API.
 
+---
+
+## v0.11 — M6 GUI scaffold, честная 0.x (28.08)
+
+**Решение:** версия честная 0.x — v10 → v0.10, v11 → v0.11, чтобы не бить до 100+.
+
+- `internal/api/server.go` — REST API: /api/health, /api/plugins, /api/pipelines, /api/runs, /api/validate/pipeline
+- `web/static/index.html, app.js` — GUI scaffold: drag-and-drop, live YAML, validate, JSON на линиях, экспорт YAML
+- `internal/cli/gui.go` — `orchestrator gui [--port 8080] [--open]`
+- `VERSION` файл = 0.11
+- M6 DoD частично: сборка без YAML работает, live-sync экспорт, JSON на линиях
+- **Статус GUI: отложен в v0.12 как косметика — мясо в CLI**
+
+### Топ проблем — обновление v0.11
+
+| # | Проблема | Статус v0.11 |
+|---|---|---|
+| 12 | foreach только input.* | бэклог, ждёт v0.12 |
+| 14 | CI workflow scope | локально ci.yml, push без workflow scope — нужен Web UI |
+| 19 | gate не типизирован | бэклог v0.12 |
+| 20-24 | архитектурный фидбек | ✅ закрыты в v0.10 |
+
+---
+
+## v0.12 — CLI focus, мясо, не косметика (28.08, 93/93 PASS, +1 пайплайн)
+
+**Решение автора (твоё):** GUI — косметика, откладываем в последнюю очередь, ставка на CLI — мясо.
+
+**Что сделано:**
+
+1. **foreach steps.* — закрыт #12** (критичный для реальных батчей)
+   - Было: только `input.*` — нельзя «прочитал CSV → итерирую по строкам»
+   - Стало: `foreach: steps.load.rows` — двухфазный ран: preSteps (0..srcID) один раз → массив → foreach по оставшимся шагам per-item
+   - Валидатор: `foreach` теперь `input.*` ИЛИ `steps.<id>.<field>`, проверяет существование шага-источника
+   - Runner: `core/runner.go` + `pipeline/validator.go` обновлены, `context` поддерживает `input.row.name` (nested)
+   - Демо: `pipelines/csv_foreach.yaml` — load CSV (2 rows) → foreach row → text_analyzer(name) → gate, ok=2, проверено `tool run --yes`
+
+2. **--resume — журнал как фундамент для дебаггера**
+   - `RunOptions.Resume` + `journal.OpenJournalAppend` (append, не truncate)
+   - Загружает `var/runs/<id>/context.json`, парсит `journal.jsonl` → max `item_index`, пропускает пройденные
+   - CLI: `orchestrator pipeline run <yaml> --resume=<id>`, `orchestrator runs resume <id> <yaml> [--yes]`
+   - Проверено: resume на уже пройденном ране → «все 2 элементов уже пройдены»
+
+3. **runs CLI — мясо для оператора**
+   - `orchestrator runs list [dir]` — список прогонов с pipeline name и events count
+   - `orchestrator runs show <id>` — полный журнал + context snapshot
+   - `tool runs list/show` — совместимость (старый бинарь)
+   - `internal/cli/runs.go` — новая команда
+
+4. **human_gate typing fix #19**
+   - Если в `form` нет `type`, тип выводится из источника `ctx.Get(field)` (kindOf)
+   - Правка валидируется по выведенному типу, сообщение: «тип X не подходит под Y (выведен из ...)»
+   - `gate.go` патч
+
+5. **context binding nested**
+   - `input.row.name` где row — объект foreach item — теперь работает (Ctx.Get уже умел, валидатор теперь any для вложенных)
+
+6. **VERSION 0.12**, CHANGELOG обновлён, README v0.12 CLI focus
+
+**Топ проблем — обновление v0.12:**
+
+| # | Проблема | Статус v0.12 |
+|---|---|---|
+| 12 | foreach только input.* | ✅ закрыт: steps.* работает, csv_foreach демо |
+| 14 | CI workflow scope | остаётся: ci.yml локально, нужен Web UI |
+| 19 | gate не типизирован | ✅ закрыт: вывод типа из источника |
+| 6 | комментарии-простыня | наблюдение, ждём повтора |
+| 20-24 | архитектура | ✅ закрыты в v0.10 |
+
+**Конверсия — без изменений:** 10+1 плагинов (csv_foreach использует существующие), 9 пайплайнов, 93 теста PASS
+
+**Следующий шаг v0.13 (CLI meat):**
+- Полный перенос `core/runner.go` → `execution/runner.go` (сейчас execution делегирует)
+- `journal/store.go` FilesystemStore полностью (SaveArtifact, Load) + SQLite план
+- `pipeline lint` — file_ref проверка до запуска (сейчас warning, нужен error для CI)
+- `plugin search` — поиск по official/community
+- Conformance runner в CI (`go test -run TestConformance`)
+
 **Наши действия v9:** закрыты №9, №10, №11, №13, CI, gofmt, README. Остались в бэклоге №12 (foreach steps.*) и мелочи.
 

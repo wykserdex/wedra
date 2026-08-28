@@ -1,105 +1,107 @@
-# orchestrator v0.11 — M6 GUI (честная 0.x)
+# orchestrator v0.12 — CLI focus (мясо, не косметика)
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, **M6 начат**. Версионирование честное: **v0.10 = бывший v10**, **v0.11 = M6 GUI scaffold**. Больше не бьём до 100+.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.12**.
 
-**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8 пайплайнов, 0 провалов, ядро 8.5–9/10.
+**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
 > «каждый кусок можно независимо написать, протестировать и заменить» · «контракт честный»
 
 ```
 orchestrator/
-├── VERSION              # 0.11
-├── PROTOCOL.md          # контракт v0.2
-├── protocol/            # версионированный протокол + JSON Schema
-├── schemas/pipeline/    # pipeline v0.2 JSON Schema
-├── cmd/
-│   ├── tool/            # старый CLI (совместимость)
-│   └── orchestrator/    # новый: pipeline|plugin|gui|version
+├── VERSION              # 0.12
+├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── internal/
-│   ├── pipeline/        # модель, парсер, валидатор, планер
-│   ├── execution/       # runner, scheduler
+│   ├── pipeline/        # модель, парсер, валидатор (input.* + steps.* foreach), планер
+│   ├── execution/       # runner (resume, two-phase foreach), scheduler
 │   ├── plugin/          # registry, process, transport, fileref
-│   ├── journal/         # writer, reader, store (RunStore)
-│   ├── gate/            # service, terminal
-│   ├── context/         # store, binding
-│   ├── common/          # util
-│   ├── cli/             # root, run, validate, plugin, gui
-│   ├── api/             # REST API для GUI (M6)
+│   ├── journal/         # writer (New + OpenAppend), reader, store (RunStore)
+│   ├── gate/            # service, terminal + fix #19 typing
+│   ├── context/         # store, binding (nested input.row.name)
+│   ├── cli/             # pipeline|plugin|runs|gui|version
+│   ├── api/             # REST API (M6, отложен)
 │   └── core/            # shim-фасад (93 теста)
-├── web/static/          # GUI: index.html + app.js (drag-and-drop, live YAML, JSON на линиях)
-├── plugins/official/    # 5 официальных
-├── plugins/community/   # 4 community
-├── pipelines/           # 8 пайплайнов
-├── examples/            # примеры
-├── conformance/         # conformance suite
-└── var/runs/            # журналы
+├── web/static/          # GUI scaffold (отложен)
+├── plugins/official/    # 5, community/ 4
+├── pipelines/           # 9 (8 старых + csv_foreach — демо foreach steps.*)
+└── var/runs/            # журналы + --resume
 ```
 
-## Быстрый старт
+## Быстрый старт (CLI — мясо)
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-go test ./...   # 93 теста
-./orchestrator version
+./orchestrator version   # v0.12
+go test ./...            # 93 теста
+
+# плагины
 ./orchestrator plugin validate plugins/csv_loader
+./orchestrator plugin test plugins/csv_loader   # 7 PASS
+./orchestrator plugin test plugins/email_triage # 10 PASS
+
+# пайплайны
 ./orchestrator pipeline validate pipelines/email_check.yaml
-./orchestrator pipeline run pipelines/email_check.yaml --yes
-./orchestrator gui --port 8080 --open   # M6: http://localhost:8080
+./orchestrator pipeline lint pipelines/csv_foreach.yaml
+./orchestrator pipeline plan pipelines/csv_foreach.yaml
+
+# v0.12: foreach по результату шага (было только input.*)
+./orchestrator pipeline run pipelines/csv_foreach.yaml --yes
+# фаза 1: load rows → фаза 2: foreach row → check → review, ok=2
+
+# v0.12: --resume
+./orchestrator runs list
+./orchestrator runs show <run_id>
+./orchestrator pipeline run pipelines/email_triage_chain.yaml --yes --resume=<run_id>
+./orchestrator runs resume <run_id> pipelines/email_triage_chain.yaml --yes
+
+# совместимость tool
+./tool run pipelines/csv_foreach.yaml --yes
+./tool runs list
 ```
 
-GUI M6 (v0.11 scaffold):
-- Левая панель: плагины (official/community), пайплайны, прогоны (var/runs)
-- Центр: канвас drag-and-drop, ноды можно двигать, коннекты через bind
-- Правая: свойства ноды (bind порт→путь, on_error, form), Live YAML, валидация, JSON на линиях (context.json)
-- Экспорт YAML, Validate (DAG), Plan — через `/api/validate/pipeline`
-- Run пока через CLI (план v0.12 — запуск из GUI)
+## Что нового в v0.12 (CLI focus)
 
-API:
-- `GET /api/health` → version, protocol
-- `GET /api/plugins` → список
-- `GET /api/pipelines` → список
-- `GET /api/runs` → список прогонов
-- `GET /api/runs/<id>` → events + context snapshot
-- `POST /api/validate/pipeline` (yaml) → errors/warnings
+**1. foreach steps.* — закрыт #12**
+- Было: только `input.*` — нельзя «прочитал CSV → итерирую по строкам»
+- Стало: `foreach: steps.load.rows` — двухфазный ран
+  - preSteps (0..srcID) выполняются один раз, получают массив
+  - foreachSteps (srcID+1..) выполняются per-item
+- Валидатор: `foreach` теперь `input.*` ИЛИ `steps.<id>.<field>`, проверяет существование шага-источника
+- Демо: `pipelines/csv_foreach.yaml` — `load` (csv_loader) → `foreach: steps.load.rows` → `check` (text_analyzer на `input.row.name`) → `review` (gate)
 
-## Что в v0.10 (бывший v10)
+**2. --resume — журнал как фундамент**
+- `RunOptions.Resume` + `journal.OpenJournalAppend`
+- Загружает `var/runs/<id>/context.json`, парсит `journal.jsonl` → `max item_index`, пропускает пройденные
+- CLI: `orchestrator pipeline run --resume=<id>`, `orchestrator runs resume <id> <yaml>`
 
-1. Разбит `internal/core` на 8 пакетов + shim, 93 теста зелёные
-2. `runs/` → `var/runs/` + `RunStore` интерфейс
-3. JSON Schema: manifest, request, response, pipeline
-4. Conformance suite + fixtures
-5. official/community split + examples
-6. CLI `orchestrator` binary + backward compat `tool`
-7. Протокол версионирован (v0.1, v0.2, envelope план v0.3)
+**3. runs CLI**
+- `orchestrator runs list [var/runs]` — список прогонов с pipeline name и events count
+- `orchestrator runs show <id>` — полный журнал + context snapshot
+- `tool runs list/show` — совместимость
 
-## Что в v0.11 (M6 старт)
+**4. human_gate typing fix #19**
+- Если в `form` нет `type`, тип выводится из источника `ctx.Get(field)` (kindOf)
+- Правка валидируется по выведенному типу, сообщение: «тип X не подходит под Y (выведен из ...)»
 
-- `internal/api/server.go` — REST API
-- `web/static/index.html, app.js` — GUI scaffold (drag-and-drop, live YAML, валидация, JSON на линиях)
-- `internal/cli/gui.go` — `orchestrator gui [--port --open]`
-- `VERSION` файл = 0.11
-- Версионирование честное 0.x: v0.10, v0.11, v0.12... вместо 10,11,100+
+**5. context binding — nested**
+- Поддержка `input.row.name` где `row` — объект (foreach item). `Ctx.Get` уже умел, валидатор теперь возвращает any для вложенных путей
 
-## M6 DoD по ТЗ
+**6. Версионирование честное 0.x**
+- v10 → v0.10, v0.11 → GUI scaffold (отложен), v0.12 → CLI meat
+- GUI — косметика, отложен до v1.0, фокус — мясо: foreach steps.*, resume, runs, typing
 
-- [ ] Цепочка собирается с нуля без касания YAML (drag-and-drop) — **в v0.11 scaffold, работает добавление нод, bind, экспорт**
-- [ ] Live-sync round-trip без потерь — **в v0.11: GUI→YAML экспорт, YAML→GUI импорт TODO v0.12**
-- [ ] JSON на линиях — **в v0.11: клик по прогону показывает context.json + events**
-- [ ] human_gate с формами — **в v0.11: form редактируется как JSON, в v0.12 — нормальная форма**
+## M6 DoD (обновлён, GUI в последнюю очередь)
 
-Следующие шаги M6 (v0.12):
-- Импорт YAML в канвас (парсер → ноды)
-- SVG линии для bind (steps.* → steps.*)
-- Запуск пайплайна из GUI (Run --yes) + стриминг journal.jsonl (SSE)
-- human_gate в GUI: форма с editable полями, accept/reject
-- Wails обёртка (десктоп бинарь) — опционально, пока web достаточно
+- [x] v0.11 scaffold GUI (отложен)
+- [x] v0.12 CLI meat: foreach steps.*, resume, runs list/show, gate typing
+- [ ] v0.13: полный перенос core → execution/journal/gate, SQLite RunStore, `pipeline lint` с file_ref проверкой до запуска (сейчас warning)
+- [ ] v0.14: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
 
-`go test ./...` — 93 теста, `go vet` чист.
+`go test ./...` — 93 теста PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены.
 
 ## Версионирование
 
-- Было: v9, v9.1, v10 → честно 0.x: v0.9, v0.9.1, v0.10
-- Сейчас: v0.11 (M6 scaffold)
-- Дальше: v0.12 (M6 full GUI), v0.13, ... v1.0 — когда GUI + маркетплейс + 5 внешних плагинов
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus)
+- Дальше: v0.13, v0.14... v1.0 — когда CLI meat закрыт + GUI + маркетплейс

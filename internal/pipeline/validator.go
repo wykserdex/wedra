@@ -79,11 +79,19 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 			itemKey = "item"
 		}
 		if key == itemKey && p.Foreach != "" {
+			// v0.12: если путь вида input.<item>.<field> — считаем any (объект)
+			if len(parts) > 2 {
+				return srcInfo{Name: path, Type: "string", Format: "text"}, ""
+			}
 			return srcInfo{Name: path, Type: p.ItemType, Format: p.ItemFormat}, ""
 		}
 		val, ok := p.Input[key]
 		if !ok {
 			return srcInfo{}, "в input пайплайна нет поля " + key
+		}
+		// вложенный доступ input.csv_path.xxx — для file_ref не нужен, но для объектов разрешим any
+		if len(parts) > 2 {
+			return srcInfo{Name: path, Type: "", Format: ""}, ""
 		}
 		return srcInfo{Name: path, Type: KindOf(val), Literal: val}, ""
 	case "steps":
@@ -124,11 +132,32 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	}
 	p := &pf.Pipeline
 	if p.Foreach != "" {
-		key := strings.TrimPrefix(p.Foreach, "input.")
-		if key == p.Foreach {
-			errs = append(errs, "foreach: путь должен начинаться с input.")
-		} else if _, ok := p.Input[key]; !ok {
-			errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
+		// v0.12: foreach может быть input.* ИЛИ steps.<id>.<field>
+		if strings.HasPrefix(p.Foreach, "input.") {
+			key := strings.TrimPrefix(p.Foreach, "input.")
+			if _, ok := p.Input[key]; !ok {
+				errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
+			}
+		} else if strings.HasPrefix(p.Foreach, "steps.") {
+			parts := strings.Split(p.Foreach, ".")
+			if len(parts) < 3 {
+				errs = append(errs, "foreach: steps.* должен быть вида steps.<id>.<field>")
+			} else {
+				// проверим что такой шаг существует в пайплайне (должен быть выше по списку — но на этапе валидации ещё не знаем порядок выполнения)
+				// для v0.12 требуем чтобы шаг с таким id существовал где-то в пайплайне
+				found := false
+				for _, st := range p.Steps {
+					if st.ID == parts[1] {
+						found = true
+						break
+					}
+				}
+				if !found {
+					errs = append(errs, fmt.Sprintf("foreach: шаг %s не найден в пайплайне", parts[1]))
+				}
+			}
+		} else {
+			errs = append(errs, "foreach: путь должен начинаться с input. или steps.")
 		}
 	}
 	seen := map[string]bool{}

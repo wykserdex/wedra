@@ -132,8 +132,15 @@ func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {
 			fmt.Println("    ! не JSON — правка пропущена")
 			continue
 		}
-		if f.Type != "" && kindOf(v) != f.Type {
-			fmt.Printf("    ! тип %s не подходит под %s — правка пропущена\n", kindOf(v), f.Type)
+		// v0.12 fix #19: выводим тип из источника, если в form Type пустой
+		expectedType := f.Type
+		if expectedType == "" {
+			if srcVal, ok := ctx.Get(f.Field); ok {
+				expectedType = kindOf(srcVal)
+			}
+		}
+		if expectedType != "" && kindOf(v) != expectedType {
+			fmt.Printf("    ! тип %s не подходит под %s (выведен из %s) — правка пропущена\n", kindOf(v), expectedType, f.Field)
 			continue
 		}
 		bn := basename(f.Field)
