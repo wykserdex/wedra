@@ -102,7 +102,7 @@ func CreatePluginWith(dir string, opts CreateOptions) (string, error) {
 		"plugin.yaml":      manifestTemplate(id, opts),
 		"main.py":          mainPy,
 		"plugin.test.yaml": testYaml,
-		"README.md":        pluginReadmeTemplate(id),
+		"README.md":        pluginReadmeTemplateWithOpts(id, opts),
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -374,6 +374,28 @@ func pluginReadmeTemplate(id string) string {
 	return `# ` + id + `
 
 TODO: одна строка — что делает плагин, что читает, что пишет.
+
+## Цикл разработки
+
+` + "```bash" + `
+# правим main.py, затем:
+tool plugin test ` + id + `      # контракт-тесты (зелёные из коробки)
+tool plugin validate ` + id + `  # проверка манифеста
+` + "```" + `
+
+Протокол и правила контракта: PROTOCOL.md в корне репозитория.
+`
+}
+
+func pluginReadmeTemplateWithOpts(id string, opts CreateOptions) string {
+	desc := opts.Description
+	if desc == "" {
+		desc = "TODO: одна строка — что делает плагин, что читает, что пишет."
+	}
+	// author not needed in README but we keep desc
+	return `# ` + id + `
+
+` + desc + `
 
 ## Цикл разработки
 

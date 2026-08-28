@@ -243,7 +243,14 @@ func runCase(m *Manifest, tc PluginTestCase) CaseResult {
 
 	if exp.Error != nil {
 		if exp.Error.Code != "" && res.ErrCode != exp.Error.Code {
-			fail("error.code: ожидали %q, получили %q (%s)", exp.Error.Code, res.ErrCode, res.ErrMsg)
+			// v9: crash → platform:<code> — подсказка для авторов, у кого тест ожидает crash
+			hint := ""
+			if exp.Error.Code == "crash" && strings.HasPrefix(res.ErrCode, "platform:") {
+				hint = " (в v9 код переименован в platform:<code> — поправьте expect на " + res.ErrCode + ")"
+			} else if strings.HasPrefix(res.ErrCode, "platform:") && res.ErrCode == "platform:"+exp.Error.Code {
+				hint = " (в v9 exit>=2 сохраняет код как platform:<code> — ожидайте " + res.ErrCode + ")"
+			}
+			fail("error.code: ожидали %q, получили %q (%s)%s", exp.Error.Code, res.ErrCode, res.ErrMsg, hint)
 		}
 		if exp.Error.Retryable != nil && res.Retryable != *exp.Error.Retryable {
 			fail("error.retryable: ожидали %v, получили %v", *exp.Error.Retryable, res.Retryable)

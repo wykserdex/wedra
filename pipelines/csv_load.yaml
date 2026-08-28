@@ -1,0 +1,28 @@
+format_version: "0.2"
+
+# Ограничение v9: foreach умеет только input.* — данные из файла в батч не попадают
+# без форкающего плагина. Этот пайплайн — одиночный прогон, не батч.
+# Если хочешь «прочитал CSV → итерирую по строкам» — сейчас нужен форкающий плагин,
+# который сам внутри итерирует, или заранее сгенерить input-массив в YAML.
+# Кандидат M6: foreach по steps.*.
+
+pipeline:
+  name: csv_load
+  input:
+    csv_path: "testdata/sample.csv"  # относительно plugins/csv_loader/ (PROTOCOL §1)
+
+  steps:
+    - id: load
+      plugin: plugins/csv_loader
+      bind: { path: input.csv_path }
+      on_error: stop
+      timeout: 10s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.load.row_count, editable: false }
+        - { field: steps.load.headers, editable: false }
+        - { field: steps.load.rows, editable: false }
+      actions: [accept, reject]
+      on_reject: stop
