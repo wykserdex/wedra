@@ -1,135 +1,105 @@
-# orchestrator — скелет MVP v10
+# orchestrator v0.11 — M6 GUI (честная 0.x)
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI отложен. **v10** — архитектурный рефактор по фидбеку: god-package `internal/core` разбит на домены, `runs/` → `var/runs/` + `RunStore`, добавлены JSON Schema, conformance, official/community.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, **M6 начат**. Версионирование честное: **v0.10 = бывший v10**, **v0.11 = M6 GUI scaffold**. Больше не бьём до 100+.
 
-**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов (6+4 community), 8 пайплайнов, 0 провалов воронки, ядро 8.5–9/10. Их слова:
+**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
-> «каждый кусок можно независимо написать, протестировать и заменить» ·
-> «ошибки говорят буквально, какой порт и почему несовместим» ·
-> «контракт честный, тот же результат что в ране и в echo | python3 main.py»
+> «каждый кусок можно независимо написать, протестировать и заменить» · «контракт честный»
 
 ```
 orchestrator/
-├── PROTOCOL.md          # контракт ядро↔плагин (v0.2)
+├── VERSION              # 0.11
+├── PROTOCOL.md          # контракт v0.2
 ├── protocol/            # версионированный протокол + JSON Schema
-│   ├── versions/v0.1.md, v0.2.md
-│   ├── schemas/v0.2/    # manifest, request, response
-│   └── README.md        # lifecycle, envelope план v0.3
 ├── schemas/pipeline/    # pipeline v0.2 JSON Schema
 ├── cmd/
-│   ├── tool/            # старый бинарь (совместимость)
-│   └── orchestrator/    # новый бинарь: orchestrator pipeline|plugin
+│   ├── tool/            # старый CLI (совместимость)
+│   └── orchestrator/    # новый: pipeline|plugin|gui|version
 ├── internal/
 │   ├── pipeline/        # модель, парсер, валидатор, планер
-│   ├── execution/       # runner, scheduler, retry
+│   ├── execution/       # runner, scheduler
 │   ├── plugin/          # registry, process, transport, fileref
 │   ├── journal/         # writer, reader, store (RunStore)
-│   ├── gate/            # service, terminal (human_gate)
+│   ├── gate/            # service, terminal
 │   ├── context/         # store, binding
-│   ├── common/          # util (KindOf, Basename, Truncate)
-│   ├── cli/             # root, run, validate, plugin commands
-│   └── core/            # shim-фасад для совместимости (93 теста)
-├── plugins/
-│   ├── official/        # 5 официальных (syntax, disposable, llm x3)
-│   ├── community/       # 4 community (text_analyzer, dir_lister, csv_loader, email_triage)
-│   └── *.py             # плоская копия для совместимости (deprecated)
-├── pipelines/           # 8 пайплайнов (все зелёные)
-├── examples/
-│   ├── pipelines/       # примеры для доки
-│   └── plugins/         # text_analyzer как пример
-├── conformance/         # conformance fixtures + README
-├── var/runs/            # журналы (было runs/, теперь gitignore var/runs/)
-└── .github/workflows/ci.yml # CI (go test, vet, build)
+│   ├── common/          # util
+│   ├── cli/             # root, run, validate, plugin, gui
+│   ├── api/             # REST API для GUI (M6)
+│   └── core/            # shim-фасад (93 теста)
+├── web/static/          # GUI: index.html + app.js (drag-and-drop, live YAML, JSON на линиях)
+├── plugins/official/    # 5 официальных
+├── plugins/community/   # 4 community
+├── pipelines/           # 8 пайплайнов
+├── examples/            # примеры
+├── conformance/         # conformance suite
+└── var/runs/            # журналы
 ```
 
 ## Быстрый старт
 
-> Хочешь писать СВОЙ плагин? → `TUTORIAL_PLUGINS.md` (15 мин, выверен на 4 внешних авторах).
-
-Go ≥1.21, Python ≥3.9.
-
 ```bash
-go build -o orchestrator ./cmd/orchestrator   # новый CLI
-go build -o tool ./cmd/tool                   # старый (совместимость)
-go test ./...                                 # 93 теста
-go vet ./...
-
+go build -o orchestrator ./cmd/orchestrator
+go test ./...   # 93 теста
+./orchestrator version
 ./orchestrator plugin validate plugins/csv_loader
-./orchestrator plugin test plugins/csv_loader
 ./orchestrator pipeline validate pipelines/email_check.yaml
-./orchestrator pipeline plan pipelines/email_triage_chain.yaml
 ./orchestrator pipeline run pipelines/email_check.yaml --yes
-# var/runs/<id>/journal.jsonl + context.json
-
-# совместимость:
-./tool validate pipelines/email_check.yaml
-./tool run pipelines/email_check.yaml --yes
+./orchestrator gui --port 8080 --open   # M6: http://localhost:8080
 ```
 
-LLM-пайплайны:
-```bash
-LLM_MOCK=1 ./orchestrator pipeline run pipelines/llm_text_chain.yaml --yes
-GEMINI_API_KEY=... LLM_OAI_API_KEY=... ./orchestrator pipeline run pipelines/llm_same_provider.yaml --yes
-```
+GUI M6 (v0.11 scaffold):
+- Левая панель: плагины (official/community), пайплайны, прогоны (var/runs)
+- Центр: канвас drag-and-drop, ноды можно двигать, коннекты через bind
+- Правая: свойства ноды (bind порт→путь, on_error, form), Live YAML, валидация, JSON на линиях (context.json)
+- Экспорт YAML, Validate (DAG), Plan — через `/api/validate/pipeline`
+- Run пока через CLI (план v0.12 — запуск из GUI)
 
-## Что изменилось в v10 (архитектурный фидбек)
+API:
+- `GET /api/health` → version, protocol
+- `GET /api/plugins` → список
+- `GET /api/pipelines` → список
+- `GET /api/runs` → список прогонов
+- `GET /api/runs/<id>` → events + context snapshot
+- `POST /api/validate/pipeline` (yaml) → errors/warnings
 
-**Приоритет из фидбека:**
-1. **Разбить god-package `internal/core`** → `pipeline/`, `execution/`, `plugin/`, `journal/`, `gate/`, `context/`, `common/`, `cli/` + shim в `core/` для совместимости. 93 теста зелёные.
-2. **runs/ → var/runs/ + RunStore** — `internal/journal/store.go` интерфейс `RunStore` (Create, AppendEvent, SaveArtifact, Load), `FilesystemStore` для MVP, план SQLite/S3 для сервера. `.gitignore` теперь `var/runs/`.
-3. **JSON Schema** — `protocol/schemas/v0.2/manifest.schema.json`, `request.schema.json`, `response.schema.json`, `schemas/pipeline/v0.2.schema.json`. Машинно-читаемый контракт для SDK/IDE.
-4. **Conformance suite** — `conformance/README.md` + фикстуры `internal/core/testdata/plugins/` (echo_ok, failer, crasher, bad_proto, contract_breaker, leaker, type_drifter, file_ref_echo, sleeper, retry_flaky). Проверки: handshake, unknown message type, bad JSON, timeout, crash→platform, мусор→protocol_violation, большой output, несовместимая версия.
-5. **official/community split** — `plugins/official/` (5) и `plugins/community/` (4) + плоская копия для совместимости. `examples/pipelines/` и `examples/plugins/`.
-6. **CLI: cmd/orchestrator/main.go** — `orchestrator pipeline run|validate|plan` и `plugin validate|test|create|inspect`, backward compat `run`/`validate`. `internal/cli/` теперь точка сборки.
-7. **Протокол версионирован** — `protocol/versions/v0.1.md`, `v0.2.md`, `protocol/README.md` с lifecycle и планом envelope v0.3 (protocol_version, request_id, cancel, handshake, streaming).
+## Что в v0.10 (бывший v10)
 
-## SDK: plugin.test.yaml
+1. Разбит `internal/core` на 8 пакетов + shim, 93 теста зелёные
+2. `runs/` → `var/runs/` + `RunStore` интерфейс
+3. JSON Schema: manifest, request, response, pipeline
+4. Conformance suite + fixtures
+5. official/community split + examples
+6. CLI `orchestrator` binary + backward compat `tool`
+7. Протокол версионирован (v0.1, v0.2, envelope план v0.3)
 
-```yaml
-tests:
-  - name: mailinator → disposable=true
-    input: { email: "user@mailinator.com" }
-    expect:
-      output:
-        disposable: true
-        domain: { contains: "mailinator" }
-  - name: без ключа → понятная ошибка
-    env: { LLM_OAI_API_KEY: "" }
-    input: { prompt: "x" }
-    expect: { status: error, error: { code: no_api_key } }
-```
+## Что в v0.11 (M6 старт)
 
-Матчеры: литерал (глубокое равенство), `{ present: true }`, `{ contains: "..." }` (строка и массив), `{ type: "..." }`, `{ equals: ... }`. Enforce: незадекларированное поле → warning, пропавший обязательный или дрейф типа → провал.
+- `internal/api/server.go` — REST API
+- `web/static/index.html, app.js` — GUI scaffold (drag-and-drop, live YAML, валидация, JSON на линиях)
+- `internal/cli/gui.go` — `orchestrator gui [--port --open]`
+- `VERSION` файл = 0.11
+- Версионирование честное 0.x: v0.10, v0.11, v0.12... вместо 10,11,100+
 
-## Что уже работает (M1-M5)
+## M6 DoD по ТЗ
 
-- subprocess stdin/stdout JSON + exit codes 0/1/≥2
-- Shared Context `steps.<id>`, EnforceOutput
-- Validate до запуска: пути, типы, форматы, skip-безопасность, bind на несуществующий порт, literal format
-- Policies stop|skip|retry, foreach per-item
-- human_gate: form, правки с проверкой типа, materialize с префиксом при коллизии basename, truncate 500, crash→platform hint
-- 3 LLM-адаптера (Gemini, OpenAI-совместимый, Anthropic) + mock
-- plugin create → test → validate триада
-- file_ref warning до запуска с подсказкой «есть от корня»
-- Journal var/runs/<id>/journal.jsonl + context.json
+- [ ] Цепочка собирается с нуля без касания YAML (drag-and-drop) — **в v0.11 scaffold, работает добавление нод, bind, экспорт**
+- [ ] Live-sync round-trip без потерь — **в v0.11: GUI→YAML экспорт, YAML→GUI импорт TODO v0.12**
+- [ ] JSON на линиях — **в v0.11: клик по прогону показывает context.json + events**
+- [ ] human_gate с формами — **в v0.11: form редактируется как JSON, в v0.12 — нормальная форма**
 
-## Сознательные упрощения
-
-| Долг | Куда |
-|---|---|
-| Нет --resume | M2→M4, §4.8 |
-| Секреты только env | §4.9 |
-| permissions L0 декларативны | §4.5 |
-| foreach только input.* | M6 |
-| human_gate выходы не типизированы | #19 backlog |
-| Execution пока делегирует в core.Run, полный перенос в M6 | v10 → v11 |
+Следующие шаги M6 (v0.12):
+- Импорт YAML в канвас (парсер → ноды)
+- SVG линии для bind (steps.* → steps.*)
+- Запуск пайплайна из GUI (Run --yes) + стриминг journal.jsonl (SSE)
+- human_gate в GUI: форма с editable полями, accept/reject
+- Wails обёртка (десктоп бинарь) — опционально, пока web достаточно
 
 ## Тесты
 
-`go test ./...` — 93 теста: контекст, валидация, экзекутор, enforce, раннер (foreach, retry, platform stop, gate), SDK (plugin.test.yaml на фикстурах и на всех 10 шипленных плагинах).
+`go test ./...` — 93 теста, `go vet` чист.
 
-## Следующие шаги
+## Версионирование
 
-- M5 закрыт (8.5–9/10), M6 GUI отложен — дистрибуция = dev-чаты + репа
-- v10: архитектурный рефактор (этот релиз)
-- v11: полный перенос логики из core shim в новые пакеты, SQLite RunStore, conformance runner в CI, plugin registry API
+- Было: v9, v9.1, v10 → честно 0.x: v0.9, v0.9.1, v0.10
+- Сейчас: v0.11 (M6 scaffold)
+- Дальше: v0.12 (M6 full GUI), v0.13, ... v1.0 — когда GUI + маркетплейс + 5 внешних плагинов

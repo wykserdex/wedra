@@ -17,6 +17,10 @@ func Run() {
 		handlePipeline(os.Args[2:])
 	case "plugin":
 		handlePlugin(os.Args[2:])
+	case "gui", "serve":
+		RunGUI(os.Args[2:])
+	case "version", "--version", "-v":
+		fmt.Println("orchestrator v0.11 (M6 GUI scaffold), protocol v0.2")
 	case "run", "validate":
 		// backward compat: плоские команды как раньше (tool run, tool validate)
 		// делегируем в pipeline
@@ -29,20 +33,23 @@ func Run() {
 }
 
 func printHelp() {
-	fmt.Print(`orchestrator — CLI-оркестратор цепочек с человеком в петле
+	fmt.Print(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v0.11, M6)
 
-Команды (новый стиль, масштабируется):
+Команды:
   orchestrator pipeline run <file.yaml> [--yes]
   orchestrator pipeline validate <file.yaml>
-  orchestrator pipeline plan <file.yaml> [--dry-run]
+  orchestrator pipeline plan <file.yaml>
   orchestrator plugin validate <dir>
   orchestrator plugin test <dir>
   orchestrator plugin create <dir> [--author --description --example]
+  orchestrator plugin inspect <dir>
+  orchestrator gui [--port 8080] [--open]   # M6: веб-GUI (drag-and-drop, live YAML, JSON на линиях)
 
 Совместимость:
   orchestrator run <file.yaml>  == pipeline run
   orchestrator validate <file.yaml> == pipeline validate
 
+Версия: v0.11 (честная 0.x, было v10), протокол v0.2
 См. PROTOCOL.md и TUTORIAL_PLUGINS.md
 `)
 }
@@ -61,16 +68,6 @@ func handlePipeline(args []string) {
 	case "plan":
 		RunPipelinePlan(args[1:])
 	default:
-		// для совместимости: если вызвали `tool run file.yaml`, sub уже file.yaml?
-		// но handlePipeline вызван с ["run", "file.yaml"] — ок
-		// если вызвали напрямую `tool validate file.yaml` через root, то cmd=validate, args=file.yaml
-		// тогда sub = file.yaml, не команда — считаем что это validate
-		if sub == "run" || sub == "validate" {
-			// unreachable
-		}
-		// если первый arg — файл, считаем validate или run в зависимости от контекста
-		// для простоты: если мы сюда попали из root с cmd=run/validate, то args[0]=file
-		// но мы уже обработали в root — сюда не попадём
 		fmt.Printf("неизвестная pipeline команда %q\n", sub)
 		os.Exit(2)
 	}
