@@ -1,6 +1,17 @@
 # Changelog — честная 0.x
 
-## v0.11 (2026-08-28) — M6 GUI scaffold
+## v0.12 (2026-08-28) — CLI focus, мясо, не косметика (M6 meat)
+- **GUI отложен** — косметика, не мясо. Ставка на CLI.
+- **foreach steps.*** — закрыт #12: теперь `foreach: steps.load.rows` работает (двухфазный ран: preSteps → foreach). Демо `pipelines/csv_foreach.yaml` — CSV → per-row text_analyzer → gate, ok=2.
+- **--resume** — `orchestrator pipeline run <yaml> --resume=<run_id>` и `orchestrator runs resume <run_id> <yaml>`. Загружает `var/runs/<id>/context.json` и пропускает пройденные `item_index` из `journal.jsonl`.
+- **runs CLI** — `orchestrator runs list`, `runs show <id>`, `runs resume` + `tool runs list/show` (совместимость)
+- **human_gate typing fix #19** — если в `form` нет `type`, тип выводится из источника `ctx.Get(field)` (kindOf), правка валидируется по выведенному типу
+- **pipeline validator** — `foreach` теперь `input.*` ИЛИ `steps.<id>.<field>`, проверка существования шага-источника
+- **execution/runner** — начал перенос логики из `core/runner.go` в `execution/`, пока делегирует в core (полный перенос в v0.13)
+- **context binding** — поддержка `input.<item>.<field>` (nested) для foreach-объектов
+- **VERSION 0.12**, 93 теста PASS, `csv_foreach` зелёный
+
+## v0.11 (2026-08-28) — M6 GUI scaffold (отложен в v0.12)
 - `internal/api` — REST API: /api/health, plugins, pipelines, runs, validate/plan
 - `web/static` — GUI: drag-and-drop, live YAML, validate, JSON на линиях, экспорт YAML
 - `internal/cli/gui.go` — `orchestrator gui [--port 8080] [--open]`

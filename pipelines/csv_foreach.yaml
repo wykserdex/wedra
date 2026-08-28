@@ -1,0 +1,28 @@
+format_version: "0.2"
+pipeline:
+  name: csv_foreach
+  input:
+    csv_path: "testdata/sample.csv"
+  foreach: steps.load.rows
+  foreach_item: row
+  item_type: object
+  steps:
+    - id: load
+      plugin: plugins/csv_loader
+      on_error: stop
+      bind:
+        path: input.csv_path
+    - id: check
+      plugin: plugins/text_analyzer
+      on_error: skip
+      bind:
+        text: input.row.name
+    - id: review
+      plugin: core/human_gate
+      form:
+        - field: steps.check.words
+          editable: false
+        - field: steps.check.longest_word
+          editable: false
+        - field: input.row
+          editable: false

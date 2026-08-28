@@ -1,0 +1,41 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: go vet
+        run: go vet ./...
+      - name: go fmt check
+        run: |
+          out=$(gofmt -l ./internal/core ./cmd/tool)
+          if [ -n "$out" ]; then
+            echo "gofmt needed:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go test
+        run: go test ./... -count=1
+      - name: build tool
+        run: go build -o tool ./cmd/tool
+      - name: plugin validate + test (all shipped plugins)
+        run: |
+          for d in plugins/*; do
+            if [ -f "$d/plugin.yaml" ]; then
+              echo "== $d =="
+              ./tool plugin validate "$d"
+              ./tool plugin test "$d"
+            fi
+          done
+      - name: pipeline validate (all pipelines)
+        run: |
+          for f in pipelines/*.yaml; do
+            echo "== $f =="
+            ./tool validate "$f"
+          done

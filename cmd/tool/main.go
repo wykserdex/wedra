@@ -10,14 +10,17 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `orchestrator — оркестратор плагинов (контракт: PROTOCOL.md)
+	fmt.Fprintln(os.Stderr, `orchestrator v0.12 — оркестратор плагинов (контракт: PROTOCOL.md)
 
-  tool run <pipeline.yaml> [--yes] [--runs <dir>]   запуск цепочки
+  tool run <pipeline.yaml> [--yes] [--runs <dir>] [--resume <run_id>]   запуск цепочки
                                                      --yes: auto-accept human_gate (CI/демо)
+                                                     --resume: продолжить с последнего item
   tool validate <pipeline.yaml>                     статическая проверка цепочки
   tool plugin validate <dir>                        проверка манифеста плагина
   tool plugin test <dir> [--spec file.yaml]         контракт-тесты из plugin.test.yaml
   tool plugin create <path> [--author N] [--description ".."] [--example string|array]  скелет плагина (сразу зелёный)
+  tool runs list                                    список прогонов var/runs/
+  tool runs show <run_id>                           журнал + context
 
   exit-коды run: 0 — ран доехал до конца; 1 — рановая неудача
   (платформенная ошибка; в одиночном режиме — также stop/reject)`)
@@ -61,6 +64,22 @@ func main() {
 		runCmd(os.Args[2:])
 	case "validate":
 		validateCmd(os.Args[2:])
+	case "runs":
+		if len(os.Args) < 3 {
+			runsListCmd()
+		} else {
+			switch os.Args[2] {
+			case "list":
+				runsListCmd()
+			case "show":
+				if len(os.Args) < 4 {
+					usage()
+				}
+				runsShowCmd(os.Args[3])
+			default:
+				runsShowCmd(os.Args[2])
+			}
+		}
 	case "plugin":
 		if len(os.Args) < 3 {
 			usage()
@@ -75,7 +94,7 @@ func main() {
 		default:
 			usage()
 		}
-	case "plugin-validate": // алиасы
+	case "plugin-validate":
 		pluginValidateCmd(os.Args[2:])
 	case "plugin-test":
 		pluginTestCmd(os.Args[2:])
@@ -86,13 +105,43 @@ func main() {
 	}
 }
 
+func runsListCmd() {
+	// делегируем в journal reader
+	dir := "var/runs"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		fmt.Println("нет прогонов:", err)
+		return
+	}
+	fmt.Printf("Прогоны в %s:\n", dir)
+	for _, e := range entries {
+		if e.IsDir() {
+			fmt.Println(" ", e.Name())
+		}
+	}
+}
+
+func runsShowCmd(id string) {
+	dir := "var/runs/" + id
+	raw, err := os.ReadFile(dir + "/journal.jsonl")
+	if err != nil {
+		fmt.Println("ошибка:", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(raw))
+	snap, err := os.ReadFile(dir + "/context.json")
+	if err == nil {
+		fmt.Println("\n--- context.json ---")
+		fmt.Println(string(snap))
+	}
+}
+
 func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	yes := fs.Bool("yes", false, "auto-accept human_gate")
 	runsDir := fs.String("runs", "var/runs", "каталог журналов прогонов")
+	resume := fs.String("resume", "", "продолжить прогон с run_id")
 
-	// flag-пакет Go стопорится на первом позиционном аргументе,
-	// поэтому наши два флага вытаскиваем вручную — в любом порядке
 	var positional, flags []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -103,8 +152,17 @@ func runCmd(args []string) {
 				flags = append(flags, "-runs", args[i+1])
 				i++
 			}
+		case "-resume", "--resume":
+			if i+1 < len(args) {
+				flags = append(flags, "-resume", args[i+1])
+				i++
+			}
 		default:
-			positional = append(positional, args[i])
+			if len(args[i]) > 9 && args[i][:9] == "--resume=" {
+				flags = append(flags, "-resume", args[i][9:])
+			} else {
+				positional = append(positional, args[i])
+			}
 		}
 	}
 	_ = fs.Parse(append(flags, positional...))
@@ -123,7 +181,7 @@ func runCmd(args []string) {
 		os.Exit(1)
 	}
 
-	stats, err := core.Run(pf, eng, core.RunOptions{Yes: *yes, RunsDir: *runsDir})
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: *yes, RunsDir: *runsDir, Resume: *resume})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ОШИБКА РАНА:", err)
 		os.Exit(1)

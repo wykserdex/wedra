@@ -3,15 +3,17 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 type RunOptions struct {
-	Yes     bool // auto-accept human_gate (CI/демо)
-	RunsDir string
-	Quiet   bool // без консольного вывода (тесты)
+	Yes     bool   // auto-accept human_gate (CI/демо)
+	RunsDir string // var/runs
+	Quiet   bool   // без консольного вывода (тесты)
+	Resume  string // run_id для --resume
 }
 
 func (o RunOptions) logf(format string, a ...interface{}) {
@@ -41,24 +43,78 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 	var stats RunStats
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
-		// fallback для совместимости со старым runs/
 	}
-	runID := time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
-	j, err := NewJournal(filepath.Join(opts.RunsDir, runID))
-	if err != nil {
-		return stats, err
+	// --resume: грузим предыдущий контекст и продолжаем
+	var ctx *Ctx
+	var startItemIdx int
+	var runID string
+	var j *Journal
+	var err error
+
+	if opts.Resume != "" {
+		// resume: используем старый runDir как базу, но пишем в новый? Для простоты — продолжаем в той же директории
+		// v0.12: resume продолжает в том же runDir, дописывая journal
+		prevDir := filepath.Join(opts.RunsDir, opts.Resume)
+		// загружаем context.json
+		raw, err := os.ReadFile(filepath.Join(prevDir, "context.json"))
+		if err != nil {
+			return stats, fmt.Errorf("--resume %s: не читается context.json: %w", opts.Resume, err)
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return stats, fmt.Errorf("--resume %s: битый context.json: %w", opts.Resume, err)
+		}
+		ctx = &Ctx{Data: data}
+		// находим последний item_end
+		eventsRaw, _ := os.ReadFile(filepath.Join(prevDir, "journal.jsonl"))
+		lines := strings.Split(string(eventsRaw), "\n")
+		maxIdx := -1
+		for _, line := range lines {
+			if strings.Contains(line, "\"type\":\"item_end\"") || strings.Contains(line, "\"type\": \"item_end\"") {
+				// парсим item_index
+				var ev map[string]interface{}
+				if err := json.Unmarshal([]byte(line), &ev); err == nil {
+					if idx, ok := ev["item_index"].(float64); ok {
+						if int(idx) > maxIdx {
+							maxIdx = int(idx)
+						}
+					}
+				}
+			}
+		}
+		startItemIdx = maxIdx + 1
+		runID = opts.Resume
+		j, err = OpenJournalAppend(prevDir)
+		if err != nil {
+			return stats, err
+		}
+		stats.RunDir = j.Dir
+		opts.logf("▶ resume %q с элемента %d (журнал: %s)", pf.Pipeline.Name, startItemIdx, j.Dir)
+		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx})
+	} else {
+		runID = time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
+		j, err = NewJournal(filepath.Join(opts.RunsDir, runID))
+		if err != nil {
+			return stats, err
+		}
+		defer j.Close()
+		stats.RunDir = j.Dir
+		opts.logf("▶ запуск %q  (журнал: %s)", pf.Pipeline.Name, j.Dir)
+		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
+		ctx = NewCtx(pf.Pipeline.Input)
 	}
-	defer j.Close()
-	stats.RunDir = j.Dir
 
-	opts.logf("▶ запуск %q  (журнал: %s)", pf.Pipeline.Name, j.Dir)
-	j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
-
-	ctx := NewCtx(pf.Pipeline.Input)
-
-	// foreach: прогон цепочки по элементам массива (PROTOCOL.md §6 — scope per-item)
+	// v0.12: foreach может быть input.* ИЛИ steps.<id>.<field>
 	var items []interface{}
-	if pf.Pipeline.Foreach != "" {
+	var preSteps []*Step
+	var foreachSteps []*Step
+
+	if pf.Pipeline.Foreach == "" {
+		items = []interface{}{nil}
+		for i := range pf.Pipeline.Steps {
+			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+		}
+	} else if strings.HasPrefix(pf.Pipeline.Foreach, "input.") {
 		v, ok := ctx.Get(pf.Pipeline.Foreach)
 		if !ok {
 			return stats, fmt.Errorf("foreach: путь %s не найден", pf.Pipeline.Foreach)
@@ -68,27 +124,111 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 			return stats, fmt.Errorf("foreach: %s не массив", pf.Pipeline.Foreach)
 		}
 		items = arr
+		for i := range pf.Pipeline.Steps {
+			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+		}
+	} else if strings.HasPrefix(pf.Pipeline.Foreach, "steps.") {
+		// steps.<id>.<field> — двухфазный ран
+		parts := strings.Split(pf.Pipeline.Foreach, ".")
+		if len(parts) < 3 {
+			return stats, fmt.Errorf("foreach: %s должен быть вида steps.<id>.<field>", pf.Pipeline.Foreach)
+		}
+		srcID := parts[1]
+		// находим индекс srcID
+		srcIdx := -1
+		for i, st := range pf.Pipeline.Steps {
+			if st.ID == srcID {
+				srcIdx = i
+				break
+			}
+		}
+		if srcIdx == -1 {
+			return stats, fmt.Errorf("foreach: шаг %s не найден", srcID)
+		}
+		// preSteps = 0..srcIdx
+		for i := 0; i <= srcIdx; i++ {
+			preSteps = append(preSteps, &pf.Pipeline.Steps[i])
+		}
+		for i := srcIdx + 1; i < len(pf.Pipeline.Steps); i++ {
+			foreachSteps = append(foreachSteps, &pf.Pipeline.Steps[i])
+		}
+		// если не resume — прогоняем preSteps один раз
+		if opts.Resume == "" {
+			opts.logf("  → фаза 1: получение массива %s из %d шагов", pf.Pipeline.Foreach, len(preSteps))
+			for _, st := range preSteps {
+				action, err := runStep(eng, st, ctx, j, opts)
+				if err != nil {
+					j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
+					j.Snapshot(ctx)
+					return stats, fmt.Errorf("шаг %s (pre-foreach): %w", st.ID, err)
+				}
+				if action == "abort_item" {
+					return stats, fmt.Errorf("foreach: pre-фаза остановлена на шаге %s", st.ID)
+				}
+			}
+			j.Snapshot(ctx)
+		}
+		// теперь массив должен быть в контексте
+		v, ok := ctx.Get(pf.Pipeline.Foreach)
+		if !ok {
+			return stats, fmt.Errorf("foreach: после pre-фазы путь %s не найден", pf.Pipeline.Foreach)
+		}
+		arr, ok := v.([]interface{})
+		if !ok {
+			return stats, fmt.Errorf("foreach: %s не массив (после pre-фазы)", pf.Pipeline.Foreach)
+		}
+		items = arr
 	} else {
-		items = []interface{}{nil}
+		return stats, fmt.Errorf("foreach: путь должен начинаться с input. или steps., got %s", pf.Pipeline.Foreach)
 	}
+
 	itemKey := pf.Pipeline.ForeachItem
 	if itemKey == "" {
 		itemKey = "item"
 	}
 
+	// если resume — пропускаем уже пройденные элементы
+	if startItemIdx > 0 {
+		if startItemIdx >= len(items) {
+			opts.logf("  resume: все %d элементов уже пройдены", len(items))
+			j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted, "resumed": true})
+			return stats, nil
+		}
+		opts.logf("  resume: пропускаем %d элементов, продолжаем с %d/%d", startItemIdx, startItemIdx+1, len(items))
+	}
+
 	for idx, it := range items {
+		if idx < startItemIdx {
+			continue
+		}
 		if pf.Pipeline.Foreach != "" {
-			ctx.ResetSteps()
+			if len(preSteps) == 0 {
+				// input-foreach: scope per-item, сбрасываем steps каждый элемент
+				ctx.ResetSteps()
+			} else {
+				// steps-foreach: preSteps остаются, сбрасываем только foreach-шаги (если были)
+				// для простоты — удаляем из ctx.Data["steps"] все кроме preSteps
+				if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+					for _, st := range foreachSteps {
+						delete(stepsMap, st.ID)
+					}
+				}
+			}
 			ctx.SetInput(itemKey, it)
 			opts.logf("\n─ [%d/%d] %v", idx+1, len(items), it)
 		}
 		j.Event("item_start", map[string]interface{}{"item_index": idx, "item": it})
 
 		itemStatus := "ok"
-		for i := range pf.Pipeline.Steps {
-			st := &pf.Pipeline.Steps[i]
+		stepsToRun := foreachSteps
+		if pf.Pipeline.Foreach == "" {
+			stepsToRun = foreachSteps
+		}
+		// для steps-foreach: если preSteps есть, они уже выполнены, бежим только foreachSteps
+		// для input-foreach: foreachSteps = все шаги
+		for _, st := range stepsToRun {
 			action, err := runStep(eng, st, ctx, j, opts)
-			if err != nil { // платформенная ошибка — стоп всего рана (§3)
+			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 				j.Snapshot(ctx)
 				return stats, fmt.Errorf("шаг %s: %w", st.ID, err)
@@ -126,8 +266,6 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 	if err != nil {
 		return "", err
 	}
-	// M5 пакет №5: относительный file_ref, не резолвящийся от cwd плагина, —
-	// предупреждаем до запуска, а не ждём not_found изнутри плагина.
 	for _, w := range fileRefWarningsForRun(m, st, input) {
 		opts.logf("    ⚠ %s", w)
 		j.Event("file_ref_warning", map[string]interface{}{"step": st.ID, "message": formatHintForLog(w)})
@@ -180,13 +318,12 @@ func runStep(eng *Engine, st *Step, ctx *Ctx, j *Journal, opts RunOptions) (stri
 		return "", fmt.Errorf("платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
 	}
 
-	// доменная ошибка — политика шага из YAML (§6)
 	switch st.OnError {
 	case "skip":
 		opts.logf("    ! пропущен по on_error=skip: %s", res.ErrMsg)
 		j.Event("step_skipped", map[string]interface{}{"step": st.ID, "code": res.ErrCode, "message": res.ErrMsg})
 		return "ok", nil
-	default: // stop (сюда же падает исчерпанный retry)
+	default:
 		opts.logf("    × %s: %s — элемент остановлен", res.ErrCode, res.ErrMsg)
 		j.Event("step_failed", map[string]interface{}{"step": st.ID, "code": res.ErrCode, "message": res.ErrMsg})
 		return "abort_item", nil
@@ -210,8 +347,6 @@ func errOrNil(r *ExecResult) interface{} {
 	return map[string]interface{}{"code": r.ErrCode, "message": r.ErrMsg, "retryable": r.Retryable}
 }
 
-// buildInput: плагин получает ровно те поля, что объявил в input (PROTOCOL.md §4);
-// источник каждого порта — bind шага (v0.2) или дефолтный from манифеста.
 func buildInput(m *Manifest, st *Step, ctx *Ctx) (map[string]interface{}, error) {
 	in := map[string]interface{}{}
 	for name, port := range m.Input {

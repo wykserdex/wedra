@@ -28,6 +28,17 @@ func NewJournal(dir string) (*Journal, error) {
 	return &Journal{f: f, Dir: dir}, nil
 }
 
+func OpenJournalAppend(dir string) (*Journal, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, err
+	}
+	return &Journal{f: f, Dir: dir}, nil
+}
+
 func (j *Journal) Event(kind string, kv map[string]interface{}) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
