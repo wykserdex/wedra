@@ -12,6 +12,10 @@ func LoadPipelineFile(path string) (*PipelineFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LoadPipelineFileFromBytes(raw)
+}
+
+func LoadPipelineFileFromBytes(raw []byte) (*PipelineFile, error) {
 	var pf PipelineFile
 	if err := yaml.Unmarshal(raw, &pf); err != nil {
 		return nil, fmt.Errorf("YAML: %w", err)

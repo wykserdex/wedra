@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>orchestrator v0.11 — GUI</title>
+<style>
+  body{font-family:Inter,system-ui,sans-serif;margin:0;background:#0f0f0f;color:#e5e5e5}
+  header{padding:12px 20px;border-bottom:1px solid #222;display:flex;gap:12px;align-items:center}
+  header h1{font-size:18px;margin:0}
+  #app{display:grid;grid-template-columns:260px 1fr 340px;height:calc(100vh - 49px)}
+  #plugins{border-right:1px solid #222;padding:10px;overflow:auto}
+  #canvas{position:relative;background:#121212;overflow:auto}
+  #props{border-left:1px solid #222;padding:10px;overflow:auto}
+  .plugin{padding:8px 10px;margin:6px 0;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;cursor:grab}
+  .plugin small{color:#888}
+  .node{position:absolute;min-width:180px;background:#1e1e1e;border:1px solid #333;border-radius:10px;padding:10px;cursor:move}
+  .node.selected{border-color:#6aa6ff;box-shadow:0 0 0 2px rgba(106,166,255,.2)}
+  .node h4{margin:0 0 6px 0;font-size:13px}
+  .port{font-size:11px;color:#aaa;margin:2px 0}
+  .port.ok{color:#7dd87d}
+  .port.warn{color:#ffcc66}
+  .port.err{color:#ff6666}
+  button{background:#222;color:#eee;border:1px solid #333;border-radius:8px;padding:6px 10px;cursor:pointer}
+  button.primary{background:#2a5bd7;border-color:#2a5bd7}
+  pre{white-space:pre-wrap;word-break:break-all;background:#0a0a0a;padding:8px;border-radius:8px;font-size:12px;max-height:300px;overflow:auto}
+  .row{display:flex;gap:8px;margin:6px 0}
+  input,textarea,select{width:100%;background:#111;color:#eee;border:1px solid #333;border-radius:6px;padding:6px}
+  .badge{font-size:10px;padding:2px 6px;border-radius:10px;background:#222;border:1px solid #333}
+  .badge.ok{background:#12351a;border-color:#1a5a2a;color:#7dd87d}
+  .badge.err{background:#3a1414;border-color:#5a1a1a;color:#ff8888}
+</style>
+</head>
+<body>
+<header>
+  <h1>orchestrator <span style="color:#888">v0.11</span> — GUI (M6)</h1>
+  <span id="status" class="badge">loading</span>
+  <button id="btn-validate">Validate</button>
+  <button id="btn-plan">Plan (DAG)</button>
+  <button id="btn-run" class="primary">Run --yes</button>
+  <button id="btn-export">Export YAML</button>
+  <input id="pipeline-name" placeholder="pipeline name" value="my_chain" style="width:160px"/>
+</header>
+<div id="app">
+  <div id="plugins">
+    <h3 style="margin:4px 0">Плагины</h3>
+    <div id="plugin-list">загрузка...</div>
+    <hr style="border-color:#222"/>
+    <h3 style="margin:4px 0">Пайплайны</h3>
+    <div id="pipeline-list"></div>
+    <hr style="border-color:#222"/>
+    <h3 style="margin:4px 0">Прогоны</h3>
+    <div id="run-list"></div>
+  </div>
+  <div id="canvas"></div>
+  <div id="props">
+    <h3 style="margin:4px 0">Свойства</h3>
+    <div id="prop-content">выбери ноду</div>
+    <hr style="border-color:#222"/>
+    <h3 style="margin:4px 0">Live YAML</h3>
+    <pre id="yaml-preview"></pre>
+    <h3 style="margin:4px 0">Валидация</h3>
+    <pre id="validate-out"></pre>
+    <h3 style="margin:4px 0">JSON на линиях (контекст)</h3>
+    <pre id="context-out">—</pre>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
