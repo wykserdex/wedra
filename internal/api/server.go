@@ -14,6 +14,8 @@ import (
 	"orchestrator/internal/plugin"
 )
 
+const Version = "0.12.1"
+
 type Server struct {
 	PluginsDir   string
 	PipelinesDir string
@@ -41,14 +43,25 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/runs/", s.handleRunDetail)
 	mux.HandleFunc("/api/validate/pipeline", s.handleValidatePipeline)
 	mux.HandleFunc("/api/plan/pipeline", s.handlePlanPipeline)
-	// static frontend
-	mux.Handle("/", http.FileServer(http.Dir("web/static")))
+	// static frontend — если нет web/static, отдаём 404, не падаем
+	if _, err := os.Stat("web/static"); err == nil {
+		mux.Handle("/", http.FileServer(http.Dir("web/static")))
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("GUI postponed in v0.12 — use CLI. API at /api/health"))
+		})
+	}
 	return mux
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// v0.12 fix: читаем VERSION файл, а не хардкод 0.11
+	ver := Version
+	if raw, err := os.ReadFile("VERSION"); err == nil {
+		ver = strings.TrimSpace(string(raw))
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": "0.11", "protocol": "0.2"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": ver, "protocol": "0.2"})
 }
 
 func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +81,6 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// dedup
 	seen := map[string]bool{}
 	var list []map[string]interface{}
 	for _, d := range dirs {
@@ -95,7 +107,6 @@ func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", 400)
 		return
 	}
-	// find by id
 	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community")} {
 		entries, _ := os.ReadDir(base)
 		for _, e := range entries {
@@ -146,28 +157,38 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 		name += ".yaml"
 	}
 	path := filepath.Join(s.PipelinesDir, name)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		http.Error(w, err.Error(), 404)
-		return
-	}
 	if r.Method == "GET" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
+		}
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Write(raw)
 		return
 	}
 	if r.Method == "PUT" {
-		// save + validate
-		if err := os.WriteFile(path, raw, 0644); err != nil {
-			// actually body contains new yaml
+		// v0.12 fix: раньше читал старый файл и писал его же обратно — молчаливая порча данных
+		// теперь читаем r.Body и валидируем перед сохранением
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body: "+err.Error(), 400)
+			return
 		}
-		body, _ := os.ReadFile(path) // placeholder
-		_ = body
-		// for MVP just echo
+		// валидация YAML перед сохранением
+		if _, err := pipeline.LoadPipelineFileFromBytes(data); err != nil {
+			http.Error(w, "invalid yaml: "+err.Error(), 400)
+			return
+		}
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			http.Error(w, "write: "+err.Error(), 500)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved", "file": name})
 		return
 	}
+	http.Error(w, "method not allowed", 405)
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +199,6 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		dir := filepath.Join(s.RunsDir, e.Name())
-		// read journal.jsonl first line for pipeline name
 		rd := journal.NewReader(dir)
 		events, _ := rd.Events()
 		pipelineName := ""
@@ -216,16 +236,13 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "POST yaml", 405)
 		return
 	}
-	// read from request body
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	// try parse as PipelineFile
 	var pf pipeline.PipelineFile
 	if err := json.Unmarshal(data, &pf); err != nil {
-		// try yaml
 		pfPtr, err2 := pipeline.LoadPipelineFileFromBytes(data)
 		if err2 != nil {
 			http.Error(w, fmt.Sprintf("parse error: %v / %v", err, err2), 400)
@@ -239,6 +256,80 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
-	// similar to validate but returns DAG
-	s.handleValidatePipeline(w, r)
+	// v0.12 fix: раньше был алиас на validate, никакого DAG
+	// теперь строит DAG: узлы + рёбра по bind/form зависимостям
+	if r.Method != "POST" {
+		http.Error(w, "POST yaml", 405)
+		return
+	}
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes(data)
+	if err != nil {
+		http.Error(w, "parse: "+err.Error(), 400)
+		return
+	}
+	errs, warns := pipeline.Validate(pf, s.Engine)
+	// строим DAG
+	nodes := []map[string]interface{}{}
+	edges := []map[string]string{}
+	// pre-phase для steps.* foreach
+	preSteps := map[string]bool{}
+	if pf.Pipeline.Foreach != "" && strings.HasPrefix(pf.Pipeline.Foreach, "steps.") {
+		parts := strings.Split(pf.Pipeline.Foreach, ".")
+		if len(parts) >= 2 {
+			srcID := parts[1]
+			for _, st := range pf.Pipeline.Steps {
+				preSteps[st.ID] = true
+				if st.ID == srcID {
+					break
+				}
+			}
+		}
+	}
+	for _, st := range pf.Pipeline.Steps {
+		phase := "foreach"
+		if preSteps[st.ID] {
+			phase = "pre"
+		}
+		if st.AfterForeach {
+			phase = "post"
+		}
+		nodes = append(nodes, map[string]interface{}{
+			"id": st.ID, "plugin": st.Plugin, "phase": phase, "on_error": st.OnError,
+			"bind": st.Bind, "after_foreach": st.AfterForeach,
+		})
+		// рёбра: из bind и form
+		for _, from := range st.Bind {
+			if strings.HasPrefix(from, "steps.") {
+				parts := strings.Split(from, ".")
+				if len(parts) >= 2 {
+					edges = append(edges, map[string]string{"from": parts[1], "to": st.ID, "via": from})
+				}
+			}
+		}
+		for _, f := range st.Form {
+			if strings.HasPrefix(f.Field, "steps.") {
+				parts := strings.Split(f.Field, ".")
+				if len(parts) >= 2 {
+					edges = append(edges, map[string]string{"from": parts[1], "to": st.ID, "via": f.Field})
+				}
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"pipeline": pf.Pipeline.Name,
+		"foreach":  pf.Pipeline.Foreach,
+		"errors":   errs,
+		"warnings": warns,
+		"ok":       len(errs) == 0,
+		"dag": map[string]interface{}{
+			"nodes": nodes,
+			"edges": edges,
+		},
+	})
 }

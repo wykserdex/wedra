@@ -95,10 +95,33 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 		}
 		return srcInfo{Name: path, Type: KindOf(val), Literal: val}, ""
 	case "steps":
+		// v0.12.1: поддержка steps.<id>_all (агрегат post-foreach)
+		// два формата:
+		//   steps.<id>.<field>      — обычный
+		//   steps.<id>_all          — агрегат всего выхода шага (array)
+		//   steps.<id>.<field>_all  — не используем, но допускаем как any
+		if len(parts) == 2 && strings.HasSuffix(parts[1], "_all") {
+			base := strings.TrimSuffix(parts[1], "_all")
+			ps, ok := prior[base]
+			if !ok {
+				return srcInfo{}, "шаг " + base + " не найден выше по цепочке (агрегат " + path + ")"
+			}
+			// агрегат — array любого содержимого
+			return srcInfo{Name: path, Type: "array", Format: "any", Step: ps.step}, ""
+		}
 		if len(parts) < 3 {
 			return srcInfo{}, "ожидается путь steps.<step_id>.<поле>: " + path
 		}
 		sid, field := parts[1], parts[2]
+		// если sid = check_all → база check
+		if strings.HasSuffix(sid, "_all") {
+			base := strings.TrimSuffix(sid, "_all")
+			ps, ok := prior[base]
+			if !ok {
+				return srcInfo{}, "шаг " + base + " не найден выше по цепочке"
+			}
+			return srcInfo{Name: path, Type: "array", Format: "any", Step: ps.step}, ""
+		}
 		ps, ok := prior[sid]
 		if !ok {
 			return srcInfo{}, "шаг " + sid + " не найден выше по цепочке"
@@ -108,6 +131,13 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 		}
 		port, ok := ps.manifest.Output[field]
 		if !ok {
+			// если поле оканчивается на _all — это агрегат одного поля, считаем any
+			if strings.HasSuffix(field, "_all") {
+				baseField := strings.TrimSuffix(field, "_all")
+				if _, ok2 := ps.manifest.Output[baseField]; ok2 {
+					return srcInfo{Name: path, Type: "array", Format: "any", Step: ps.step}, ""
+				}
+			}
 			return srcInfo{}, fmt.Sprintf("плагин %s не объявляет выход %q", ps.manifest.ID, field)
 		}
 		return srcInfo{Name: path, Type: port.Type, Format: port.Format, Step: ps.step}, ""

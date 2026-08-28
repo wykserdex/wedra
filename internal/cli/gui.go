@@ -27,7 +27,7 @@ func RunGUI(args []string) {
 	srv := api.NewServer("plugins", "pipelines", "var/runs")
 	handler := srv.Routes()
 
-	fmt.Printf("▶ GUI v0.11 — http://localhost:%s\n", port)
+	fmt.Printf("▶ GUI v%s — http://localhost:%s\n", api.Version, port)
 	fmt.Println("  API: /api/health, /api/plugins, /api/pipelines, /api/runs, /api/validate/pipeline")
 	fmt.Println("  Frontend: web/static/index.html (drag-and-drop, live YAML, JSON на линиях)")
 	fmt.Println("  Нажми Ctrl+C чтобы остановить")

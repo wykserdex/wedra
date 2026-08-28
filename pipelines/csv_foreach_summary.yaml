@@ -1,0 +1,31 @@
+format_version: "0.2"
+pipeline:
+  name: csv_foreach_summary
+  input:
+    csv_path: "testdata/sample.csv"
+  foreach: steps.load.rows
+  foreach_item: row
+  item_type: object
+  steps:
+    - id: load
+      plugin: plugins/csv_loader
+      bind: { path: input.csv_path }
+      on_error: stop
+
+    - id: check
+      plugin: plugins/text_analyzer
+      bind: { text: input.row.name }
+      on_error: skip
+
+    # post-foreach: один раз после всех элементов, с агрегатами steps.check_all
+    - id: summary
+      plugin: core/human_gate
+      after_foreach: true
+      form:
+        - field: steps.load.row_count
+          editable: false
+        - field: steps.check_all
+          editable: false
+        - field: steps.load.rows
+          editable: false
+      actions: [accept]
