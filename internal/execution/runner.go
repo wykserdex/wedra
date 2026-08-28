@@ -3,7 +3,6 @@ package execution
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +18,8 @@ type RunOptions struct {
 	RunsDir string
 	Quiet   bool
 	Resume  string
+	Store   string
+	DBPath  string
 }
 
 func (o RunOptions) logf(format string, a ...interface{}) {
@@ -48,18 +49,31 @@ type Engine interface {
 }
 
 func Run(pf *pipeline.PipelineFile, eng Engine, opts RunOptions) (RunStats, error) {
+	if opts.Store == "sqlite" {
+		s := journal.NewSQLiteStore(opts.RunsDir, opts.DBPath)
+		return runWithStore(pf, eng, opts, s)
+	}
 	return runWithStore(pf, eng, opts, journal.NewFilesystemStore(opts.RunsDir))
 }
 
-func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store *journal.FilesystemStore) (RunStats, error) {
+func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store journal.RunStore) (RunStats, error) {
 	var stats RunStats
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
 	}
-	if store.BaseDir == "" {
-		store.BaseDir = opts.RunsDir
-	} else {
-		opts.RunsDir = store.BaseDir
+	if fs, ok := store.(*journal.FilesystemStore); ok {
+		if fs.BaseDir == "" {
+			fs.BaseDir = opts.RunsDir
+		} else {
+			opts.RunsDir = fs.BaseDir
+		}
+	}
+	if sq, ok := store.(*journal.SQLiteStore); ok {
+		if sq.BaseDir == "" {
+			sq.BaseDir = opts.RunsDir
+		} else {
+			opts.RunsDir = sq.BaseDir
+		}
 	}
 
 	var ctx *context.Ctx
@@ -87,7 +101,8 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx})
 	} else {
 		runID := time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
-		j, err = journal.NewJournal(filepath.Join(opts.RunsDir, runID))
+		// use store.Create so SQLite DB gets entry
+		j, err = store.Create(runID)
 		if err != nil {
 			return stats, err
 		}
@@ -95,6 +110,8 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		stats.RunDir = j.Dir
 		opts.logf("▶ запуск %q  (журнал: %s)", pf.Pipeline.Name, j.Dir)
 		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
+		// also append to store's event log for SQLite
+		_ = store.AppendEvent(runID, "run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
 		ctx = context.NewCtx(pf.Pipeline.Input)
 	}
 

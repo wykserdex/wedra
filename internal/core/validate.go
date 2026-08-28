@@ -6,6 +6,10 @@ func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 	return pipeline.Validate(pf, eng)
 }
 
+func Lint(pf *PipelineFile, eng *Engine) (errs, warns []string) {
+	return pipeline.Lint(pf, eng, "")
+}
+
 func ValidatePluginDir(dir string) []string {
 	return pipeline.ValidatePluginDir(dir)
 }

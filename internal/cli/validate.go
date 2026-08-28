@@ -25,7 +25,16 @@ func RunPipelineValidate(args []string) {
 		fmt.Println("YAML ошибка:", err)
 		os.Exit(2)
 	}
-	errs, warns := core.Validate(&pf, core.NewEngine())
+	isLint := false
+	if len(os.Args) >= 3 && os.Args[2] == "lint" {
+		isLint = true
+	}
+	var errs, warns []string
+	if isLint {
+		errs, warns = core.Lint(&pf, core.NewEngine())
+	} else {
+		errs, warns = core.Validate(&pf, core.NewEngine())
+	}
 	for _, w := range warns {
 		fmt.Println("  · предупреждение:", w)
 	}
@@ -35,7 +44,11 @@ func RunPipelineValidate(args []string) {
 	if len(errs) > 0 {
 		os.Exit(1)
 	}
-	fmt.Println("OK: цепочка совместима")
+	if isLint {
+		fmt.Println("OK: lint пройден (включая file_ref)")
+	} else {
+		fmt.Println("OK: цепочка совместима")
+	}
 }
 
 func RunPipelinePlan(args []string) {

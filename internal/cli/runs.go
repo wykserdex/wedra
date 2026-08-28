@@ -11,20 +11,33 @@ import (
 
 func RunRunsList(args []string) {
 	runsDir := "var/runs"
-	if len(args) > 0 {
-		runsDir = args[0]
+	storeType := "fs"
+	dbPath := ""
+	for _, a := range args {
+		if len(a) > 11 && a[:11] == "--runs-dir=" {
+			runsDir = a[11:]
+		} else if len(a) > 8 && a[:8] == "--store=" {
+			storeType = a[8:]
+		} else if len(a) > 9 && a[:9] == "--db-path=" {
+			dbPath = a[9:]
+		} else if !isFlag(a) {
+			runsDir = a
+		}
 	}
-	entries, err := os.ReadDir(runsDir)
+	var store journal.RunStore
+	if storeType == "sqlite" {
+		store = journal.NewSQLiteStore(runsDir, dbPath)
+	} else {
+		store = journal.NewFilesystemStore(runsDir)
+	}
+	ids, err := store.ListRuns()
 	if err != nil {
 		fmt.Println("нет прогонов:", err)
 		return
 	}
-	fmt.Printf("Прогоны в %s:\n", runsDir)
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(runsDir, e.Name())
+	fmt.Printf("Прогоны в %s (store=%s):\n", runsDir, storeType)
+	for _, id := range ids {
+		dir := filepath.Join(runsDir, id)
 		rd := journal.NewReader(dir)
 		events, _ := rd.Events()
 		pipelineName := ""
@@ -33,7 +46,8 @@ func RunRunsList(args []string) {
 				pipelineName = pn
 			}
 		}
-		fmt.Printf("  %-40s  pipeline=%-20s  events=%d\n", e.Name(), pipelineName, len(events))
+		arts, _ := store.ListArtifacts(id)
+		fmt.Printf("  %-40s  pipeline=%-20s  events=%d  artifacts=%d\n", id, pipelineName, len(events), len(arts))
 	}
 }
 
@@ -44,8 +58,24 @@ func RunRunsShow(args []string) {
 	}
 	id := args[0]
 	runsDir := "var/runs"
-	if len(args) > 1 {
-		runsDir = args[1]
+	storeType := "fs"
+	dbPath := ""
+	for _, a := range args[1:] {
+		if len(a) > 11 && a[:11] == "--runs-dir=" {
+			runsDir = a[11:]
+		} else if len(a) > 8 && a[:8] == "--store=" {
+			storeType = a[8:]
+		} else if len(a) > 9 && a[:9] == "--db-path=" {
+			dbPath = a[9:]
+		} else if !isFlag(a) {
+			runsDir = a
+		}
+	}
+	var store journal.RunStore
+	if storeType == "sqlite" {
+		store = journal.NewSQLiteStore(runsDir, dbPath)
+	} else {
+		store = journal.NewFilesystemStore(runsDir)
 	}
 	dir := filepath.Join(runsDir, id)
 	rd := journal.NewReader(dir)
@@ -55,7 +85,7 @@ func RunRunsShow(args []string) {
 		os.Exit(1)
 	}
 	snap, _ := rd.ContextSnapshot()
-	fmt.Printf("Run %s (%s):\n", id, dir)
+	fmt.Printf("Run %s (%s) store=%s:\n", id, dir, storeType)
 	fmt.Printf("  events: %d\n", len(events))
 	for _, ev := range events {
 		b, _ := json.Marshal(ev)
@@ -66,6 +96,13 @@ func RunRunsShow(args []string) {
 		b, _ := json.MarshalIndent(snap, "", "  ")
 		fmt.Println(string(b))
 	}
+	arts, _ := store.ListArtifacts(id)
+	if len(arts) > 0 {
+		fmt.Printf("\nArtifacts (%d):\n", len(arts))
+		for _, a := range arts {
+			fmt.Println("  -", a)
+		}
+	}
 }
 
 func RunRunsResume(args []string) {
@@ -73,10 +110,7 @@ func RunRunsResume(args []string) {
 		fmt.Println("нужен id прогона: orchestrator runs resume <run_id> -- <pipeline.yaml>")
 		os.Exit(2)
 	}
-	// формат: orchestrator runs resume <run_id> [--yes] -- <pipeline.yaml>
-	// для MVP: просто вызываем pipeline run с --resume
 	runID := args[0]
-	// остальное — путь к пайплайну
 	pipelineFile := ""
 	yes := false
 	for _, a := range args[1:] {
@@ -90,12 +124,14 @@ func RunRunsResume(args []string) {
 		fmt.Println("нужен файл пайплайна для resume: orchestrator runs resume <run_id> <pipeline.yaml> [--yes]")
 		os.Exit(2)
 	}
-	// делегируем в RunPipelineRun с Resume
-	// формируем args для RunPipelineRun: <file> --yes --resume=<id>
 	newArgs := []string{pipelineFile}
 	if yes {
 		newArgs = append(newArgs, "--yes")
 	}
 	newArgs = append(newArgs, "--resume="+runID)
 	RunPipelineRun(newArgs)
+}
+
+func isFlag(s string) bool {
+	return len(s) > 0 && s[0] == '-'
 }
