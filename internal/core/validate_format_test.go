@@ -39,8 +39,8 @@ func TestManifest_LegalFormatsPass(t *testing.T) {
 	for _, p := range []Port{
 		{Type: "string", Format: "email"},
 		{Type: "string", Format: "file_ref"},
-		{Type: "string"},                      // без формата
-		{Type: "array"},                       // массив без формата — легально
+		{Type: "string"}, // без формата
+		{Type: "array"},  // массив без формата — легально
 		{Type: "object"},
 		{Type: "number"},
 	} {

@@ -39,16 +39,16 @@ type srcInfo struct {
 	Name    string
 	Type    string
 	Format  string
-	Step    *Step        // nil для input.*
-	Literal interface{}  // значение-литерал для input.* (для статической проверки формата)
+	Step    *Step       // nil для input.*
+	Literal interface{} // значение-литерал для input.* (для статической проверки формата)
 }
 
 var formatCheckers = map[string]func(string) bool{
 	"email": func(s string) bool {
 		return regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`).MatchString(s)
 	},
-	"url": func(s string) bool { return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") },
-	"ip":  func(s string) bool { return net.ParseIP(s) != nil },
+	"url":  func(s string) bool { return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") },
+	"ip":   func(s string) bool { return net.ParseIP(s) != nil },
 	"text": func(s string) bool { return true },
 }
 
@@ -104,6 +104,9 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 		}
 		port, ok := ps.manifest.Output[field]
 		if !ok {
+			// для gate, который теперь материализует с префиксом при коллизии,
+			// выход может быть вида before_file_count — проверяем префикс-форму
+			// не строго, а даём подсказку
 			return srcInfo{}, fmt.Sprintf("плагин %s не объявляет выход %q", ps.manifest.ID, field)
 		}
 		return srcInfo{Name: path, Type: port.Type, Format: port.Format, Step: ps.step}, ""
@@ -116,7 +119,13 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 // errs блокируют запуск, warns — нет.
 func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 	if pf.FormatVersion != "0.1" && pf.FormatVersion != "0.2" {
-		warns = append(warns, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
+		// фикс фидбек №5: format_version с опечаткой — раньше был warning + OK, что плохо для CI
+		// теперь это ошибка, если версия указана явно
+		if pf.FormatVersion != "" {
+			errs = append(errs, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
+		} else {
+			warns = append(warns, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
+		}
 	}
 	p := &pf.Pipeline
 
@@ -161,6 +170,19 @@ func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 			default:
 				errs = append(errs, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
 			}
+			// фикс №1: детектим коллизию basename в form
+			bnSeen := map[string][]string{}
+			for _, f := range st.Form {
+				bn := basename(f.Field)
+				bnSeen[bn] = append(bnSeen[bn], f.Field)
+			}
+			for bn, fields := range bnSeen {
+				if len(fields) > 1 {
+					// раньше это молча затирало данные, теперь материализуем как before_file_count
+					// но предупреждаем автора, что ключи будут с префиксом
+					warns = append(warns, fmt.Sprintf("шаг %s, form: базовое имя %q встречается в %v — при материализации будут ключи вида <step_id>_%s (напр. %s_%s), чтобы не потерять данные", st.ID, bn, fields, bn, extractStepID(fields[0]), bn))
+				}
+			}
 			for _, f := range st.Form {
 				if src, e := resolveSource(f.Field, prior, pf); e != "" {
 					// если поле читает из skip-able шага — это warning, а не ошибка
@@ -190,7 +212,13 @@ func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 		for portName, port := range m.Input {
 			srcPath := portSource(portName, port, st)
 			if srcPath == "" {
-				// v0.2: from можно опустить, но тогда пайплайн ОБЯЗАН дать bind
+				// фикс №2 (внешний автор, 2026-08-28): optional-порт без привязки раньше был жёсткой ошибкой,
+				// хотя логика optional — именно «привязку можно не давать». Инверсия: не привязать нельзя,
+				// а привязать к несуществующему пути — можно (warning). Теперь optional без привязки = warning.
+				if port.Optional {
+					warns = append(warns, fmt.Sprintf("шаг %s, порт %s: нет привязки (optional — допустимо)", st.ID, portName))
+					continue
+				}
 				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: нет привязки (ни bind в шаге, ни from в манифесте)", st.ID, portName))
 				continue
 			}

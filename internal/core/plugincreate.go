@@ -25,7 +25,8 @@ type CreateOptions struct {
 // ParseCreateArgs разбирает аргументы `plugin create`: путь и флаги
 // (--author, --description) В ЛЮБОМ порядке — стандартный flag-пакет Go
 // обрывается на первом позиционном, а тестер №2 интуитивно пишет флаги после пути:
-//   tool plugin create plugins/url_checker --author me --description "Checks URLs"
+//
+//	tool plugin create plugins/url_checker --author me --description "Checks URLs"
 func ParseCreateArgs(args []string) (dir string, opts CreateOptions, err error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

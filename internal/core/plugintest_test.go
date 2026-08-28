@@ -39,7 +39,7 @@ func TestMatchValueMatchers(t *testing.T) {
 	matchValue("x", map[string]interface{}{"contains": "mock"}, "[mock:x] t", fail)
 	matchValue("x", map[string]interface{}{"type": "array"}, []interface{}{}, fail)
 	matchValue("x", map[string]interface{}{"type": "string"}, 42.0, fail) // провал
-	matchValue("x", map[string]interface{}{"contains": "q"}, 42.0, fail)   // ни строка, ни массив = провал
+	matchValue("x", map[string]interface{}{"contains": "q"}, 42.0, fail)  // ни строка, ни массив = провал
 	matchValue("x", map[string]interface{}{"equals": true}, true, fail)
 	if len(failures) != 2 {
 		t.Fatalf("ожидалось 2 провала (type, contains-not-str), got %d: %v", len(failures), failures)

@@ -46,10 +46,11 @@ type PluginTestFile struct {
 }
 
 // Матчеры для полей output:
-//   value: 42                    — точное (глубокое) равенство
-//   value: { present: true }     — поле существует
-//   value: { contains: "foo" }   — строка содержит подстроку; МАССИВ содержит элемент (любой тип)
-//   value: { type: "array" }     — тип (boolean|number|string|array|object)
+//
+//	value: 42                    — точное (глубокое) равенство
+//	value: { present: true }     — поле существует
+//	value: { contains: "foo" }   — строка содержит подстроку; МАССИВ содержит элемент (любой тип)
+//	value: { type: "array" }     — тип (boolean|number|string|array|object)
 var matcherKeys = map[string]bool{"present": true, "contains": true, "type": true, "equals": true}
 
 type CaseResult struct {

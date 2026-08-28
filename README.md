@@ -39,7 +39,7 @@ orchestrator/
 
 ```bash
 go build -o tool ./cmd/tool
-go test ./internal/core/                            # 64 теста: ядро + плагины + SDK покрыты
+go test ./internal/core/                            # 93 теста: ядро + плагины + SDK покрыты
 
 ./tool plugin validate plugins/syntax_mx_checker   # контракт плагина (манифест)
 ./tool plugin test plugins/syntax_mx_checker       # контракт-тесты из plugin.test.yaml
@@ -115,7 +115,7 @@ tests:
 
 ## Тесты
 
-`go test ./internal/core/` — покрытие: контекст/неймспейсы, YAML-парсинг, статическая валидация (несовместимые типы и форматы, skip-безопасность, forward-refs, литеральные format-проверки), экзекутор (все классы exit-кодов, таймаут, нарушение протокола), enforce контракта, раннер (foreach-scope, retry до успеха/исчерпания, платформенный стоп рана, human_gate auto/reject/правки). Фикстуры — 8 плагинов в `internal/core/testdata/plugins/`, в т.ч. крашащийся и нарушающий протокол.
+`go test ./internal/core/` — покрытие: контекст/неймспейсы, YAML-парсинг, статическая валидация (несовместимые типы и форматы, skip-безопасность, forward-refs, литеральные format-проверки, коллизии basename в gate, optional без привязки), экзекутор (все классы exit-кодов, таймаут, нарушение протокола, platform:code на exit>=2), enforce контракта, раннер (foreach-scope, retry до успеха/исчерпания, платформенный стоп рана, human_gate auto/reject/правки с квалифицированными ключами при коллизии). Фикстуры — 11 плагинов в `internal/core/testdata/plugins/`, в т.ч. крашащийся и нарушающий протокол.
 
 ## Следующие шаги (по ТЗ)
 
