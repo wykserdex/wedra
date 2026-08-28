@@ -14,7 +14,7 @@ import (
 	"orchestrator/internal/plugin"
 )
 
-const Version = "0.13"
+const Version = "0.14"
 
 type Server struct {
 	PluginsDir   string

@@ -3,6 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
 	"orchestrator/internal/core"
 )
@@ -106,4 +109,71 @@ func RunPluginInspect(args []string) {
 		fmt.Printf("  %s: type=%s format=%s optional=%v\n", k, p.Type, p.Format, p.Optional)
 	}
 	fmt.Printf("Permissions: %+v\n", m.Permissions)
+}
+
+func RunPluginList(args []string) {
+	plugins := scanPlugins()
+	if len(plugins) == 0 {
+		fmt.Println("плагины не найдены в plugins/official и plugins/community")
+		return
+	}
+	sort.Slice(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })
+	fmt.Printf("Найдено %d плагинов:\n", len(plugins))
+	for _, p := range plugins {
+		fmt.Printf("  %-24s %-10s %s (%s)\n", p.ID, p.Version, p.Dir, p.Description)
+	}
+}
+
+func RunPluginSearch(args []string) {
+	if len(args) < 1 {
+		fmt.Println("нужен запрос: orchestrator plugin search <query>")
+		os.Exit(2)
+	}
+	query := strings.ToLower(strings.Join(args, " "))
+	plugins := scanPlugins()
+	matched := []core.Manifest{}
+	for _, p := range plugins {
+		hay := strings.ToLower(p.ID + " " + p.Description + " " + p.Author)
+		if strings.Contains(hay, query) {
+			matched = append(matched, p)
+		}
+	}
+	if len(matched) == 0 {
+		fmt.Printf("по запросу %q ничего не найдено (всего %d плагинов)\n", query, len(plugins))
+		return
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
+	fmt.Printf("По запросу %q найдено %d:\n", query, len(matched))
+	for _, p := range matched {
+		fmt.Printf("  %-24s %-10s %s\n    %s\n", p.ID, p.Version, p.Dir, p.Description)
+	}
+}
+
+func scanPlugins() []core.Manifest {
+	eng := core.NewEngine()
+	roots := []string{"plugins/official", "plugins/community", "plugins"}
+	var out []core.Manifest
+	seen := map[string]bool{}
+	for _, root := range roots {
+		ents, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range ents {
+			if !e.IsDir() {
+				continue
+			}
+			dir := filepath.Join(root, e.Name())
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			m, err := eng.LoadManifest(dir)
+			if err != nil {
+				continue
+			}
+			out = append(out, *m)
+		}
+	}
+	return out
 }

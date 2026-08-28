@@ -8,9 +8,6 @@ import (
 )
 
 func RunPipelineRun(args []string) {
-	// args: <file.yaml> [--yes] [--runs-dir var/runs]
-	// делегируем в core.Run через старый main.go логику
-	// для MVP просто вызываем core напрямую, как раньше
 	if len(args) == 0 {
 		fmt.Println("нужен файл пайплайна: orchestrator pipeline run <file.yaml>")
 		os.Exit(2)
@@ -19,6 +16,8 @@ func RunPipelineRun(args []string) {
 	yes := false
 	runsDir := ""
 	resume := ""
+	store := "fs"
+	dbPath := ""
 	for _, a := range args[1:] {
 		if a == "--yes" {
 			yes = true
@@ -28,6 +27,12 @@ func RunPipelineRun(args []string) {
 		}
 		if len(a) > 9 && a[:9] == "--resume=" {
 			resume = a[9:]
+		}
+		if len(a) > 8 && a[:8] == "--store=" {
+			store = a[8:]
+		}
+		if len(a) > 9 && a[:9] == "--db-path=" {
+			dbPath = a[9:]
 		}
 	}
 	if runsDir == "" {
@@ -53,7 +58,7 @@ func RunPipelineRun(args []string) {
 		}
 		os.Exit(1)
 	}
-	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume})
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath})
 	if err != nil {
 		fmt.Println("ран упал:", err)
 		os.Exit(1)

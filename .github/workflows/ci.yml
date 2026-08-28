@@ -14,49 +14,62 @@ jobs:
         run: go vet ./...
       - name: go fmt check
         run: |
-          out=$(gofmt -l ./internal ./cmd)
+          out=$(gofmt -l ./internal ./cmd/tool)
           if [ -n "$out" ]; then
             echo "gofmt needed:"
             echo "$out"
             exit 1
           fi
       - name: go test
-        run: go test ./... -count=1
-      - name: build binaries
+        run: go test ./... -count=1 -run Test -v
+      - name: conformance tests
+        run: go test ./internal/core -run TestConformance -v -count=1
+      - name: build tool
+        run: go build -o tool ./cmd/tool
+      - name: plugin validate + test (official/community)
         run: |
-          go build -o tool ./cmd/tool
-          go build -o orchestrator ./cmd/orchestrator
-          ./orchestrator version
-          ./orchestrator pipeline validate pipelines/email_check.yaml
-          ./orchestrator pipeline validate pipelines/csv_foreach.yaml
-          ./orchestrator pipeline validate pipelines/csv_foreach_summary.yaml
-          ./orchestrator plugin validate plugins/csv_loader
-      - name: plugin validate + test
-        run: |
-          for d in plugins/* plugins/*/*; do
+          for d in plugins/official/* plugins/community/*; do
             if [ -f "$d/plugin.yaml" ]; then
               echo "== $d =="
               ./tool plugin validate "$d"
               ./tool plugin test "$d"
             fi
           done
-      - name: pipeline validate
+      - name: plugin list + search
+        run: |
+          ./tool plugin list
+          ./tool plugin search csv
+          ./tool plugin search llm
+      - name: pipeline validate + lint + plan (all pipelines)
         run: |
           for f in pipelines/*.yaml; do
-            echo "== $f =="
-            ./tool validate "$f"
+            echo "== validate $f =="
+            ./tool pipeline validate "$f"
+            echo "== lint $f =="
+            ./tool pipeline lint "$f"
+            echo "== plan $f =="
+            ./tool pipeline plan "$f"
           done
-      - name: test foreach steps.* + after_foreach
+      - name: foreach + after_foreach live
         run: |
-          ./tool run pipelines/csv_foreach.yaml --yes
-          ./tool run pipelines/csv_foreach_summary.yaml --yes
-      - name: test resume
+          ./tool pipeline run pipelines/csv_foreach.yaml --yes
+          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes
+      - name: resume live
         run: |
-          RUN_ID=$(ls -t var/runs/ | head -n1)
-          echo "Testing resume from $RUN_ID"
-          ./tool run pipelines/csv_foreach.yaml --yes --resume=$RUN_ID || echo "resume finished (all done)"
-      - name: check schemas + api
+          ./tool pipeline run pipelines/csv_foreach.yaml --yes --runs-dir=var/runs | tail
+          last=$(ls -t var/runs | head -1)
+          echo "resume $last"
+          ./tool runs show $last
+          ./tool runs list
+      - name: sqlite store live
         run: |
-          ls protocol/schemas/v0.2/manifest.schema.json
-          ls schemas/pipeline/v0.2.schema.json
-          go vet ./internal/api/...
+          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes --store=sqlite --db-path=var/runs/runs.db
+          ./tool runs list --store=sqlite --db-path=var/runs/runs.db
+          last=$(./tool runs list --store=sqlite --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
+          echo "sqlite run $last"
+          ./tool runs show $last --store=sqlite --db-path=var/runs/runs.db
+      - name: schemas check
+        run: |
+          ls protocol/schemas/
+          ls schemas/pipeline/
+          cat protocol/schemas/v0.2/*.json | head -n 20

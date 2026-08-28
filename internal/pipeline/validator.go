@@ -379,6 +379,62 @@ func unmarshalYAML(raw []byte, m *Manifest) error {
 	return yaml.Unmarshal(raw, m)
 }
 
+func Lint(pf *PipelineFile, eng Engine, projectRoot string) (errs, warns []string) {
+	errs, warns = Validate(pf, eng)
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
+	}
+	for _, st := range pf.Pipeline.Steps {
+		if IsBuiltin(st.Plugin) {
+			continue
+		}
+		m, err := eng.LoadManifest(st.Plugin)
+		if err != nil {
+			continue
+		}
+		for portName, port := range m.Input {
+			if port.Format != "file_ref" {
+				continue
+			}
+			srcPath := PortSource(portName, port, &st)
+			if srcPath == "" {
+				continue
+			}
+			if !strings.HasPrefix(srcPath, "input.") {
+				continue
+			}
+			key := strings.TrimPrefix(srcPath, "input.")
+			if idx := strings.Index(key, "."); idx >= 0 {
+				key = key[:idx]
+			}
+			rawVal, ok := pf.Pipeline.Input[key]
+			if !ok {
+				continue
+			}
+			s, ok := rawVal.(string)
+			if !ok || s == "" {
+				continue
+			}
+			if filepath.IsAbs(s) {
+				if _, err := os.Stat(s); err != nil {
+					errs = append(errs, fmt.Sprintf("шаг %s, порт %s (file_ref): файл %q не найден (abs): %v", st.ID, portName, s, err))
+				}
+				continue
+			}
+			pluginAbs, _ := filepath.Abs(st.Plugin)
+			if _, err := os.Stat(filepath.Join(pluginAbs, s)); err == nil {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(projectRoot, s)); err == nil {
+				warns = append(warns, fmt.Sprintf("шаг %s, порт %s (file_ref): %q найден от корня проекта, но не от плагина (%s) — укажите путь относительно плагина или абсолютный", st.ID, portName, s, pluginAbs))
+				continue
+			}
+			errs = append(errs, fmt.Sprintf("шаг %s, порт %s (file_ref): файл %q не найден ни от плагина (%s) ни от корня (%s)", st.ID, portName, s, pluginAbs, projectRoot))
+		}
+	}
+	return errs, warns
+}
+
 func DetectCycle(pf *PipelineFile) string {
 	adj := map[string][]string{}
 	nodes := map[string]bool{}

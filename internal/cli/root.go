@@ -8,7 +8,6 @@ import (
 	"orchestrator/internal/api"
 )
 
-// Root — точка сборки CLI, теперь в internal/cli вместо cmd/tool/main.go
 func Run() {
 	if len(os.Args) < 2 {
 		printHelp()
@@ -21,7 +20,6 @@ func Run() {
 	case "plugin":
 		handlePlugin(os.Args[2:])
 	case "runs", "run":
-		// runs — новая команда v0.12, run — алиас для pipeline run (совместимость)
 		if cmd == "runs" {
 			handleRuns(os.Args[2:])
 		} else {
@@ -52,18 +50,20 @@ func printHelp() {
 	fmt.Printf(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v%s, CLI focus)
 
 Команды (мясо, не косметика):
-  orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs]
+  orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|sqlite]
   orchestrator pipeline validate <file.yaml>
   orchestrator pipeline plan <file.yaml>
-  orchestrator pipeline lint <file.yaml>          # alias validate + file_ref check
+  orchestrator pipeline lint <file.yaml>          # validate + file_ref error
   orchestrator plugin validate <dir>
   orchestrator plugin test <dir>
   orchestrator plugin create <dir> [--author --description --example]
   orchestrator plugin inspect <dir>
-  orchestrator runs list [var/runs]               # список прогонов
-  orchestrator runs show <run_id> [var/runs]      # журнал + context
-  orchestrator runs resume <run_id> <pipeline.yaml> [--yes]  # --resume
-  orchestrator gui [--port 8080] [--open]         # отложено, косметика (v0.11 scaffold)
+  orchestrator plugin search <query>              # поиск по official/community
+  orchestrator plugin list                        # список всех плагинов
+  orchestrator runs list [var/runs]               # список прогонов (fs + sqlite)
+  orchestrator runs show <run_id> [var/runs]      # журнал + context + artifacts
+  orchestrator runs resume <run_id> <pipeline.yaml> [--yes]
+  orchestrator gui [--port 8080] [--open]         # отложено, косметика
 
 Совместимость:
   orchestrator run <file.yaml> == pipeline run
@@ -107,7 +107,6 @@ func handleRuns(args []string) {
 	case "resume":
 		RunRunsResume(args[1:])
 	default:
-		// если первый arg — не команда, а run_id для show
 		if len(args) == 1 {
 			RunRunsShow(args)
 		} else {
@@ -132,6 +131,10 @@ func handlePlugin(args []string) {
 		RunPluginCreate(args[1:])
 	case "inspect":
 		RunPluginInspect(args[1:])
+	case "search":
+		RunPluginSearch(args[1:])
+	case "list":
+		RunPluginList(args[1:])
 	default:
 		fmt.Printf("неизвестная plugin команда %q\n", sub)
 		os.Exit(2)

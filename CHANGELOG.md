@@ -1,5 +1,15 @@
 # Changelog — честная 0.x
 
+## v0.14 (2026-08-28) — SQLite real, lint file_ref error, plugin search, conformance в CI
+
+- **journal/store.go — SQLite real**: `SQLiteStore` теперь реальный, не заготовка. Использует `modernc.org/sqlite` (pure Go, без CGO). Схема: `runs(id, pipeline, created_at)`, `events(id, run_id, type, ts, data, item_index)`, `artifacts(run_id, name, path)`. Методы: `Create` пишет в FS + INSERT в runs, `AppendEvent` — FS + INSERT в events (с item_index), `SaveArtifact` — FS + INSERT в artifacts, `MaxItemIndex` — `SELECT MAX(item_index) FROM events WHERE type='item_end'`, `ListRuns` — из DB, `ListArtifacts` — из DB с fallback в FS. Поддерживается `Close()`. CLI `--store=fs|sqlite --db-path=var/runs/runs.db`.
+- **execution/runner.go**: `RunOptions{Store, DBPath}`, `Run` выбирает `FilesystemStore` или `SQLiteStore`, `runWithStore` принимает `journal.RunStore` интерфейс (а не конкретный FS). `core/runner.go` shim прокидывает Store/DBPath.
+- **pipeline/validator.go — Lint file_ref error**: новый `Lint(pf, eng, projectRoot)` — вызывает `Validate` + проверяет file_ref литералы из `input.*`: ищет файл от плагина (`<plugin_dir>/<path>`) и от корня проекта, если не найден ни там ни там → error `file_ref: файл не найден ни от плагина ни от корня`. Если найден только от корня → warning с хинтом. `cli/validate.go` теперь различает `validate` (только Validate) и `lint` (Lint с file_ref error). `pipeline lint` → `OK: lint пройден (включая file_ref)` или ошибка.
+- **plugin search**: `orchestrator plugin search <query>` и `plugin list` — сканирует `plugins/official/*` + `plugins/community/*`, ищет по `id + description + author` (case-insensitive). Выводит `id version dir description`.
+- **conformance в CI**: `ci.yml` теперь гоняет `go test -run TestConformance`, `plugin list/search`, `pipeline lint/plan`, `foreach+after_foreach live`, `resume live`, `sqlite store live` (run + list + show с sqlite), `schemas check`. Go 1.22 с toolchain 1.25 для modernc.
+- **runs CLI**: `runs list/show` поддерживают `--store=sqlite --db-path=...` и показывают artifacts count + список artifacts. `ListArtifacts`, `LoadArtifact`, `ListRuns` в `RunStore` интерфейсе, реализованы в FS и SQLite.
+- **Тесты**: `go test ./... ok` (core 93 теста), `plugin list` 10 плагинов, `lint` ловит отсутствующий file_ref, sqlite live `32K runs.db` с 8 ранами.
+
 ## v0.13 (2026-08-29) — честный перенос логики из монолита (ответ на фидбек v10)
 
 Главный фидбек: v10 рефакторинг косметический, логика осталась в `internal/core` (~2.5k строк), а новые пакеты — заглушки. В v0.13 довёл до конца:
@@ -59,17 +69,3 @@
 - CLI `orchestrator` binary + backward compat `tool`
 - Протокол версионирован (v0.1, v0.2, envelope план v0.3)
 - 10 плагинов, 8 пайплайнов, 93 теста PASS
-
-## v0.9.1 (бывший v9.1) — быстрые фиксы
-- csv_loader (7 тестов) + email_triage (10 тестов) закоммичены
-- README TODO, gate truncate 120→500, crash→platform hint
-- CI workflow локально (.github/workflows/ci.yml)
-
-## v0.9 (бывший v9) — критичные баги
-- #9 gate collision (basename → <step_id>_<basename>)
-- #10 optional bind = warning, не error
-- #11 platform:<code> на exit>=2
-- #13 format_version strict
-
-## v0.8 (M5)
-- 4 внешних автора, 0 провалов, 8.5–9/10, 10 плагинов, 8 пайплайнов

@@ -13,5 +13,7 @@ func Run(pf *PipelineFile, eng *Engine, opts RunOptions) (RunStats, error) {
 		RunsDir: opts.RunsDir,
 		Quiet:   opts.Quiet,
 		Resume:  opts.Resume,
+		Store:   opts.Store,
+		DBPath:  opts.DBPath,
 	})
 }
