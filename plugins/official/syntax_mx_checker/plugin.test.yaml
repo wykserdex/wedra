@@ -1,0 +1,21 @@
+# Контракт-тесты syntax_mx_checker. Прогон: tool plugin test ./plugins/syntax_mx_checker
+tests:
+  - name: валидный email → ok, синтаксис true, mx массив (пустой офлайн — нормально)
+    input: { email: "test@yandex.ru" }
+    expect:
+      status: ok
+      output:
+        syntax: true
+        mx: { type: array }
+
+  - name: невалидный email → доменная ошибка bad_syntax, не retryable
+    input: { email: "bad-email" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_syntax, retryable: false }
+
+  - name: битый JSON на входе → платформенная ошибка (exit 2)
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

@@ -89,7 +89,7 @@ func main() {
 func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	yes := fs.Bool("yes", false, "auto-accept human_gate")
-	runsDir := fs.String("runs", "runs", "каталог журналов прогонов")
+	runsDir := fs.String("runs", "var/runs", "каталог журналов прогонов")
 
 	// flag-пакет Go стопорится на первом позиционном аргументе,
 	// поэтому наши два флага вытаскиваем вручную — в любом порядке

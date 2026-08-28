@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Plugin Request v0.2",
+  "description": "stdin JSON для плагина — собран ядром из input.* / steps.* по manifest.input",
+  "type": "object",
+  "additionalProperties": true,
+  "examples": [
+    {"email": "test@yandex.ru"},
+    {"text": "hello world"},
+    {"items": ["ab", "cde"]},
+    {"path": "testdata/sample.csv"}
+  ]
+}

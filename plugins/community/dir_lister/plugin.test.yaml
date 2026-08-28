@@ -1,0 +1,29 @@
+# Контракт-тесты dir_lister (воспроизводят сценарии из отчёта пакета №5).
+tests:
+  - name: считает файлы и расширения в testdata/before
+    input: { path: "testdata/before" }   # относительный путь — от директории плагина!
+    expect:
+      status: ok
+      output:
+        file_count: 3
+        by_extension: { ".txt": 2, ".md": 1 }
+
+  - name: counts differ на testdata/after (сценарий до/после)
+    input: { path: "testdata/after" }
+    expect:
+      status: ok
+      output:
+        file_count: 4
+        by_extension: { ".txt": 2, ".md": 1, ".jpg": 1 }
+
+  - name: несуществующая директория — доменная ошибка
+    input: { path: "testdata/no_such_dir" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_found, retryable: false }
+
+  - name: битый JSON является платформенной ошибкой
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

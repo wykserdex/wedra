@@ -9,42 +9,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const PlatformAPI = "0.1"
-
-type Port struct {
-	From     string `yaml:"from"`
-	Type     string `yaml:"type"`
-	Format   string `yaml:"format"`
-	Optional bool   `yaml:"optional"`
-}
-
-type Runtime struct {
-	Type     string   `yaml:"type"` // python | binary | ...
-	Entry    string   `yaml:"entry"`
-	Requires []string `yaml:"requires"`
-}
-
-type Permissions struct {
-	Network    []map[string]interface{} `yaml:"network"`
-	Filesystem string                   `yaml:"filesystem"` // none | workspace | paths:[...] (L0: декларативно)
-	Secrets    []string                 `yaml:"secrets"`
-}
-
-type Manifest struct {
-	ID          string          `yaml:"id"`
-	Version     string          `yaml:"version"`
-	PlatformAPI string          `yaml:"platform_api"`
-	Description string          `yaml:"description"` // метаданные маркетплейса
-	Author      string          `yaml:"author"`
-	Runtime     Runtime         `yaml:"runtime"`
-	Input       map[string]Port `yaml:"input"`
-	Output      map[string]Port `yaml:"output"`
-	Permissions Permissions     `yaml:"permissions"`
-
-	Dir string `yaml:"-"`
-}
-
 // Engine резолвит ссылки на плагины и кэширует манифесты.
+// Теперь живёт и в internal/plugin, здесь копия для совместимости тестов (engineWith использует cache)
 type Engine struct {
 	cache map[string]*Manifest
 }

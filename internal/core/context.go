@@ -1,47 +1,10 @@
 package core
 
-import "strings"
+import ctxpkg "orchestrator/internal/context"
 
-// Ctx — shared context: {"input": {...}, "steps": {"<step_id>": {...}}}.
-// Плагин видит только свой срез; пишет только в свой неймспейс (см. PROTOCOL.md §4).
-type Ctx struct {
-	Data map[string]interface{}
-}
+// Ctx — shared context, теперь живёт в internal/context, здесь алиас для совместимости
+type Ctx = ctxpkg.Ctx
 
 func NewCtx(input map[string]interface{}) *Ctx {
-	if input == nil {
-		input = map[string]interface{}{}
-	}
-	return &Ctx{Data: map[string]interface{}{
-		"input": input,
-		"steps": map[string]interface{}{},
-	}}
-}
-
-func (c *Ctx) ResetSteps() {
-	c.Data["steps"] = map[string]interface{}{}
-}
-
-func (c *Ctx) SetInput(key string, val interface{}) {
-	c.Data["input"].(map[string]interface{})[key] = val
-}
-
-func (c *Ctx) SetStep(stepID string, out map[string]interface{}) {
-	c.Data["steps"].(map[string]interface{})[stepID] = out
-}
-
-// Get разрешает dot-путь: "input.emails", "steps.syntax.mx".
-func (c *Ctx) Get(path string) (interface{}, bool) {
-	var cur interface{} = c.Data
-	for _, part := range strings.Split(path, ".") {
-		m, ok := cur.(map[string]interface{})
-		if !ok {
-			return nil, false
-		}
-		cur, ok = m[part]
-		if !ok {
-			return nil, false
-		}
-	}
-	return cur, true
+	return ctxpkg.NewCtx(input)
 }

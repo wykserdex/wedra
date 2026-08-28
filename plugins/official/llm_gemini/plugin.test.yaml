@@ -1,0 +1,34 @@
+# Контракт-тесты llm_gemini. Прогон: tool plugin test ./plugins/llm_gemini
+# Wire-тесты против мокового HTTP-сервера — в репо ядра (internal/core/llm_plugins_test.go);
+# здесь — функциональный контракт, доступный любому автору без Go.
+tests:
+  - name: mock-режим без ключа → ok, text содержит тег и тему
+    env: { LLM_MOCK: "1" }
+    input: { prompt: "арбузы", system: "пиши коротко" }
+    expect:
+      status: ok
+      output:
+        text:  { contains: "[mock:" }
+        model: { present: true }
+
+  - name: пустой prompt → доменная ошибка empty_prompt
+    env: { LLM_MOCK: "1" }
+    input: { prompt: "" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_prompt, retryable: false }
+
+  - name: без ключа и без mock → понятная no_api_key, НЕ traceback
+    env: { LLM_MOCK: "", GEMINI_API_KEY: "" }   # явно пустые — переопределяют наследованные
+    input: { prompt: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_api_key, retryable: false }
+
+  - name: битый JSON на входе → платформенная ошибка (exit 2)
+    env: { LLM_MOCK: "1" }
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

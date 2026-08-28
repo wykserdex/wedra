@@ -141,11 +141,23 @@ func TestPluginTestNoSpecFile(t *testing.T) {
 
 func TestPluginTestShippedPlugins(t *testing.T) {
 	requirePython(t)
-	dirs, err := filepath.Glob(filepath.Join("..", "..", "plugins", "*"))
-	if err != nil || len(dirs) == 0 {
+	// поддержка и плоской (plugins/<id>) и новой иерархии (plugins/official/<id>, plugins/community/<id>)
+	patterns := []string{
+		filepath.Join("..", "..", "plugins", "*"),
+		filepath.Join("..", "..", "plugins", "*", "*"),
+	}
+	var dirs []string
+	for _, pat := range patterns {
+		m, _ := filepath.Glob(pat)
+		dirs = append(dirs, m...)
+	}
+	if len(dirs) == 0 {
 		t.Fatal("не найдены шипленные плагины")
 	}
 	for _, dir := range dirs {
+		if _, err := os.Stat(filepath.Join(dir, "plugin.yaml")); err != nil {
+			continue // official/, community/ — не плагины
+		}
 		passed, failed, err := RunPluginTests(dir, "", true)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
