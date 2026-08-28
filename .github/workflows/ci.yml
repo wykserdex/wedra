@@ -1,0 +1,62 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: go vet
+        run: go vet ./...
+      - name: go fmt check
+        run: |
+          out=$(gofmt -l ./internal ./cmd)
+          if [ -n "$out" ]; then
+            echo "gofmt needed:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go test
+        run: go test ./... -count=1
+      - name: build binaries
+        run: |
+          go build -o tool ./cmd/tool
+          go build -o orchestrator ./cmd/orchestrator
+          ./orchestrator version
+          ./orchestrator pipeline validate pipelines/email_check.yaml
+          ./orchestrator pipeline validate pipelines/csv_foreach.yaml
+          ./orchestrator pipeline validate pipelines/csv_foreach_summary.yaml
+          ./orchestrator plugin validate plugins/csv_loader
+      - name: plugin validate + test
+        run: |
+          for d in plugins/* plugins/*/*; do
+            if [ -f "$d/plugin.yaml" ]; then
+              echo "== $d =="
+              ./tool plugin validate "$d"
+              ./tool plugin test "$d"
+            fi
+          done
+      - name: pipeline validate
+        run: |
+          for f in pipelines/*.yaml; do
+            echo "== $f =="
+            ./tool validate "$f"
+          done
+      - name: test foreach steps.* + after_foreach
+        run: |
+          ./tool run pipelines/csv_foreach.yaml --yes
+          ./tool run pipelines/csv_foreach_summary.yaml --yes
+      - name: test resume
+        run: |
+          RUN_ID=$(ls -t var/runs/ | head -n1)
+          echo "Testing resume from $RUN_ID"
+          ./tool run pipelines/csv_foreach.yaml --yes --resume=$RUN_ID || echo "resume finished (all done)"
+      - name: check schemas + api
+        run: |
+          ls protocol/schemas/v0.2/manifest.schema.json
+          ls schemas/pipeline/v0.2.schema.json
+          go vet ./internal/api/...
