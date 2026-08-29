@@ -9,6 +9,10 @@
 - **CONTRIBUTING.md** — чек-листы: плагин в реестр, пресет в реестр, ревьюер.
 - **PROTOCOL.md §11** — `permissions: declare-now`: L1 = контракт + аудит (песочница сознательно вне уровня).
 - Фикстуры: `net_demo` (заявляет сеть + секрет), `net_probe` (читает `WEDRA_NETWORK`).
+- **CI-долг закрыт**: workflow краснел с v0.14 — `tool pipeline ...` и `tool runs` (с флагами)
+  никогда не существовали в `tool` (только в `orchestrator`), а `tool plugin list/search`
+  добавлены (общий сканер `core.ScanPlugins`). Workflow переписан на `./orchestrator`
+  для pipeline/runs-шагов.
 - Тесты: 112 PASS (+5: network deny validate/run, WEDRA_NETWORK env, secrets cross, load local file).
 
 ## v0.16 (2026-08-30) — install-путь: «взял и использовал»

@@ -26,6 +26,8 @@ jobs:
         run: go test ./internal/core -run TestConformance -v -count=1
       - name: build tool
         run: go build -o tool ./cmd/tool
+      - name: build orchestrator
+        run: go build -o orchestrator ./cmd/orchestrator
       - name: plugin validate + test (official/community)
         run: |
           for d in plugins/official/* plugins/community/*; do
@@ -44,38 +46,36 @@ jobs:
         run: |
           for f in pipelines/*.yaml; do
             echo "== validate $f =="
-            ./tool pipeline validate "$f"
+            ./orchestrator pipeline validate "$f"
             echo "== lint $f =="
-            ./tool pipeline lint "$f"
+            ./orchestrator pipeline lint "$f"
             echo "== plan $f =="
-            ./tool pipeline plan "$f"
+            ./orchestrator pipeline plan "$f"
           done
       - name: foreach + after_foreach live
         run: |
-          ./tool pipeline run pipelines/csv_foreach.yaml --yes
-          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes
+          ./orchestrator pipeline run pipelines/csv_foreach.yaml --yes
+          ./orchestrator pipeline run pipelines/csv_foreach_summary.yaml --yes
       - name: resume live
         run: |
-          ./tool pipeline run pipelines/csv_foreach.yaml --yes --runs-dir=var/runs | tail
+          ./orchestrator pipeline run pipelines/csv_foreach.yaml --yes --runs-dir=var/runs | tail
           last=$(ls -t var/runs | head -1)
           echo "resume $last"
-          ./tool runs show $last
-          ./tool runs list
+          ./orchestrator runs show $last
+          ./orchestrator runs list
       - name: json store live
         run: |
-          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
-          ./tool runs list --store=json --db-path=var/runs/runs.db
-          last=$(./tool runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
+          ./orchestrator pipeline run pipelines/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
+          ./orchestrator runs list --store=json --db-path=var/runs/runs.db
+          last=$(./orchestrator runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
           echo "json run $last"
-          ./tool runs show $last --store=json --db-path=var/runs/runs.db
+          ./orchestrator runs show $last --store=json --db-path=var/runs/runs.db
       - name: schemas check
         run: |
           ls protocol/schemas/
           ls schemas/pipeline/
           cat protocol/schemas/v0.2/*.json | head -n 20
 
-      - name: build orchestrator
-        run: go build -o orchestrator ./cmd/orchestrator
       - name: registry validate (local source)
         run: ./orchestrator registry validate --registry=registry.yaml --local-source=.
 
