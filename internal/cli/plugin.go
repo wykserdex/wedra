@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -112,7 +111,7 @@ func RunPluginInspect(args []string) {
 }
 
 func RunPluginList(args []string) {
-	plugins := scanPlugins()
+	plugins := core.ScanPlugins()
 	if len(plugins) == 0 {
 		fmt.Println("плагины не найдены в plugins/official и plugins/community")
 		return
@@ -130,7 +129,7 @@ func RunPluginSearch(args []string) {
 		os.Exit(2)
 	}
 	query := strings.ToLower(strings.Join(args, " "))
-	plugins := scanPlugins()
+	plugins := core.ScanPlugins()
 	matched := []core.Manifest{}
 	for _, p := range plugins {
 		hay := strings.ToLower(p.ID + " " + p.Description + " " + p.Author)
@@ -147,33 +146,4 @@ func RunPluginSearch(args []string) {
 	for _, p := range matched {
 		fmt.Printf("  %-24s %-10s %s\n    %s\n", p.ID, p.Version, p.Dir, p.Description)
 	}
-}
-
-func scanPlugins() []core.Manifest {
-	eng := core.NewEngine()
-	roots := []string{"plugins/official", "plugins/community", "plugins"}
-	var out []core.Manifest
-	seen := map[string]bool{}
-	for _, root := range roots {
-		ents, err := os.ReadDir(root)
-		if err != nil {
-			continue
-		}
-		for _, e := range ents {
-			if !e.IsDir() {
-				continue
-			}
-			dir := filepath.Join(root, e.Name())
-			if seen[dir] {
-				continue
-			}
-			seen[dir] = true
-			m, err := eng.LoadManifest(dir)
-			if err != nil {
-				continue
-			}
-			out = append(out, *m)
-		}
-	}
-	return out
 }

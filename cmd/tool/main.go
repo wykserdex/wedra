@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 	"orchestrator/internal/core"
@@ -19,6 +21,8 @@ func usage() {
   tool plugin validate <dir>                        проверка манифеста плагина
   tool plugin test <dir> [--spec file.yaml]         контракт-тесты из plugin.test.yaml
   tool plugin create <path> [--author N] [--description ".."] [--example string|array]  скелет плагина (сразу зелёный)
+  tool plugin list                                        список плагинов official/community
+  tool plugin search <query>                              поиск по id/описанию/автору
   tool runs list                                    список прогонов var/runs/
   tool runs show <run_id>                           журнал + context
 
@@ -91,6 +95,10 @@ func main() {
 			pluginTestCmd(os.Args[3:])
 		case "create":
 			pluginCreateCmd(os.Args[3:])
+		case "list":
+			toolPluginList()
+		case "search":
+			toolPluginSearch(os.Args[3:])
 		default:
 			usage()
 		}
@@ -278,4 +286,43 @@ func pluginCreateCmd(args []string) {
 	}
 
 	fmt.Printf("\nДальше: правьте %s/main.py, затем tool plugin test %s\n", dir, dir)
+}
+
+// v0.17: list/search — те же команды, что в cmd/orchestrator (CI проверяет tool)
+func toolPluginList() {
+	plugins := core.ScanPlugins()
+	if len(plugins) == 0 {
+		fmt.Println("плагины не найдены в plugins/official и plugins/community")
+		return
+	}
+	sort.Slice(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })
+	fmt.Printf("Найдено %d плагинов:\n", len(plugins))
+	for _, p := range plugins {
+		fmt.Printf("  %-24s %-10s %s (%s)\n", p.ID, p.Version, p.Dir, p.Description)
+	}
+}
+
+func toolPluginSearch(args []string) {
+	if len(args) < 1 {
+		fmt.Println("нужен запрос: tool plugin search <query>")
+		os.Exit(2)
+	}
+	query := strings.ToLower(strings.Join(args, " "))
+	plugins := core.ScanPlugins()
+	matched := []core.Manifest{}
+	for _, p := range plugins {
+		hay := strings.ToLower(p.ID + " " + p.Description + " " + p.Author)
+		if strings.Contains(hay, query) {
+			matched = append(matched, p)
+		}
+	}
+	if len(matched) == 0 {
+		fmt.Printf("по запросу %q ничего не найдено (всего %d плагинов)\n", query, len(plugins))
+		return
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
+	fmt.Printf("По запросу %q найдено %d:\n", query, len(matched))
+	for _, p := range matched {
+		fmt.Printf("  %-24s %-10s %s\n    %s\n", p.ID, p.Version, p.Dir, p.Description)
+	}
 }
