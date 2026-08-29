@@ -61,7 +61,7 @@ func doPluginInstall(name, ver, registrySrc, dest string) error {
 		version = entry.Version
 	}
 
-	srcDir, tmp, err := pluginSourceDir(entry, h.Dir, version)
+	srcDir, tmp, err := pluginSourceDir(entry, h.Dir, version, "")
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,11 @@ func doPluginInstall(name, ver, registrySrc, dest string) error {
 // 1) source — локальный каталог (оффлайн-реестр)
 // 2) реестр загружен из локального каталога и path существует рядом (оффлайн-шорткат)
 // 3) git clone source@version (сеть)
-func pluginSourceDir(entry registry.Entry, localRegistryDir, version string) (srcDir, tmp string, err error) {
+func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSource string) (srcDir, tmp string, err error) {
+	// v0.17: явное override — source совпадает с этим локальным чеккаутом
+	if localSource != "" && sameRepo(entry.Source, localSource) {
+		return filepath.Join(localSource, entry.Path), "", nil
+	}
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
 		return filepath.Join(entry.Source, entry.Path), "", nil
 	}
@@ -138,7 +142,7 @@ func RunPipelineInstall(args []string) {
 		os.Exit(2)
 	}
 
-	raw, name, err := fetchPreset(preset, registrySrc)
+	raw, name, err := fetchPreset(preset, registrySrc, "")
 	if err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
@@ -220,7 +224,7 @@ func RunPipelineInstall(args []string) {
 }
 
 // fetchPreset — имя из реестра, локальный .yaml или http(s) URL.
-func fetchPreset(preset, registrySrc string) ([]byte, string, error) {
+func fetchPreset(preset, registrySrc, localSource string) ([]byte, string, error) {
 	// 1) локальный файл
 	if strings.HasSuffix(preset, ".yaml") || strings.HasSuffix(preset, ".yml") {
 		if _, e := os.Stat(preset); e == nil {
@@ -260,7 +264,7 @@ func fetchPreset(preset, registrySrc string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("пресет %q нет в реестре (доступно: %s)", preset, strings.Join(names, ", "))
 	}
 	// для пресета src — путь к самому файлу
-	src, tmp, e2 := pluginSourceDir(entry, h.Dir, entry.Version)
+	src, tmp, e2 := pluginSourceDir(entry, h.Dir, entry.Version, localSource)
 	if e2 != nil {
 		return nil, "", e2
 	}

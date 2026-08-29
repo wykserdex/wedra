@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -42,7 +44,10 @@ type Pipeline struct {
 	// (API-ключи и т.п.). Раннер проверяет наличие до старта; сами значения
 	// в YAML не живут — только имена.
 	Secrets []string `yaml:"secrets"`
-	Steps   []Step   `yaml:"steps"`
+	// v0.17: network — "deny" запрещает шаги, чей плагин в манифесте
+	// заявил сеть (declare-now: декларирование — контракт, аудит — журнал).
+	Network string `yaml:"network"`
+	Steps   []Step `yaml:"steps"`
 }
 
 type Step struct {
@@ -117,6 +122,35 @@ type Manifest struct {
 }
 
 const PlatformAPI = "0.1"
+
+// NetworkHosts — человекочитаемый список заявленной сети плагина ("host:port, ...").
+func NetworkHosts(m *Manifest) string {
+	list := NetworkHostList(m)
+	if len(list) == 0 {
+		return ""
+	}
+	return strings.Join(list, ", ")
+}
+
+// NetworkHostList — заявленная сеть как список host:port (any_host → "*").
+func NetworkHostList(m *Manifest) []string {
+	if len(m.Permissions.Network) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(m.Permissions.Network))
+	for _, np := range m.Permissions.Network {
+		host := np.Host
+		if np.AnyHost {
+			host = "*"
+		}
+		if np.Port > 0 {
+			parts = append(parts, host+":"+strconv.Itoa(np.Port))
+		} else {
+			parts = append(parts, host)
+		}
+	}
+	return parts
+}
 
 // portSource — источник данных порта: bind шага приоритетнее дефолтного from
 func PortSource(portName string, port Port, st *Step) string {

@@ -244,6 +244,15 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 				errs = append(errs, fmt.Sprintf("шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input)))
 			}
 		}
+		// v0.17: declare-now — плагин заявил сеть в манифесте
+		if len(m.Permissions.Network) > 0 {
+			hosts := NetworkHosts(m)
+			if p.Network == "deny" {
+				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, hosts))
+			} else {
+				warns = append(warns, fmt.Sprintf("шаг %s: плагин заявил сеть: %s (declare-now, аудит — журнал)", st.ID, hosts))
+			}
+		}
 		for portName, port := range m.Input {
 			srcPath := PortSource(portName, port, st)
 			if srcPath == "" {
@@ -284,6 +293,32 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			}
 		}
 		prior[st.ID] = priorStep{step: st, manifest: m}
+	}
+	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов
+	pluginSecrets := map[string]bool{}
+	for _, ps := range prior {
+		for _, s := range ps.manifest.Permissions.Secrets {
+			pluginSecrets[s] = true
+		}
+	}
+	pipelineSecrets := map[string]bool{}
+	for _, k := range p.Secrets {
+		pipelineSecrets[k] = true
+	}
+	for _, k := range p.Secrets {
+		if !pluginSecrets[k] {
+			warns = append(warns, fmt.Sprintf("secrets: пайплайн объявляет %s, но ни один плагин не заявляет её в permissions.secrets", k))
+		}
+	}
+	var undeclared []string
+	for s := range pluginSecrets {
+		if !pipelineSecrets[s] {
+			undeclared = append(undeclared, s)
+		}
+	}
+	sort.Strings(undeclared)
+	for _, s := range undeclared {
+		warns = append(warns, fmt.Sprintf("secrets: плагину нужен ключ %s — объявите в pipeline secrets (иначе может не быть в env при запуске)", s))
 	}
 	return errs, warns
 }

@@ -105,6 +105,19 @@ func Load(source string) (*Handle, error) {
 		return &Handle{Registry: reg, Dir: source}, nil
 	}
 
+	// локальный файл (registry.yaml в CWD или относительный путь)
+	if fi, err := os.Stat(source); err == nil && fi.Mode().IsRegular() {
+		raw, err := os.ReadFile(source)
+		if err != nil {
+			return nil, err
+		}
+		reg, err := parseRegistry(raw)
+		if err != nil {
+			return nil, err
+		}
+		return &Handle{Registry: reg, Dir: filepath.Dir(source)}, nil
+	}
+
 	// git-URL (или путь к bare-репо)
 	tmp, err := os.MkdirTemp("", "wedra-registry-*")
 	if err != nil {

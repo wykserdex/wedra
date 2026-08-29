@@ -33,6 +33,8 @@ func Run() {
 			ver = strings.TrimSpace(string(raw))
 		}
 		fmt.Printf("orchestrator v%s (CLI focus, M6 meat), protocol v0.2\n", ver)
+	case "registry":
+		RunRegistryValidate(os.Args[2:])
 	case "validate":
 		handlePipeline(append([]string{"validate"}, os.Args[2:]...))
 	default:
@@ -62,6 +64,8 @@ func printHelp() {
   orchestrator plugin inspect <dir>
   orchestrator plugin search <query>              # поиск по official/community
   orchestrator plugin list                        # список всех плагинов
+  orchestrator registry validate [--registry=<url|path>] [--local-source=<dir>]
+                                                 # v0.17: trust-гейт реестра (манифест, id, конформность)
   orchestrator runs list [var/runs]               # список прогонов (fs + json)
   orchestrator runs show <run_id> [var/runs]      # журнал + context + artifacts
   orchestrator runs resume <run_id> <pipeline.yaml> [--yes]

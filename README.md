@@ -1,6 +1,6 @@
-# orchestrator v0.16 — install-путь: «взял и использовал»
+# orchestrator v0.17 — trust: реестр с проверкой, сеть по декларации
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.16**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.17**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,7 +8,7 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.16
+├── VERSION              # 0.17
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
 ├── internal/
@@ -21,7 +21,7 @@ orchestrator/
 │   ├── context/         # store, binding (nested input.row.name)
 │   ├── cli/             # pipeline|plugin|runs|gui|version + install
 │   ├── api/             # REST API (M6, отложен)
-│   └── core/            # shim-фасад (107 тестов)
+│   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
 ├── plugins/official/    # 5, community/ 5
 ├── pipelines/           # 10
@@ -32,8 +32,8 @@ orchestrator/
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.16
-go test ./...            # 107 тестов
+./orchestrator version   # v0.17
+go test ./...            # 112 тестов
 
 # плагины
 ./orchestrator plugin validate plugins/csv_loader
@@ -105,6 +105,24 @@ pipeline:
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
 
+## Что нового в v0.17 (trust)
+
+- **`orchestrator registry validate [--registry=<src>] [--local-source=<dir>]`** —
+  trust-гейт реестра: для КАЖДОЙ записи — манифест, `id` = имя в реестре,
+  `plugin.test.yaml` с зелёными тестами (конформность обязательна для реестра),
+  пресеты — парсинг + валидация. Запись без конформности = не запись, а долг.
+- **CI** (`.github/workflows/ci.yml`): `registry validate` на каждом PR (local
+  source) + отдельный job на теге — по **реальным** пинам (git-клоны `version`).
+- **declare-now (сеть)**: `network: deny` в пайплайне + плагин, заявивший
+  `permissions.network` — **ошибка до любого эффекта**. Каждый subprocess получает
+  `WEDRA_NETWORK=allow|deny`; заявленная сеть пишется в журнал
+  (`step_start.network_declared`) — аудит в `runs show`.
+- **Кросс-проверка secrets**: `secrets:` пайплайна ↔ `permissions.secrets`
+  манифестов — warning в обе стороны (осиротевший ключ / необъявленный).
+- **CONTRIBUTING.md** — чек-лист попадания в реестр (плагин/пресет/ревьюер).
+- PROTOCOL.md §11 — `permissions: declare-now` (L1: контракт + аудит, не песочница).
+- Тесты: **113 PASS**.
+
 ## Что нового в v0.16 (install-путь)
 
 - **Реестр** `registry.yaml` (v0.1, формат заморожен) — в корне репо: `plugins` +
@@ -169,14 +187,15 @@ pipeline:
 - [x] v0.13: полный перенос core → execution/journal/gate, JsonStore, `pipeline lint` с file_ref проверкой до запуска
 - [x] v0.15: честный релиз — JsonStore (честное имя) + ошибки loadDB, rune-safe Truncate, GateUI, один кэш Engine
 - [x] v0.16: **install-путь** — реестр v0.1, `plugin install`, `pipeline install` (автоустановка плагинов), pin `name@version`, `secrets:`, оффлайн
-- [ ] v0.17: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [x] v0.17: **trust** — `registry validate` как CI-гейт, declare-now сеть (`network: deny` + `WEDRA_NETWORK` + аудит), кросс-проверка secrets, CONTRIBUTING
+- [ ] v0.18: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
 
-`go test ./...` — 107 тестов PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install-сценарии покрыты e2e.
+`go test ./...` — 112 тестов PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install- и trust-сценарии покрыты e2e.
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь)
-- Дальше: v0.17 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust)
+- Дальше: v0.18 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
