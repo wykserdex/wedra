@@ -51,9 +51,11 @@ func printHelp() {
 
 Команды (мясо, не косметика):
   orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json]
+  orchestrator pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
   orchestrator pipeline validate <file.yaml>
   orchestrator pipeline plan <file.yaml>
   orchestrator pipeline lint <file.yaml>          # validate + file_ref error
+  orchestrator plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
   orchestrator plugin validate <dir>
   orchestrator plugin test <dir>
   orchestrator plugin create <dir> [--author --description --example]
@@ -83,6 +85,8 @@ func handlePipeline(args []string) {
 	switch sub {
 	case "run":
 		RunPipelineRun(args[1:])
+	case "install":
+		RunPipelineInstall(args[1:])
 	case "validate", "lint":
 		RunPipelineValidate(args[1:])
 	case "plan":
@@ -131,6 +135,8 @@ func handlePlugin(args []string) {
 		RunPluginCreate(args[1:])
 	case "inspect":
 		RunPluginInspect(args[1:])
+	case "install":
+		RunPluginInstall(args[1:])
 	case "search":
 		RunPluginSearch(args[1:])
 	case "list":

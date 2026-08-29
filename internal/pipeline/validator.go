@@ -149,6 +149,12 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			warns = append(warns, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
 		}
 	}
+	// v0.16: secrets — предупреждение до запуска, ошибка будет в раннере
+	for _, k := range pf.Pipeline.Secrets {
+		if os.Getenv(k) == "" {
+			warns = append(warns, fmt.Sprintf("secrets: переменная окружения %s не задана (нужна для запуска)", k))
+		}
+	}
 	if cycle := DetectCycle(pf); cycle != "" {
 		errs = append(errs, cycle)
 	}

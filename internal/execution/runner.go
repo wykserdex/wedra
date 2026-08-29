@@ -3,6 +3,7 @@ package execution
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -59,6 +60,16 @@ func Run(pf *pipeline.PipelineFile, eng Engine, opts RunOptions) (RunStats, erro
 
 func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store journal.RunStore) (RunStats, error) {
 	var stats RunStats
+	// v0.16: secrets — до любого эффекта: не запустим ран без ключей
+	var missingSecrets []string
+	for _, k := range pf.Pipeline.Secrets {
+		if os.Getenv(k) == "" {
+			missingSecrets = append(missingSecrets, k)
+		}
+	}
+	if len(missingSecrets) > 0 {
+		return stats, fmt.Errorf("secrets: не заданы переменные окружения: %s (export перед запуском, значения в YAML не живут)", strings.Join(missingSecrets, ", "))
+	}
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
 	}
