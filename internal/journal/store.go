@@ -152,9 +152,13 @@ func (s *FilesystemStore) ListRuns() ([]string, error) {
 	return out, nil
 }
 
-// SQLiteStore — real implementation with single DB file (JSON) + FS fallback
-// v0.14: single file var/runs/runs.db (JSON) with tables runs/events/artifacts
-// No CGO, pure Go, works as SQLite-like store. Can be swapped to real sqlite driver later.
+// JsonStore — индекс прогонов в одном JSON-файле (var/runs/runs.db).
+// v0.15: честное имя (было SQLiteStore) — это JSON-файл, не SQLite, и зависимости
+// на SQLite-драйвер не тянется. Полный rewrite файла на каждый append; рассчитан на
+// single writer (один процесс). Журнал (journal.jsonl) остаётся единственным
+// источником истины; store — вторичный индекс: при нечитаемом файле чтения
+// деградируют в FS, а записи пресекаются ошибкой (файл не перезаписывается).
+// Позже заменяется на настоящий SQLite-драйвер через тот же интерфейс RunStore.
 
 type dbFile struct {
 	Runs      []dbRun      `json:"runs"`
@@ -163,9 +167,7 @@ type dbFile struct {
 }
 
 type dbRun struct {
-	ID        string `json:"id"`
-	Pipeline  string `json:"pipeline"`
-	CreatedAt string `json:"created_at"`
+	ID string `json:"id"`
 }
 
 type dbEvent struct {
@@ -177,32 +179,32 @@ type dbEvent struct {
 }
 
 type dbArtifact struct {
-	ID     int    `json:"id"`
-	RunID  string `json:"run_id"`
-	Name   string `json:"name"`
-	Path   string `json:"path"`
+	ID    int    `json:"id"`
+	RunID string `json:"run_id"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
 }
 
-type SQLiteStore struct {
+type JsonStore struct {
 	FilesystemStore
 	DBPath string
 	mu     sync.Mutex
 }
 
-func NewSQLiteStore(baseDir, dbPath string) *SQLiteStore {
+func NewJsonStore(baseDir, dbPath string) *JsonStore {
 	if baseDir == "" {
 		baseDir = "var/runs"
 	}
 	if dbPath == "" {
 		dbPath = filepath.Join(baseDir, "runs.db")
 	}
-	return &SQLiteStore{
+	return &JsonStore{
 		FilesystemStore: FilesystemStore{BaseDir: baseDir},
 		DBPath:          dbPath,
 	}
 }
 
-func (s *SQLiteStore) loadDB() (*dbFile, error) {
+func (s *JsonStore) loadDB() (*dbFile, error) {
 	if _, err := os.Stat(s.DBPath); os.IsNotExist(err) {
 		return &dbFile{}, nil
 	}
@@ -215,12 +217,12 @@ func (s *SQLiteStore) loadDB() (*dbFile, error) {
 	}
 	var db dbFile
 	if err := json.Unmarshal(raw, &db); err != nil {
-		return &dbFile{}, nil
+		return nil, fmt.Errorf("индекс %s не читается как JSON: %w", s.DBPath, err)
 	}
 	return &db, nil
 }
 
-func (s *SQLiteStore) saveDB(db *dbFile) error {
+func (s *JsonStore) saveDB(db *dbFile) error {
 	if err := os.MkdirAll(filepath.Dir(s.DBPath), 0o755); err != nil {
 		return err
 	}
@@ -231,14 +233,17 @@ func (s *SQLiteStore) saveDB(db *dbFile) error {
 	return os.WriteFile(s.DBPath, raw, 0o644)
 }
 
-func (s *SQLiteStore) Create(runID string) (*Journal, error) {
+func (s *JsonStore) Create(runID string) (*Journal, error) {
 	j, err := s.FilesystemStore.Create(runID)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	db, _ := s.loadDB()
+	db, err := s.loadDB()
+	if err != nil {
+		return nil, err
+	}
 	// check exists
 	for _, r := range db.Runs {
 		if r.ID == runID {
@@ -246,15 +251,22 @@ func (s *SQLiteStore) Create(runID string) (*Journal, error) {
 		}
 	}
 	db.Runs = append(db.Runs, dbRun{ID: runID})
-	_ = s.saveDB(db)
+	if err := s.saveDB(db); err != nil {
+		return nil, err
+	}
 	return j, nil
 }
 
-func (s *SQLiteStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
-	_ = s.FilesystemStore.AppendEvent(runID, kind, kv)
+func (s *JsonStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
+	if err := s.FilesystemStore.AppendEvent(runID, kind, kv); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	db, _ := s.loadDB()
+	db, err := s.loadDB()
+	if err != nil {
+		return err
+	}
 	var itemIdx *int
 	if v, ok := kv["item_index"]; ok {
 		switch vv := v.(type) {
@@ -279,13 +291,16 @@ func (s *SQLiteStore) AppendEvent(runID string, kind string, kv map[string]inter
 	return s.saveDB(db)
 }
 
-func (s *SQLiteStore) SaveArtifact(runID string, name string, data []byte) error {
+func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
 	if err := s.FilesystemStore.SaveArtifact(runID, name, data); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	db, _ := s.loadDB()
+	db, err := s.loadDB()
+	if err != nil {
+		return err
+	}
 	clean := filepath.Base(name)
 	p := filepath.Join(s.runDir(runID), "artifacts", clean)
 	db.Artifacts = append(db.Artifacts, dbArtifact{
@@ -297,11 +312,12 @@ func (s *SQLiteStore) SaveArtifact(runID string, name string, data []byte) error
 	return s.saveDB(db)
 }
 
-func (s *SQLiteStore) MaxItemIndex(runID string) (int, error) {
+func (s *JsonStore) MaxItemIndex(runID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
 	if err != nil {
+		// чтение деградирует в FS — журнал источник истины
 		return s.FilesystemStore.MaxItemIndex(runID)
 	}
 	maxIdx := -1
@@ -336,7 +352,7 @@ func (s *SQLiteStore) MaxItemIndex(runID string) (int, error) {
 	return maxIdx, nil
 }
 
-func (s *SQLiteStore) ListArtifacts(runID string) ([]string, error) {
+func (s *JsonStore) ListArtifacts(runID string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
@@ -355,11 +371,11 @@ func (s *SQLiteStore) ListArtifacts(runID string) ([]string, error) {
 	return out, nil
 }
 
-func (s *SQLiteStore) LoadArtifact(runID string, name string) ([]byte, error) {
+func (s *JsonStore) LoadArtifact(runID string, name string) ([]byte, error) {
 	return s.FilesystemStore.LoadArtifact(runID, name)
 }
 
-func (s *SQLiteStore) ListRuns() ([]string, error) {
+func (s *JsonStore) ListRuns() ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
@@ -376,4 +392,4 @@ func (s *SQLiteStore) ListRuns() ([]string, error) {
 	return out, nil
 }
 
-func (s *SQLiteStore) Close() error { return nil }
+func (s *JsonStore) Close() error { return nil }

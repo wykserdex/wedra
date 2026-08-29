@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"orchestrator/internal/common"
 	"orchestrator/internal/pipeline"
 )
 
@@ -135,7 +136,7 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	if len(outTrim) > 0 {
 		if err := json.Unmarshal(outTrim, &wr); err != nil {
 			res.Platform, res.ErrCode = true, "protocol_violation"
-			res.ErrMsg = fmt.Sprintf("на stdout не JSON по протоколу (exit %d): %s", res.ExitCode, truncate(string(outTrim), 200))
+			res.ErrMsg = fmt.Sprintf("на stdout не JSON по протоколу (exit %d): %s", res.ExitCode, common.Truncate(string(outTrim), 200))
 			if res.ExitCode == 0 {
 				res.ExitCode = 2
 			}
@@ -168,11 +169,11 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 			res.ErrCode = "platform:" + wr.Error.Code
 			res.ErrMsg = wr.Error.Message
 			if res.ErrMsg == "" {
-				res.ErrMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+				res.ErrMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, common.Truncate(string(outTrim), 200))
 			}
 			res.Retryable = wr.Error.Retryable
 		} else {
-			res.ErrCode, res.ErrMsg = "crash", fmt.Sprintf("exit %d: %s", res.ExitCode, truncate(string(outTrim), 200))
+			res.ErrCode, res.ErrMsg = "crash", fmt.Sprintf("exit %d: %s", res.ExitCode, common.Truncate(string(outTrim), 200))
 		}
 	}
 	return res
@@ -204,13 +205,6 @@ func indexByte(s string, c byte) int {
 		}
 	}
 	return -1
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 func EnforceOutput(m *Manifest, out map[string]interface{}) (clean map[string]interface{}, dropped []string, err error) {

@@ -61,13 +61,13 @@ jobs:
           echo "resume $last"
           ./tool runs show $last
           ./tool runs list
-      - name: sqlite store live
+      - name: json store live
         run: |
-          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes --store=sqlite --db-path=var/runs/runs.db
-          ./tool runs list --store=sqlite --db-path=var/runs/runs.db
-          last=$(./tool runs list --store=sqlite --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
-          echo "sqlite run $last"
-          ./tool runs show $last --store=sqlite --db-path=var/runs/runs.db
+          ./tool pipeline run pipelines/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
+          ./tool runs list --store=json --db-path=var/runs/runs.db
+          last=$(./tool runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
+          echo "json run $last"
+          ./tool runs show $last --store=json --db-path=var/runs/runs.db
       - name: schemas check
         run: |
           ls protocol/schemas/

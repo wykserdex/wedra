@@ -1,5 +1,17 @@
 # Changelog — честная 0.x
 
+## v0.15 (2026-08-30) — честный релиз: названия совпадают с кодом
+
+- **journal/store.go: `SQLiteStore` → `JsonStore`** — честное имя. Это никогда не был SQLite (зависимости на SQLite-драйвер не тянулось — см. поправку к v0.14 ниже). Реализация: pure Go JSON-файл `var/runs/runs.db`, полный rewrite на каждый append, рассчитан на single writer. Журнал (`journal.jsonl`) остаётся единственным источником истины, store — вторичный индекс.
+- **`loadDB` больше не глотает ошибки**: битый индекс = явная ошибка при записи (файл не перезаписывается пустым реестром); при чтении деградирует в FS. Было: `db, _ := loadDB()` → тихая потеря всех зарегистрированных прогонов при следующем `saveDB`.
+- **`dbRun`: убраны мёртвые поля** `pipeline`, `created_at` (не заполнялись нигде; имя pipeline — в событии `run_start` журнала).
+- **CLI: `--store=sqlite` → `--store=json`** (`runs list/show`, `pipeline run`, ci.yml, help).
+- **`common.Truncate` — rune-safe**: было `s[:n]` — могло срезать UTF-8 символ пополам (мусор в русских текстах ошибок). Убраны локальные копии из `plugin/process.go`, `gate/service.go`, `execution/runner.go` — одна функция в common + тест.
+- **`core.Engine`, `plugin.Engine`: убран двойной кэш** (`Cache` + `cache` велись параллельно) — один `Cache`.
+- **gate: `GateUI`-интерфейс + `StdinUI`** — шов для GUI/API (M6): канал ввода human_gate заменяется без изменения `Service` (`NewServiceWithUI`).
+- **Версии синхронизированы**: VERSION / README / CHANGELOG / теги говорят одну историю (v0.15).
+- Тесты: `go test ./...` — 102 PASS (добавлен тест rune-безопасности Truncate).
+
 ## v0.14.1 (2026-08-28) — добить заглушки после фидбека типов
 
 Типы заценили v0.14, но попросили допилить заглушки:
@@ -11,15 +23,15 @@
 - **journal/store.go**: SQLiteStore теперь pure Go JSON DB (без CGO/modernc) — файл `runs.db` с `runs/events/artifacts`, работает без внешних зависимостей, `go test` зелёный без `modernc`.
 - **Тесты**: `go test ./... ok`, `plugin list` 10, `pipeline lint` ловит file_ref, sqlite live с `runs.db` 409 байт → 2 рана.
 
-## v0.14 (2026-08-28) — SQLite real, lint file_ref error, plugin search, conformance в CI
+## v0.14 (2026-08-28) — JSON RunStore, lint file_ref error, plugin search, conformance в CI
 
-- **journal/store.go — SQLite real**: `SQLiteStore` теперь реальный, не заготовка. Использует `modernc.org/sqlite` (pure Go, без CGO). Схема: `runs(id, pipeline, created_at)`, `events(id, run_id, type, ts, data, item_index)`, `artifacts(run_id, name, path)`. Методы: `Create` пишет в FS + INSERT в runs, `AppendEvent` — FS + INSERT в events (с item_index), `SaveArtifact` — FS + INSERT в artifacts, `MaxItemIndex` — `SELECT MAX(item_index) FROM events WHERE type='item_end'`, `ListRuns` — из DB, `ListArtifacts` — из DB с fallback в FS. Поддерживается `Close()`. CLI `--store=fs|sqlite --db-path=var/runs/runs.db`.
-- **execution/runner.go**: `RunOptions{Store, DBPath}`, `Run` выбирает `FilesystemStore` или `SQLiteStore`, `runWithStore` принимает `journal.RunStore` интерфейс (а не конкретный FS). `core/runner.go` shim прокидывает Store/DBPath.
+- **journal/store.go — RunStore** *(поправка v0.15)*: `SQLiteStore` (переименован в `JsonStore` в v0.15) — индекс прогонов в одном JSON-файле `var/runs/runs.db` (секции `runs`/`events`/`artifacts`), полный rewrite на каждый append, pure Go без внешних зависимостей. Методы: `Create` пишет в FS + индекс runs, `AppendEvent` — FS + events (с item_index), `SaveArtifact` — FS + artifacts, `MaxItemIndex` — максимум `item_index` по `item_end` с fallback в FS, `ListRuns`/`ListArtifacts` — из индекса с fallback в FS, `Close()`. **Поправка (v0.15): исходный текст пункта описывал использование `modernc.org/sqlite` и SQL-схему — в коде этой зависимости не было никогда, реализацией был JSON-файл; пункт переписан по факту.** CLI `--store=fs|json --db-path=var/runs/runs.db`.
+- **execution/runner.go**: `RunOptions{Store, DBPath}`, `Run` выбирает `FilesystemStore` или `JsonStore`, `runWithStore` принимает `journal.RunStore` интерфейс (а не конкретный FS). `core/runner.go` shim прокидывает Store/DBPath.
 - **pipeline/validator.go — Lint file_ref error**: новый `Lint(pf, eng, projectRoot)` — вызывает `Validate` + проверяет file_ref литералы из `input.*`: ищет файл от плагина (`<plugin_dir>/<path>`) и от корня проекта, если не найден ни там ни там → error `file_ref: файл не найден ни от плагина ни от корня`. Если найден только от корня → warning с хинтом. `cli/validate.go` теперь различает `validate` (только Validate) и `lint` (Lint с file_ref error). `pipeline lint` → `OK: lint пройден (включая file_ref)` или ошибка.
 - **plugin search**: `orchestrator plugin search <query>` и `plugin list` — сканирует `plugins/official/*` + `plugins/community/*`, ищет по `id + description + author` (case-insensitive). Выводит `id version dir description`.
-- **conformance в CI**: `ci.yml` теперь гоняет `go test -run TestConformance`, `plugin list/search`, `pipeline lint/plan`, `foreach+after_foreach live`, `resume live`, `sqlite store live` (run + list + show с sqlite), `schemas check`. Go 1.22 с toolchain 1.25 для modernc.
-- **runs CLI**: `runs list/show` поддерживают `--store=sqlite --db-path=...` и показывают artifacts count + список artifacts. `ListArtifacts`, `LoadArtifact`, `ListRuns` в `RunStore` интерфейсе, реализованы в FS и SQLite.
-- **Тесты**: `go test ./... ok` (core 93 теста), `plugin list` 10 плагинов, `lint` ловит отсутствующий file_ref, sqlite live `32K runs.db` с 8 ранами.
+- **conformance в CI**: `ci.yml` теперь гоняет `go test -run TestConformance`, `plugin list/search`, `pipeline lint/plan`, `foreach+after_foreach live`, `resume live`, `json store live` (run + list + show), `schemas check`.
+- **runs CLI**: `runs list/show` поддерживают `--store=json --db-path=...` и показывают artifacts count + список artifacts. `ListArtifacts`, `LoadArtifact`, `ListRuns` в `RunStore` интерфейсе, реализованы в FS и JsonStore.
+- **Тесты**: `go test ./... ok` (core 93 теста на тот момент), `plugin list` 10 плагинов, `lint` ловит отсутствующий file_ref, json store live проверен прогоном.
 
 ## v0.13 (2026-08-29) — честный перенос логики из монолита (ответ на фидбек v10)
 

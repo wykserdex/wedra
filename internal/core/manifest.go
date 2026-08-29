@@ -11,13 +11,11 @@ import (
 
 type Engine struct {
 	Cache map[string]*Manifest
-	cache map[string]*Manifest
 }
 
 func NewEngine() *Engine {
 	return &Engine{
 		Cache: make(map[string]*Manifest),
-		cache: make(map[string]*Manifest),
 	}
 }
 
@@ -33,14 +31,8 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
-	if e.cache == nil {
-		e.cache = make(map[string]*Manifest)
-	}
 	if e.Cache == nil {
 		e.Cache = make(map[string]*Manifest)
-	}
-	if m, ok := e.cache[ref]; ok {
-		return m, nil
 	}
 	if m, ok := e.Cache[ref]; ok {
 		return m, nil
@@ -57,7 +49,6 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 		return nil, fmt.Errorf("плагин %q: в манифесте нет id", ref)
 	}
 	m.Dir = ref
-	e.cache[ref] = &m
 	e.Cache[ref] = &m
 	return &m, nil
 }

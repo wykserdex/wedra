@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Фейковые манифесты (без диска): Validate ходит через Engine.cache.
+// Фейковые манифесты (без диска): Validate ходит через Engine.Cache.
 func syntaxManifest() *Manifest {
 	return &Manifest{
 		ID: "syntax",
@@ -32,7 +32,7 @@ func mxConsumerManifest(optional bool) *Manifest {
 func engineWith(mans ...*Manifest) *Engine {
 	eng := NewEngine()
 	for _, m := range mans {
-		eng.cache["fake/"+m.ID] = m
+		eng.Cache["fake/"+m.ID] = m
 	}
 	return eng
 }

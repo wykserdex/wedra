@@ -25,8 +25,8 @@ func RunRunsList(args []string) {
 		}
 	}
 	var store journal.RunStore
-	if storeType == "sqlite" {
-		store = journal.NewSQLiteStore(runsDir, dbPath)
+	if storeType == "json" {
+		store = journal.NewJsonStore(runsDir, dbPath)
 	} else {
 		store = journal.NewFilesystemStore(runsDir)
 	}
@@ -72,8 +72,8 @@ func RunRunsShow(args []string) {
 		}
 	}
 	var store journal.RunStore
-	if storeType == "sqlite" {
-		store = journal.NewSQLiteStore(runsDir, dbPath)
+	if storeType == "json" {
+		store = journal.NewJsonStore(runsDir, dbPath)
 	} else {
 		store = journal.NewFilesystemStore(runsDir)
 	}

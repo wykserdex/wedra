@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"orchestrator/internal/common"
 	"orchestrator/internal/context"
 	"orchestrator/internal/gate"
 	"orchestrator/internal/journal"
@@ -49,8 +50,8 @@ type Engine interface {
 }
 
 func Run(pf *pipeline.PipelineFile, eng Engine, opts RunOptions) (RunStats, error) {
-	if opts.Store == "sqlite" {
-		s := journal.NewSQLiteStore(opts.RunsDir, opts.DBPath)
+	if opts.Store == "json" {
+		s := journal.NewJsonStore(opts.RunsDir, opts.DBPath)
 		return runWithStore(pf, eng, opts, s)
 	}
 	return runWithStore(pf, eng, opts, journal.NewFilesystemStore(opts.RunsDir))
@@ -68,7 +69,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			opts.RunsDir = fs.BaseDir
 		}
 	}
-	if sq, ok := store.(*journal.SQLiteStore); ok {
+	if sq, ok := store.(*journal.JsonStore); ok {
 		if sq.BaseDir == "" {
 			sq.BaseDir = opts.RunsDir
 		} else {
@@ -354,7 +355,7 @@ func runStep(eng Engine, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal
 		j.Event("step_end", map[string]interface{}{
 			"step": st.ID, "attempt": attempt, "exit_code": res.ExitCode,
 			"duration_ms": res.Duration.Milliseconds(), "status": statusOf(res),
-			"error": errOrNil(res), "stderr": truncate(res.Stderr, 500),
+			"error": errOrNil(res), "stderr": common.Truncate(res.Stderr, 500),
 		})
 		if res.OK() || !res.ShouldRetry() {
 			break
@@ -433,11 +434,4 @@ func retryDelay(st *pipeline.Step, attempt int) time.Duration {
 		}
 	}
 	return d
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
 }

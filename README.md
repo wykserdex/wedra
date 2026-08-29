@@ -8,7 +8,7 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.12
+├── VERSION              # 0.15
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── internal/
 │   ├── pipeline/        # модель, парсер, валидатор (input.* + steps.* foreach), планер
@@ -19,7 +19,7 @@ orchestrator/
 │   ├── context/         # store, binding (nested input.row.name)
 │   ├── cli/             # pipeline|plugin|runs|gui|version
 │   ├── api/             # REST API (M6, отложен)
-│   └── core/            # shim-фасад (93 теста)
+│   └── core/            # shim-фасад (101 тест)
 ├── web/static/          # GUI scaffold (отложен)
 ├── plugins/official/    # 5, community/ 4
 ├── pipelines/           # 9 (8 старых + csv_foreach — демо foreach steps.*)
@@ -30,8 +30,8 @@ orchestrator/
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.12
-go test ./...            # 93 теста
+./orchestrator version   # v0.15
+go test ./...            # 102 теста
 
 # плагины
 ./orchestrator plugin validate plugins/csv_loader
@@ -57,6 +57,18 @@ go test ./...            # 93 теста
 ./tool run pipelines/csv_foreach.yaml --yes
 ./tool runs list
 ```
+
+## Что нового в v0.15 (честный релиз)
+
+**1. `SQLiteStore` → `JsonStore`** — честное имя: это pure Go JSON-файл (`var/runs/runs.db`), не SQLite. `loadDB` больше не глотает ошибки: битый индекс — явная ошибка при записи, чтения деградируют в FS-журнал (источник истины). Убраны мёртвые поля `dbRun`. CLI: `--store=sqlite` → `--store=json`.
+
+**2. `common.Truncate` rune-safe** — `s[:n]` больше не режет UTF-8 символ пополам (мусор в русских сообщениях об ошибках). Одна функция в common вместо трёх локальных копий.
+
+**3. Двойной кэш в Engine убран** (`core.Engine`, `plugin.Engine`) — один `Cache`.
+
+**4. `GateUI`-интерфейс** — канал ввода human_gate теперь заменяемый (`NewServiceWithUI`). Шов для GUI/API (M6).
+
+**5. Одна история версий** — VERSION, README, CHANGELOG, теги.
 
 ## Что нового в v0.12 (CLI focus)
 
@@ -93,15 +105,16 @@ go test ./...            # 93 теста
 
 - [x] v0.11 scaffold GUI (отложен)
 - [x] v0.12 CLI meat: foreach steps.*, resume, runs list/show, gate typing
-- [ ] v0.13: полный перенос core → execution/journal/gate, SQLite RunStore, `pipeline lint` с file_ref проверкой до запуска (сейчас warning)
-- [ ] v0.14: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [x] v0.13: полный перенос core → execution/journal/gate, JsonStore, `pipeline lint` с file_ref проверкой до запуска
+- [x] v0.15: честный релиз — JsonStore (честное имя) + ошибки loadDB, rune-safe Truncate, GateUI, один кэш Engine
+- [ ] v0.16: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
 
-`go test ./...` — 93 теста PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены.
+`go test ./...` — 102 теста PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены.
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus)
-- Дальше: v0.13, v0.14... v1.0 — когда CLI meat закрыт + GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз)
+- Дальше: v0.16 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс

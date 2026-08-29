@@ -50,7 +50,7 @@ func printHelp() {
 	fmt.Printf(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v%s, CLI focus)
 
 Команды (мясо, не косметика):
-  orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|sqlite]
+  orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json]
   orchestrator pipeline validate <file.yaml>
   orchestrator pipeline plan <file.yaml>
   orchestrator pipeline lint <file.yaml>          # validate + file_ref error
@@ -60,7 +60,7 @@ func printHelp() {
   orchestrator plugin inspect <dir>
   orchestrator plugin search <query>              # поиск по official/community
   orchestrator plugin list                        # список всех плагинов
-  orchestrator runs list [var/runs]               # список прогонов (fs + sqlite)
+  orchestrator runs list [var/runs]               # список прогонов (fs + json)
   orchestrator runs show <run_id> [var/runs]      # журнал + context + artifacts
   orchestrator runs resume <run_id> <pipeline.yaml> [--yes]
   orchestrator gui [--port 8080] [--open]         # отложено, косметика
