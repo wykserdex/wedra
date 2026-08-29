@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"orchestrator/internal/common"
 	"orchestrator/internal/context"
 	"orchestrator/internal/journal"
 	"orchestrator/internal/pipeline"
@@ -17,9 +18,42 @@ type GateOptions struct {
 	Quiet bool
 }
 
-type Service struct{}
+// GateUI — канал ввода human_gate.
+// v0.15: шов для GUI/API (M6) — терминал текущая реализация, подставить
+// свою можно без изменения Service.
+type GateUI interface {
+	ReadLine() (string, error)
+}
 
-func NewService() *Service { return &Service{} }
+// StdinUI — читает из os.Stdin (дефолт).
+// Один bufio.Reader на весь гейт: новый на каждый ReadLine съел бы
+// забференный остаток предыдущей строки.
+type StdinUI struct {
+	reader *bufio.Reader
+}
+
+func NewStdinUI() *StdinUI { return &StdinUI{reader: bufio.NewReader(os.Stdin)} }
+
+func (u *StdinUI) ReadLine() (string, error) {
+	if u.reader == nil {
+		u.reader = bufio.NewReader(os.Stdin)
+	}
+	return u.reader.ReadString('\n')
+}
+
+type Service struct {
+	UI GateUI
+}
+
+func NewService() *Service { return &Service{UI: NewStdinUI()} }
+
+// NewServiceWithUI — для GUI/API: заменить терминал своим вводом.
+func NewServiceWithUI(ui GateUI) *Service {
+	if ui == nil {
+		return NewService()
+	}
+	return &Service{UI: ui}
+}
 
 func kindOf(v interface{}) string {
 	switch v.(type) {
@@ -42,13 +76,6 @@ func kindOf(v interface{}) string {
 func basename(path string) string {
 	parts := strings.Split(path, ".")
 	return parts[len(parts)-1]
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
 }
 
 func (s *Service) Materialize(form []pipeline.FormField, ctx *context.Ctx, edits map[string]interface{}) map[string]interface{} {
@@ -97,7 +124,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			}
 			if v, ok := ctx.Get(f.Field); ok {
 				b, _ := json.Marshal(v)
-				fmt.Printf("  %s %s = %s\n", mark, f.Field, truncate(string(b), 500))
+				fmt.Printf("  %s %s = %s\n", mark, f.Field, common.Truncate(string(b), 500))
 			} else {
 				fmt.Printf("  %s %s = <нет данных>\n", mark, f.Field)
 			}
@@ -116,7 +143,10 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 		return "ok"
 	}
 
-	reader := bufio.NewReader(os.Stdin)
+	ui := s.UI
+	if ui == nil {
+		ui = NewStdinUI()
+	}
 	bnCountForEdits := map[string]int{}
 	for _, f := range st.Form {
 		bnCountForEdits[basename(f.Field)]++
@@ -127,7 +157,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			continue
 		}
 		fmt.Printf("  (*) новое значение для %s (JSON, Enter — оставить): ", f.Field)
-		line, _ := reader.ReadString('\n')
+		line, _ := ui.ReadLine()
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -171,7 +201,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 		}
 	}
 	fmt.Printf("  действие [%s]: ", strings.Join(keys, "/"))
-	ans, _ := reader.ReadString('\n')
+	ans, _ := ui.ReadLine()
 	ans = strings.ToLower(strings.TrimSpace(ans))
 	action := actions[0]
 	for i, a := range actions {

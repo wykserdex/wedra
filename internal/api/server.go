@@ -195,7 +195,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	var list []map[string]interface{}
 	dbPath := filepath.Join(s.RunsDir, "runs.db")
 	if _, err := os.Stat(dbPath); err == nil {
-		store := journal.NewSQLiteStore(s.RunsDir, dbPath)
+		store := journal.NewJsonStore(s.RunsDir, dbPath)
 		ids, _ := store.ListRuns()
 		for _, id := range ids {
 			dir := filepath.Join(s.RunsDir, id)
@@ -208,7 +208,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			arts, _ := store.ListArtifacts(id)
-			list = append(list, map[string]interface{}{"id": id, "dir": dir, "pipeline": pipelineName, "events": len(events), "artifacts": arts, "store": "sqlite"})
+			list = append(list, map[string]interface{}{"id": id, "dir": dir, "pipeline": pipelineName, "events": len(events), "artifacts": arts, "store": "json"})
 		}
 	} else {
 		entries, _ := os.ReadDir(s.RunsDir)
@@ -249,7 +249,7 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 	dbPath := filepath.Join(s.RunsDir, "runs.db")
 	var arts []string
 	if _, err := os.Stat(dbPath); err == nil {
-		store := journal.NewSQLiteStore(s.RunsDir, dbPath)
+		store := journal.NewJsonStore(s.RunsDir, dbPath)
 		arts, _ = store.ListArtifacts(id)
 	} else {
 		store := journal.NewFilesystemStore(s.RunsDir)

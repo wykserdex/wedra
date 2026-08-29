@@ -3,6 +3,7 @@ package common
 import (
 	"reflect"
 	"strings"
+	"unicode/utf8"
 )
 
 func KindOf(v interface{}) string {
@@ -27,9 +28,14 @@ func Basename(path string) string {
 	return parts[len(parts)-1]
 }
 
+// Truncate — обрезает строку до n байт, не разрывая UTF-8 символ.
+// v0.15: rune-safe (было s[:n] — на кириллице могло срезать символ пополам).
 func Truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }
