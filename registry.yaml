@@ -1,0 +1,105 @@
+# registry v0.1 — формат заморожен (как протокол).
+#
+# Reестр живёт здесь (корень репо wedra) — минимальная конфигурация:
+# один репо = реестр + источник плагинов/пресетов. Когда появится
+# отдельное комьюнити, реестр выносится в свой репо — формат не меняется.
+#
+# Установка:
+#   orchestrator plugin install <name>[@version]
+#   orchestrator pipeline install <name>          # + автоустановка плагинов
+#
+# Поля записи:
+#   source      — git-репо, где лежит плагин/пресет (или локальный путь)
+#   path        — подпуть: плагин — каталог, пресет — файл .yaml
+#   version     — тег/ветка источника (дефолт main); pinнинг — `name@version` в пайплайне
+#   description — человекочитаемое
+#
+# Дисциплина: при каждом релизе wedra — обновлять version во всех записях.
+
+version: "0.1"
+
+plugins:
+  # official
+  syntax_mx_checker:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/official/syntax_mx_checker
+    version: v0.16
+    description: синтаксис email + MX-записи
+  disposable_checker:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/official/disposable_checker
+    version: v0.16
+    description: disposable-домены
+  llm_openai:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/official/llm_openai
+    version: v0.16
+    description: OpenAI-вызов (ключ из env)
+  llm_anthropic:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/official/llm_anthropic
+    version: v0.16
+    description: Anthropic-вызов (ключ из env)
+  llm_gemini:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/official/llm_gemini
+    version: v0.16
+    description: Gemini-вызов (ключ из env)
+  # community
+  csv_loader:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/csv_loader
+    version: v0.16
+    description: CSV → rows
+  text_analyzer:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/text_analyzer
+    version: v0.16
+    description: слова/длина текста
+  email_triage:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/email_triage
+    version: v0.16
+    description: классификация email
+  my_summarizer:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/my_summarizer
+    version: v0.16
+    description: суммаризация
+  dir_lister:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/dir_lister
+    version: v0.16
+    description: список каталога
+
+presets:
+  csv_foreach:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/csv_foreach.yaml
+    version: v0.16
+    description: CSV → analysis → human gate (foreach steps.*)
+  csv_foreach_summary:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/csv_foreach_summary.yaml
+    version: v0.16
+    description: CSV → foreach → агрегат (after_foreach)
+  email_check:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/email_check.yaml
+    version: v0.16
+    description: email: синтаксис + disposable + MX
+  email_triage_chain:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/email_triage_chain.yaml
+    version: v0.16
+    description: email → triage → human review
+  dir_snapshots:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/dir_snapshots.yaml
+    version: v0.16
+    description: снимок каталога + гейт (artifacts)
+  llm_text_chain:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/llm_text_chain.yaml
+    version: v0.16
+    description: LLM-цепочка (ключ — через secrets/env)

@@ -1,6 +1,6 @@
-# orchestrator v0.12 — CLI focus (мясо, не косметика)
+# orchestrator v0.16 — install-путь: «взял и использовал»
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.12**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.16**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,21 +8,23 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.15
+├── VERSION              # 0.16
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
+├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
 ├── internal/
-│   ├── pipeline/        # модель, парсер, валидатор (input.* + steps.* foreach), планер
-│   ├── execution/       # runner (resume, two-phase foreach), scheduler
+│   ├── pipeline/        # модель (secrets), парсер, валидатор, планер
+│   ├── execution/       # runner (resume, two-phase foreach, secrets preflight), scheduler
 │   ├── plugin/          # registry, process, transport, fileref
+│   ├── registry/        # v0.16: реестр, install, pin-контракт (RefToDir)
 │   ├── journal/         # writer (New + OpenAppend), reader, store (RunStore)
 │   ├── gate/            # service, terminal + fix #19 typing
 │   ├── context/         # store, binding (nested input.row.name)
-│   ├── cli/             # pipeline|plugin|runs|gui|version
+│   ├── cli/             # pipeline|plugin|runs|gui|version + install
 │   ├── api/             # REST API (M6, отложен)
-│   └── core/            # shim-фасад (101 тест)
+│   └── core/            # shim-фасад (107 тестов)
 ├── web/static/          # GUI scaffold (отложен)
-├── plugins/official/    # 5, community/ 4
-├── pipelines/           # 9 (8 старых + csv_foreach — демо foreach steps.*)
+├── plugins/official/    # 5, community/ 5
+├── pipelines/           # 10
 └── var/runs/            # журналы + --resume
 ```
 
@@ -30,8 +32,8 @@ orchestrator/
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.15
-go test ./...            # 102 теста
+./orchestrator version   # v0.16
+go test ./...            # 107 тестов
 
 # плагины
 ./orchestrator plugin validate plugins/csv_loader
@@ -57,6 +59,65 @@ go test ./...            # 102 теста
 ./tool run pipelines/csv_foreach.yaml --yes
 ./tool runs list
 ```
+
+## v0.16: install-путь («взял и использовал»)
+
+Плагин или пресет — не из локального каталога, а из реестра (`registry.yaml`,
+включён в это репо):
+
+```bash
+# пресет из реестра + АВТОУСТАНОВКА его плагинов в plugins/
+./orchestrator pipeline install email_check
+./orchestrator pipeline run pipelines/email_check.yaml --yes
+
+# плагин из реестра (или с пином версии)
+./orchestrator plugin install text_analyzer
+./orchestrator plugin install my_summarizer@v0.16
+
+# свой реестр (оффлайн: каталог с registry.yaml) — без сети
+./orchestrator pipeline install my_preset --registry=./my_registry
+```
+
+Ссылки на плагины в пайплайне (v0.16, назад-совместимо):
+
+| форма | пример | разрешение |
+|---|---|---|
+| локальный путь | `plugin: plugins/community/text_analyzer` | как раньше |
+| реестровое имя | `plugin: text_analyzer` | из `plugins/text_analyzer` (уже установлен) |
+| pin | `plugin: text_analyzer@v0.16` | то же + версия из `.wedra` |
+
+`pipeline install` сам докачает недостающие плагины, переключит на нужную
+версию под пин и провалидирует совместимость. Не установлен — понятная ошибка
+с командой установки.
+
+**Secrets** — пайплайн объявляет имена env-переменных, без значений:
+
+```yaml
+format_version: "0.2"
+pipeline:
+  name: llm_report
+  secrets: [OPENAI_API_KEY]   # имена, не значения
+  steps:
+    - id: analyze
+      plugin: llm_openai
+```
+
+`validate` предупредит, `run` упадёт до любого эффекта, если ключ не
+экспортирован. Значения в YAML не живут.
+
+## Что нового в v0.16 (install-путь)
+
+- **Реестр** `registry.yaml` (v0.1, формат заморожен) — в корне репо: `plugins` +
+  `presets`, `source`/`path`/`version`/`description`. Один репо = реестр +
+  источник; позже реестр выносится в отдельный репо — формат не меняется.
+- **`plugin install <name>[@version]`** — clone из `source`, валидация,
+  lock-файл `.wedra` (name/source/version) в каталоге плагина.
+- **`pipeline install <name|file|url>`** — пресет → `pipelines/<name>.yaml` +
+  автоустановка плагинов + валидация.
+- **`name` / `name@version`** в `plugin:` (наряду с локальными путями).
+- **`secrets:`** в пайплайне — имена env, preflight в раннере.
+- **Оффлайн**: `--registry=<каталог>` с локальным source — без сети.
+- Тесты: **107 PASS**.
 
 ## Что нового в v0.15 (честный релиз)
 
@@ -107,14 +168,15 @@ go test ./...            # 102 теста
 - [x] v0.12 CLI meat: foreach steps.*, resume, runs list/show, gate typing
 - [x] v0.13: полный перенос core → execution/journal/gate, JsonStore, `pipeline lint` с file_ref проверкой до запуска
 - [x] v0.15: честный релиз — JsonStore (честное имя) + ошибки loadDB, rune-safe Truncate, GateUI, один кэш Engine
-- [ ] v0.16: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [x] v0.16: **install-путь** — реестр v0.1, `plugin install`, `pipeline install` (автоустановка плагинов), pin `name@version`, `secrets:`, оффлайн
+- [ ] v0.17: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
 
-`go test ./...` — 102 теста PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены.
+`go test ./...` — 107 тестов PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install-сценарии покрыты e2e.
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз)
-- Дальше: v0.16 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь)
+- Дальше: v0.17 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс

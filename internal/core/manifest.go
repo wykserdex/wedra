@@ -7,15 +7,20 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"orchestrator/internal/registry"
 )
 
 type Engine struct {
-	Cache map[string]*Manifest
+	Cache       map[string]*Manifest
+	PluginsDir  string // куда ставятся плагины из реестра (дефолт "plugins")
+	RegistrySrc string // источник реестра (дефолт: registry.DefaultSource())
 }
 
 func NewEngine() *Engine {
 	return &Engine{
-		Cache: make(map[string]*Manifest),
+		Cache:      make(map[string]*Manifest),
+		PluginsDir: "plugins",
 	}
 }
 
@@ -37,7 +42,13 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 	if m, ok := e.Cache[ref]; ok {
 		return m, nil
 	}
-	raw, err := os.ReadFile(filepath.Join(ref, "plugin.yaml"))
+	// v0.16: голое имя (или имя@версия) — это имя из реестра;
+	// локальные пути проходят как раньше.
+	dir, err := registry.RefToDir(ref, e.PluginsDir)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "plugin.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("плагин %q: не читается plugin.yaml: %w", ref, err)
 	}
@@ -48,7 +59,7 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 	if m.ID == "" {
 		return nil, fmt.Errorf("плагин %q: в манифесте нет id", ref)
 	}
-	m.Dir = ref
+	m.Dir = dir
 	e.Cache[ref] = &m
 	return &m, nil
 }

@@ -38,7 +38,11 @@ type Pipeline struct {
 	ForeachItem string                 `yaml:"foreach_item"`
 	ItemType    string                 `yaml:"item_type"`
 	ItemFormat  string                 `yaml:"item_format"`
-	Steps       []Step                 `yaml:"steps"`
+	// v0.16: имена переменных окружения, которые обязан задать пользователь
+	// (API-ключи и т.п.). Раннер проверяет наличие до старта; сами значения
+	// в YAML не живут — только имена.
+	Secrets []string `yaml:"secrets"`
+	Steps   []Step   `yaml:"steps"`
 }
 
 type Step struct {
