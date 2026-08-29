@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"orchestrator/internal/pipeline"
@@ -15,14 +17,19 @@ type StdioTransport struct {
 }
 
 func (t *StdioTransport) Invoke(manifest *pipeline.Manifest, input []byte) ([]byte, error) {
-	res := Exec(manifest, input, t.Timeout)
-	if res.Output != nil {
-		return nil, nil
+	timeout := t.Timeout
+	if timeout == 0 {
+		timeout = 60 * time.Second
 	}
-	if res.ErrMsg != "" {
-		return nil, nil
+	res := Exec(manifest, input, timeout)
+	if !res.OK() {
+		return nil, fmt.Errorf("plugin %s failed: %s (%s)", manifest.ID, res.ErrMsg, res.ErrCode)
 	}
-	return nil, nil
+	b, err := json.Marshal(res.Output)
+	if err != nil {
+		return nil, fmt.Errorf("marshal output: %w", err)
+	}
+	return b, nil
 }
 
 type Envelope struct {
@@ -30,4 +37,28 @@ type Envelope struct {
 	Type            string      `json:"type"`
 	RequestID       string      `json:"request_id"`
 	Payload         interface{} `json:"payload"`
+}
+
+func NewEnvelope(reqID string, payload interface{}) *Envelope {
+	return &Envelope{
+		ProtocolVersion: "0.3",
+		Type:            "request",
+		RequestID:       reqID,
+		Payload:         payload,
+	}
+}
+
+func (e *Envelope) Marshal() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+func ParseEnvelope(raw []byte) (*Envelope, error) {
+	var env Envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("envelope parse: %w", err)
+	}
+	if env.ProtocolVersion != "0.2" && env.ProtocolVersion != "0.3" {
+		return nil, fmt.Errorf("unsupported protocol_version %q", env.ProtocolVersion)
+	}
+	return &env, nil
 }

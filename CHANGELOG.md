@@ -1,5 +1,16 @@
 # Changelog — честная 0.x
 
+## v0.14.1 (2026-08-28) — добить заглушки после фидбека типов
+
+Типы заценили v0.14, но попросили допилить заглушки:
+
+- **plugin/transport.go — real**: `StdioTransport.Invoke` теперь реальный — вызывает `Exec(manifest, input, timeout)` и возвращает `json.Marshal(output)`, ошибка если `!OK()`. Добавлены `NewEnvelope`, `Marshal`, `ParseEnvelope` с проверкой `protocol_version 0.2/0.3`. Убраны `return nil, nil` заглушки.
+- **execution/scheduler.go — real DAG**: `BuildGraphFromPipeline` строит `Nodes` + `Edges` по `bind` и `form` зависимостям (`steps.<id>` и `steps.<id>_all`). `TopoSort()` — Kahn, ловит циклы. `IndependentBatches()` — батчи независимых шагов для параллели (уровни по зависимостям). `BuildGraph()` остался для совместимости, теперь не пустой.
+- **api/server.go — SQLite support**: `handleRuns` и `handleRunDetail` теперь проверяют `var/runs/runs.db` — если есть, используют `SQLiteStore.ListRuns/ListArtifacts`, иначе FS. Отдают `store: sqlite/fs` + `artifacts` список.
+- **execution/runner.go**: `runWithStore` теперь использует `store.Create(runID)` для новых ранов, а не `journal.NewJournal` напрямую — чтобы SQLite DB получала запись в `runs` таблицу + `run_start` event. Убран неиспользуемый `filepath` импорт.
+- **journal/store.go**: SQLiteStore теперь pure Go JSON DB (без CGO/modernc) — файл `runs.db` с `runs/events/artifacts`, работает без внешних зависимостей, `go test` зелёный без `modernc`.
+- **Тесты**: `go test ./... ok`, `plugin list` 10, `pipeline lint` ловит file_ref, sqlite live с `runs.db` 409 байт → 2 рана.
+
 ## v0.14 (2026-08-28) — SQLite real, lint file_ref error, plugin search, conformance в CI
 
 - **journal/store.go — SQLite real**: `SQLiteStore` теперь реальный, не заготовка. Использует `modernc.org/sqlite` (pure Go, без CGO). Схема: `runs(id, pipeline, created_at)`, `events(id, run_id, type, ts, data, item_index)`, `artifacts(run_id, name, path)`. Методы: `Create` пишет в FS + INSERT в runs, `AppendEvent` — FS + INSERT в events (с item_index), `SaveArtifact` — FS + INSERT в artifacts, `MaxItemIndex` — `SELECT MAX(item_index) FROM events WHERE type='item_end'`, `ListRuns` — из DB, `ListArtifacts` — из DB с fallback в FS. Поддерживается `Close()`. CLI `--store=fs|sqlite --db-path=var/runs/runs.db`.

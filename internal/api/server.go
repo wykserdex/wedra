@@ -14,7 +14,7 @@ import (
 	"orchestrator/internal/plugin"
 )
 
-const Version = "0.14"
+const Version = "0.14.1"
 
 type Server struct {
 	PluginsDir   string
@@ -192,22 +192,41 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	entries, _ := os.ReadDir(s.RunsDir)
 	var list []map[string]interface{}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(s.RunsDir, e.Name())
-		rd := journal.NewReader(dir)
-		events, _ := rd.Events()
-		pipelineName := ""
-		if len(events) > 0 {
-			if pn, ok := events[0]["pipeline"].(string); ok {
-				pipelineName = pn
+	dbPath := filepath.Join(s.RunsDir, "runs.db")
+	if _, err := os.Stat(dbPath); err == nil {
+		store := journal.NewSQLiteStore(s.RunsDir, dbPath)
+		ids, _ := store.ListRuns()
+		for _, id := range ids {
+			dir := filepath.Join(s.RunsDir, id)
+			rd := journal.NewReader(dir)
+			events, _ := rd.Events()
+			pipelineName := ""
+			if len(events) > 0 {
+				if pn, ok := events[0]["pipeline"].(string); ok {
+					pipelineName = pn
+				}
 			}
+			arts, _ := store.ListArtifacts(id)
+			list = append(list, map[string]interface{}{"id": id, "dir": dir, "pipeline": pipelineName, "events": len(events), "artifacts": arts, "store": "sqlite"})
 		}
-		list = append(list, map[string]interface{}{"id": e.Name(), "dir": dir, "pipeline": pipelineName, "events": len(events)})
+	} else {
+		entries, _ := os.ReadDir(s.RunsDir)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			dir := filepath.Join(s.RunsDir, e.Name())
+			rd := journal.NewReader(dir)
+			events, _ := rd.Events()
+			pipelineName := ""
+			if len(events) > 0 {
+				if pn, ok := events[0]["pipeline"].(string); ok {
+					pipelineName = pn
+				}
+			}
+			list = append(list, map[string]interface{}{"id": e.Name(), "dir": dir, "pipeline": pipelineName, "events": len(events), "store": "fs"})
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
@@ -227,8 +246,17 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snap, _ := rd.ContextSnapshot()
+	dbPath := filepath.Join(s.RunsDir, "runs.db")
+	var arts []string
+	if _, err := os.Stat(dbPath); err == nil {
+		store := journal.NewSQLiteStore(s.RunsDir, dbPath)
+		arts, _ = store.ListArtifacts(id)
+	} else {
+		store := journal.NewFilesystemStore(s.RunsDir)
+		arts, _ = store.ListArtifacts(id)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "events": events, "context": snap})
+	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "events": events, "context": snap, "artifacts": arts})
 }
 
 func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) {
