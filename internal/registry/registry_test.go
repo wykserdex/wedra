@@ -115,3 +115,23 @@ plugins:
 		t.Fatalf("names: %v", names)
 	}
 }
+
+func TestLoadLocalFile(t *testing.T) {
+	regDir := t.TempDir()
+	raw := "version: \"0.1\"\nplugins:\n  a:\n    source: https://example.com/repo\n    path: plugins/a\n"
+	if err := os.WriteFile(filepath.Join(regDir, "registry.yaml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := Load(filepath.Join(regDir, "registry.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	e, ok := h.GetPlugin("a")
+	if !ok || e.Path != "plugins/a" {
+		t.Fatalf("плагин a не найден или неверный path: %+v", e)
+	}
+	if h.Dir != regDir {
+		t.Fatalf("Dir должен быть каталогом файла: %s", h.Dir)
+	}
+}

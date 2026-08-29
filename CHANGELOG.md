@@ -1,5 +1,16 @@
 # Changelog — честная 0.x
 
+## v0.17 (2026-08-30) — trust: реестр проверяется, сеть по декларации
+
+- **`orchestrator registry validate [--registry=<url|path>] [--local-source=<dir>]`** — trust-гейт реестра: манифест каждой записи, `id` = имя в реестре, `plugin.test.yaml` с зелёными конформными тестами; пресеты — парсинг + валидация. Exit 1 при любом провале.
+- **CI**: `registry validate` на каждом PR (local source) + job `registry-release` на теге — проверка по реальным git-пинам (`version` из registry.yaml).
+- **declare-now (сеть)**: `network: deny` в пайплайне + плагин с `permissions.network` — ошибка до любого эффекта (валидатор и раннер независимо). Subprocess получает `WEDRA_NETWORK=allow|deny`; заявленная сеть — в журнал (`step_start.network_declared`), видна в `runs show`.
+- **Кросс-проверка secrets**: `secrets:` пайплайна ↔ `permissions.secrets` манифестов — warning в обе стороны.
+- **CONTRIBUTING.md** — чек-листы: плагин в реестр, пресет в реестр, ревьюер.
+- **PROTOCOL.md §11** — `permissions: declare-now`: L1 = контракт + аудит (песочница сознательно вне уровня).
+- Фикстуры: `net_demo` (заявляет сеть + секрет), `net_probe` (читает `WEDRA_NETWORK`).
+- Тесты: 112 PASS (+5: network deny validate/run, WEDRA_NETWORK env, secrets cross, load local file).
+
 ## v0.16 (2026-08-30) — install-путь: «взял и использовал»
 
 - **`registry.yaml` в корне репо** — реестр v0.1 (формат заморожен, как протокол): секции `plugins` + `presets`, поля `source`/`path`/`version`/`description`. Минимальная конфигурация: один репо = реестр + источник. Реестр можно вынести в отдельный репо — формат не меняется.

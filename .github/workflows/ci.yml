@@ -73,3 +73,21 @@ jobs:
           ls protocol/schemas/
           ls schemas/pipeline/
           cat protocol/schemas/v0.2/*.json | head -n 20
+
+      - name: build orchestrator
+        run: go build -o orchestrator ./cmd/orchestrator
+      - name: registry validate (local source)
+        run: ./orchestrator registry validate --registry=registry.yaml --local-source=.
+
+  # v0.17: trust-гейт релиза — на теге реестр проверяется по РЕАЛЬНЫМ пинам
+  # (клоны git по version из registry.yaml), без local-source.
+  registry-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go build -o orchestrator ./cmd/orchestrator
+      - run: ./orchestrator registry validate --registry=registry.yaml

@@ -70,6 +70,22 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	if len(missingSecrets) > 0 {
 		return stats, fmt.Errorf("secrets: не заданы переменные окружения: %s (export перед запуском, значения в YAML не живут)", strings.Join(missingSecrets, ", "))
 	}
+	// v0.17: network: deny — до любого эффекта, не доверяем validate
+	if pf.Pipeline.Network == "deny" {
+		for i := range pf.Pipeline.Steps {
+			st := &pf.Pipeline.Steps[i]
+			if plugin.IsBuiltin(st.Plugin) {
+				continue
+			}
+			m, err := eng.LoadManifest(st.Plugin)
+			if err != nil {
+				continue // ошибка резолвинга всплывает ниже
+			}
+			if len(m.Permissions.Network) > 0 {
+				return stats, fmt.Errorf("network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
+			}
+		}
+	}
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
 	}
@@ -190,7 +206,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if opts.Resume == "" {
 			opts.logf("  → фаза 1: получение массива %s из %d шагов", pf.Pipeline.Foreach, len(preSteps))
 			for _, st := range preSteps {
-				action, err := runStep(eng, st, ctx, j, opts)
+				action, err := runStep(eng, pf, st, ctx, j, opts)
 				if err != nil {
 					j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 					j.Snapshot(ctx)
@@ -226,7 +242,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			if len(postSteps) > 0 {
 				opts.logf("  → фаза 3: post-foreach %d шагов", len(postSteps))
 				for _, st := range postSteps {
-					if _, err := runStep(eng, st, ctx, j, opts); err != nil {
+					if _, err := runStep(eng, pf, st, ctx, j, opts); err != nil {
 						j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 						return stats, fmt.Errorf("шаг %s (post-foreach): %w", st.ID, err)
 					}
@@ -276,7 +292,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 
 		itemStatus := "ok"
 		for _, st := range loopSteps {
-			action, err := runStep(eng, st, ctx, j, opts)
+			action, err := runStep(eng, pf, st, ctx, j, opts)
 			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 				j.Snapshot(ctx)
@@ -309,7 +325,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		j.Event("post_phase_start", map[string]interface{}{"steps": len(postSteps)})
 		for _, st := range postSteps {
-			action, err := runStep(eng, st, ctx, j, opts)
+			action, err := runStep(eng, pf, st, ctx, j, opts)
 			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 				j.Snapshot(ctx)
@@ -329,7 +345,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	return stats, nil
 }
 
-func runStep(eng Engine, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if plugin.IsBuiltin(st.Plugin) {
 		svc := gate.NewService()
 		return svc.Run(st, ctx, j, gate.GateOptions{Yes: opts.Yes, Quiet: opts.Quiet}), nil
@@ -358,11 +374,19 @@ func runStep(eng Engine, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal
 			attempts = st.Retry.Attempts
 		}
 	}
+	// v0.17: declare-now — subprocess получает контракт сети (deny → честный плагин откажется от сети)
+	netEnv := "allow"
+	if pf.Pipeline.Network == "deny" {
+		netEnv = "deny"
+	}
 	var res *plugin.ExecResult
 	for attempt := 1; attempt <= attempts; attempt++ {
 		opts.logf("  → %-12s (попытка %d/%d)", st.ID, attempt, attempts)
-		j.Event("step_start", map[string]interface{}{"step": st.ID, "attempt": attempt})
-		res = plugin.Exec(m, rawIn, timeout)
+		j.Event("step_start", map[string]interface{}{
+			"step": st.ID, "attempt": attempt,
+			"network": netEnv, "network_declared": pipeline.NetworkHostList(m),
+		})
+		res = plugin.ExecWithEnv(m, rawIn, timeout, []string{"WEDRA_NETWORK=" + netEnv})
 		j.Event("step_end", map[string]interface{}{
 			"step": st.ID, "attempt": attempt, "exit_code": res.ExitCode,
 			"duration_ms": res.Duration.Milliseconds(), "status": statusOf(res),
