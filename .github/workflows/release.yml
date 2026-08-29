@@ -1,0 +1,35 @@
+# v0.17: каждый тег = GitHub Release с бинарниками (orchestrator + tool, 3 ОС × 2 арх).
+# Это то, что получают авторы во «волне»: скачать и запустить без Go.
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: build all platforms
+        run: |
+          mkdir -p dist
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              ext=""
+              [ "$os" = "windows" ] && ext=".exe"
+              echo "== $os/$arch"
+              GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "dist/orchestrator-${os}-${arch}${ext}" ./cmd/orchestrator
+              GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
+            done
+          done
+          ls -la dist/
+      - name: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

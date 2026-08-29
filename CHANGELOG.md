@@ -13,6 +13,11 @@
   никогда не существовали в `tool` (только в `orchestrator`), а `tool plugin list/search`
   добавлены (общий сканер `core.ScanPlugins`). Workflow переписан на `./orchestrator`
   для pipeline/runs-шагов.
+- **Release-бинарники**: каждый тег теперь — GitHub Release (orchestrator + tool,
+  linux/darwin/windows × amd64/arm64) — то, что получают авторы во «волне 2».
+- **Волна 2 (аутрич)**: `OUTREACH_ROUND2.md` — «напиши плагин, попади в реестр»:
+  персональные сообщения (тёплые M5-авторы + холодные), меню идей без сети/ключей,
+  3 способа сдачи (zip/PR/свой репо с тегом). Туториал: §2 permissions, §7 — сдача в реестр.
 - Тесты: 112 PASS (+5: network deny validate/run, WEDRA_NETWORK env, secrets cross, load local file).
 
 ## v0.16 (2026-08-30) — install-путь: «взял и использовал»
