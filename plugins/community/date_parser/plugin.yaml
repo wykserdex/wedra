@@ -1,0 +1,30 @@
+id: date_parser
+version: 0.1.0
+platform_api: "^0.1"
+description: "Человекочитаемые даты → ISO 8601 (ru/en, частые форматы)"
+author: "community · wedra showcase"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  text:
+    from: input.text
+    type: string
+    format: text
+  lang:
+    from: input.lang
+    type: string
+    optional: true
+
+output:
+  iso:      { type: string }
+  parsed:   { type: boolean }
+  format:   { type: string }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

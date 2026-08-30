@@ -1,0 +1,39 @@
+tests:
+  - name: flatten вложенного объекта
+    input:
+      data:
+        user:
+          name: "Anna"
+          age: 30
+        tags: ["a", "b"]
+    expect:
+      status: ok
+      output:
+        flat:
+          equals:
+            user.name: "Anna"
+            user.age: 30
+            tags.0: "a"
+            tags.1: "b"
+        key_count: 4
+        max_depth: 2
+
+  - name: не объект на входе — платформенная ошибка
+    input: { data: "not-an-object" }
+    expect:
+      exit_code: 2
+      error: { code: "platform:bad_input" }
+
+  - name: пустой объект
+    input: { data: {} }
+    expect:
+      status: ok
+      output:
+        flat: { equals: {} }
+        key_count: 0
+        max_depth: 0
+
+  - name: битый JSON — платформенная ошибка
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

@@ -1,6 +1,6 @@
-# orchestrator v0.18 — волна 2: community-плагины в реестре
+# orchestrator v0.19 — волна 2, батч 2: ещё 6 community-плагинов
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.18**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.19**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,7 +8,7 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.18
+├── VERSION              # 0.19
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
 ├── internal/
@@ -23,8 +23,8 @@ orchestrator/
 │   ├── api/             # REST API (M6, отложен)
 │   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
-├── plugins/official/    # 5, community/ 8
-├── pipelines/           # 10
+├── plugins/official/    # 5, community/ 14
+├── pipelines/           # 13
 └── var/runs/            # журналы + --resume
 ```
 
@@ -37,7 +37,7 @@ API-поверхность для `cmd/*` и будущего M6, там жив�
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.17
+./orchestrator version   # v0.19
 go test ./...            # 112 тестов
 
 # плагины
@@ -109,6 +109,31 @@ pipeline:
 
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
+
+## Что нового в v0.19 (волна 2, батч 2)
+
+Ещё два community-автора — 6 плагинов. На этот раз код прислали, вшитый в
+веб-шоукасы (React/Vite): источники вытащены из TS-данных, каждый прогнан
+через конформность:
+
+- `iban_validator` — IBAN (ISO 13616): синтаксис, страна, длина, контрольная
+  сумма mod-97 (7 тестов);
+- `phone_normalizer` — список телефонов → E.164, разбор валид/инвалид,
+  транк '8'→'7' для RU (7);
+- `text_similarity` — Левенштейн + нормализованное сходство + флаг
+  near-duplicate (7);
+- `date_parser` — человекочитаемые даты → ISO 8601 (5);
+- `json_flatten` — JSON → плоский map, точки в ключах (4);
+- `phone_check` — одиночный телефон → E.164 (5);
+- 3 пресета с `human_gate`: `iban_check`, `phones_audit`, `near_dupe_check`
+  (live-прогон `--yes` зелёный).
+
+Правки при приёмке (7, все в тестах/guard'ах, логика не тронута): 4 устаревших
+expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код как
+`platform:<code>`), valid-флаг в ожидании, 2 guard-типа — доменная ошибка
+(exit 1) заменена платформенной (exit 2). Конфликт имён: оба автора написали
+`phone_normalizer` — батч-вариант сохранил имя, одиночный переименован в
+`phone_check`. Реестр: 19 плагинов + 9 пресетов.
 
 ## Что нового в v0.18 (волна 2)
 
@@ -206,7 +231,8 @@ pipeline:
 - [x] v0.16: **install-путь** — реестр v0.1, `plugin install`, `pipeline install` (автоустановка плагинов), pin `name@version`, `secrets:`, оффлайн
 - [x] v0.17: **trust** — `registry validate` как CI-гейт, declare-now сеть (`network: deny` + `WEDRA_NETWORK` + аудит), кросс-проверка secrets, CONTRIBUTING
 - [x] v0.18: **волна 2** — 5 community-плагинов (тестер №1) в реестре, оригинал dir_lister вместо реконструкции, fix версии бинарника
-- [ ] v0.18: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [x] v0.19: **волна 2, батч 2** — 6 community-плагинов (два новых автора) + 3 пресета с human_gate; конфликт имён решён (phone_check)
+- [ ] v0.20: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
@@ -215,5 +241,5 @@ pipeline:
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины)
-- Дальше: v0.19 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2)
+- Дальше: v0.20 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс

@@ -1,0 +1,17 @@
+format_version: "0.2"
+pipeline:
+  name: phones_audit
+  input:
+    phones: ["+7 921 555-01-02", "8 (812) 123-45-67", "просто текст"]
+    default_country: "RU"
+  steps:
+    - id: normalize
+      plugin: plugins/community/phone_normalizer
+      on_error: stop
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.normalize.valid_count, editable: false }
+        - { field: steps.normalize.invalid_count, editable: false }
+        - { field: steps.normalize.invalid, editable: false, type: array }
+      actions: [accept, reject]

@@ -1,0 +1,36 @@
+tests:
+  - name: российский номер со скобками и дефисами
+    input: { phone: "+7 (999) 123-45-67" }
+    expect:
+      status: ok
+      output:
+        normalized: "+79991234567"
+        valid: true
+        country: "RU"
+
+  - name: белорусский номер без плюса
+    input: { phone: "375 (29) 123-45-67", default_country: "BY" }
+    expect:
+      status: ok
+      output:
+        normalized: "+375291234567"
+        valid: true
+        country: "BY"
+
+  - name: слишком короткий номер
+    input: { phone: "123" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: invalid_phone, retryable: false }
+
+  - name: не строка на входе — платформенная ошибка
+    input: { phone: 12345 }
+    expect:
+      exit_code: 2
+      error: { code: "platform:bad_input" }
+
+  - name: битый JSON — платформенная ошибка
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

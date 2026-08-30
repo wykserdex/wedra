@@ -1,0 +1,57 @@
+tests:
+  - name: DE IBAN (пробелы + нижний регистр) — валиден
+    input: { iban: "de89 3704 0044 0532 0130 00" }
+    expect:
+      status: ok
+      output:
+        valid: true
+        country_code: DE
+        country_name: "Германия"
+        normalized: DE89370400440532013000
+        formatted: "DE89 3704 0044 0532 0130 00"
+        checksum_ok: true
+        bank_code: "3704"
+
+  - name: RU IBAN валиден (33 символа, 29 цифр BBAN)
+    input: { iban: "RU6404452522512345678901234567890" }
+    expect:
+      status: ok
+      output:
+        valid: true
+        country_code: RU
+        country_name: "Россия"
+        normalized: RU6404452522512345678901234567890
+        bank_code: "0445"
+
+  - name: неверная контрольная сумма → доменная ошибка
+    input: { iban: "RU6404452522512345678901234567899" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_checksum, retryable: false }
+
+  - name: неподдерживаемая страна
+    input: { iban: "ZZ00123456789012345678" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: unsupported_country }
+
+  - name: строка не похожа на IBAN
+    input: { iban: "hello world" }
+    expect:
+      status: error
+      error: { code: not_iban, retryable: false }
+
+  - name: пустой iban → доменная ошибка
+    input: { iban: "" }
+    expect:
+      status: error
+      error: { code: empty_input }
+
+  - name: битый JSON на stdin → платформенная ошибка
+    input_raw: "{ это не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

@@ -1,0 +1,32 @@
+id: phone_normalizer
+version: 0.1.0
+platform_api: "^0.1"
+description: "Нормализация списка телефонов в E.164: +код страны, транк '8' для RU, разбор валид/инвалид. Без сети."
+author: "community · волна 3 (plugin-pack wedra)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  phones:
+    from: input.phones
+    type: array
+  default_country:
+    from: input.default_country
+    type: string
+    format: text
+    optional: true
+
+output:
+  results: { type: array }
+  valid: { type: array }
+  invalid: { type: array }
+  valid_count: { type: number }
+  invalid_count: { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

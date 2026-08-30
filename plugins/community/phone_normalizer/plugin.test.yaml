@@ -1,0 +1,68 @@
+tests:
+  - name: микс валидных и мусора, дефолт RU (транк '8' -> '7')
+    input:
+      phones: ["+7 921 555-01-02", "8 (812) 123-45-67", "просто текст", "+1 415 555 2671"]
+      default_country: "RU"
+    expect:
+      status: ok
+      output:
+        valid_count: 3
+        invalid_count: 1
+        valid:
+          equals:
+            - { input: "+7 921 555-01-02", e164: "+79215550102", country: "RU/KZ", national: "9215550102" , valid: true }
+            - { input: "8 (812) 123-45-67", e164: "+78121234567", country: "RU/KZ", national: "8121234567" , valid: true }
+            - { input: "+1 415 555 2671", e164: "+14155552671", country: "US/CA", national: "4155552671" , valid: true }
+
+  - name: только международные, без дефолта — все ок
+    input: { phones: ["+49 30 123456", "+380 44 123 45 67"] }
+    expect:
+      status: ok
+      output:
+        valid_count: 2
+        invalid_count: 0
+
+  - name: без '+' и без дефолта → инвалид, но шаг ok (данные, не ошибка)
+    input: { phones: ["812 123-45-67"] }
+    expect:
+      status: ok
+      output:
+        valid_count: 0
+        invalid_count: 1
+        invalid:
+          equals:
+            - { input: "812 123-45-67", valid: false, error: "no_country_code",
+                message: "нет кода страны и не задан default_country" }
+
+  - name: пустой список → доменная ошибка
+    input: { phones: [] }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+  - name: phones не массив → платформенная ошибка
+    input: { phones: "+7 921 000-00-00" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: слишком короткий национальный номер → инвалид
+    input: { phones: ["+1 12"] }
+    expect:
+      status: ok
+      output:
+        valid_count: 0
+        invalid_count: 1
+        invalid:
+          equals:
+            - { input: "+1 12", valid: false, error: "bad_length",
+                message: "национальная часть короче 4 цифр" }
+
+  - name: битый JSON на stdin → платформенная ошибка
+    input_raw: "не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

@@ -1,0 +1,37 @@
+id: text_similarity
+version: 0.1.0
+platform_api: "^0.1"
+description: "Расстояние Левенштейна и нормализованное сходство двух строк + флаг near-duplicate по порогу. Без сети."
+author: "community · волна 3 (plugin-pack wedra)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  a:
+    from: input.a
+    type: string
+    format: text
+  b:
+    from: input.b
+    type: string
+    format: text
+  threshold:
+    from: input.threshold
+    type: number
+    optional: true
+
+output:
+  distance: { type: number }
+  max_len: { type: number }
+  similarity: { type: number }
+  similar: { type: boolean }
+  threshold: { type: number }
+  chars: { type: object }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

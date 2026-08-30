@@ -1,0 +1,15 @@
+format_version: "0.2"
+pipeline:
+  name: iban_check
+  input: { iban: "DE89 3704 0044 0532 0130 00" }
+  steps:
+    - id: check
+      plugin: plugins/community/iban_validator
+      on_error: stop
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.check.valid, editable: false }
+        - { field: steps.check.formatted, editable: false }
+        - { field: steps.check.bank_code, editable: false }
+      actions: [accept, reject]

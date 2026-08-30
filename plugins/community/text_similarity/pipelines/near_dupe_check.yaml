@@ -1,0 +1,18 @@
+format_version: "0.2"
+pipeline:
+  name: near_dupe_check
+  input:
+    a: "тест репозиторий"
+    b: "тест репозитория"
+    threshold: 0.9
+  steps:
+    - id: cmp
+      plugin: plugins/community/text_similarity
+      on_error: stop
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.cmp.distance, editable: false }
+        - { field: steps.cmp.similarity, editable: false }
+        - { field: steps.cmp.similar, editable: false }
+      actions: [accept, reject]
