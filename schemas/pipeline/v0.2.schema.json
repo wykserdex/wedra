@@ -140,6 +140,62 @@
                     ]
                   }
                 }
+              },
+              "after_foreach": {
+                "type": "boolean",
+                "description": "шаг выполняется один раз после foreach-цикла"
+              },
+              "when": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(input|steps)\\.",
+                    "description": "путь: шаг выполняется, если значение истинно"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "path"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "pattern": "^(input|steps)\\."
+                      },
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "truthy",
+                          "exists",
+                          "missing",
+                          "eq",
+                          "neq",
+                          "gt",
+                          "gte",
+                          "lt",
+                          "lte",
+                          "contains"
+                        ]
+                      },
+                      "value": {}
+                    },
+                    "description": "path + оператор + значение (op по умолчанию eq)"
+                  }
+                ]
+              },
+              "foreach": {
+                "type": "string",
+                "pattern": "^(input|steps)\\.",
+                "description": "шаг выполняется по каждому элементу массива; результаты — steps.<id>_all"
+              },
+              "foreach_item": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "description": "имя переменной элемента в input.* (по умолчанию item)"
+              },
+              "parallel_group": {
+                "type": "string",
+                "description": "шаги с одинаковым именем группы выполняются параллельно, барьер — до следующего шага"
               }
             }
           }

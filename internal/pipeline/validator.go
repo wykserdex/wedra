@@ -197,6 +197,52 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			errs = append(errs, "шаг "+st.ID+": дублирующийся id")
 		}
 		seen[st.ID] = true
+		// v0.20: управляющий поток на уровне шага
+		if st.When.IsSet() {
+			if !WhenOps[st.When.Op] {
+				errs = append(errs, fmt.Sprintf("шаг %s: when: неизвестный оператор %q (допускаются: truthy, exists, missing, eq, neq, gt, gte, lt, lte, contains)", st.ID, st.When.Op))
+			}
+			if !strings.HasPrefix(st.When.Path, "input.") && !strings.HasPrefix(st.When.Path, "steps.") {
+				errs = append(errs, fmt.Sprintf("шаг %s: when: путь должен начинаться с input. или steps. (got %s)", st.ID, st.When.Path))
+			} else if parts := strings.Split(st.When.Path, "."); strings.HasPrefix(st.When.Path, "steps.") {
+				if len(parts) < 3 {
+					errs = append(errs, fmt.Sprintf("шаг %s: when: steps.* должен быть вида steps.<id>.<field>", st.ID))
+				} else if _, ok := prior[parts[1]]; !ok {
+					errs = append(errs, fmt.Sprintf("шаг %s: when: читает из шага %s, который ещё не выполняется", st.ID, parts[1]))
+				}
+			}
+		}
+		if st.Foreach != "" {
+			if !strings.HasPrefix(st.Foreach, "input.") && !strings.HasPrefix(st.Foreach, "steps.") {
+				errs = append(errs, fmt.Sprintf("шаг %s: foreach: путь должен начинаться с input. или steps. (got %s)", st.ID, st.Foreach))
+			} else if strings.HasPrefix(st.Foreach, "steps.") {
+				parts := strings.Split(st.Foreach, ".")
+				if len(parts) < 3 {
+					errs = append(errs, fmt.Sprintf("шаг %s: foreach: steps.* должен быть вида steps.<id>.<field>", st.ID))
+				} else if _, ok := prior[parts[1]]; !ok {
+					errs = append(errs, fmt.Sprintf("шаг %s: foreach: шаг %s не найден или ещё не выполняется", st.ID, parts[1]))
+				}
+			} else if key := strings.TrimPrefix(st.Foreach, "input."); !strings.Contains(key, ".") {
+				if _, ok := p.Input[key]; !ok {
+					errs = append(errs, fmt.Sprintf("шаг %s: foreach: массив %s не найден в input", st.ID, st.Foreach))
+				}
+			}
+			if st.AfterForeach {
+				errs = append(errs, fmt.Sprintf("шаг %s: foreach и after_foreach не сочетаются", st.ID))
+			}
+			if st.ParallelGroup != "" {
+				errs = append(errs, fmt.Sprintf("шаг %s: foreach не сочетается с parallel_group", st.ID))
+			}
+			if st.ForeachItem != "" && strings.ContainsAny(st.ForeachItem, ". \t\"'") {
+				errs = append(errs, fmt.Sprintf("шаг %s: foreach_item должно быть простым именем (got %q)", st.ID, st.ForeachItem))
+			}
+			if IsBuiltin(st.Plugin) {
+				errs = append(errs, fmt.Sprintf("шаг %s: human_gate не принимает foreach", st.ID))
+			}
+		}
+		if st.ParallelGroup != "" && IsBuiltin(st.Plugin) {
+			errs = append(errs, fmt.Sprintf("шаг %s: human_gate нельзя ставить в параллельную группу %q (гейты сериализуют терминал)", st.ID, st.ParallelGroup))
+		}
 		switch st.OnError {
 		case "", "stop", "skip", "retry":
 		default:
@@ -293,6 +339,25 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			}
 		}
 		prior[st.ID] = priorStep{step: st, manifest: m}
+	}
+	// v0.20: parallel_group — шаги группы должны быть смежными в списке
+	groupLast := map[string]int{}
+	groupSize := map[string]int{}
+	for i := range p.Steps {
+		g := p.Steps[i].ParallelGroup
+		if g == "" {
+			continue
+		}
+		groupSize[g]++
+		if last, ok := groupLast[g]; ok && i != last+1 {
+			errs = append(errs, fmt.Sprintf("parallel_group %q: шаги группы должны быть рядом в списке (шаг %s отделён от группы)", g, p.Steps[i].ID))
+		}
+		groupLast[g] = i
+	}
+	for g, n := range groupSize {
+		if n == 1 {
+			warns = append(warns, fmt.Sprintf("parallel_group %q: один шаг — параллелизм бессмыслен", g))
+		}
 	}
 	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов
 	pluginSecrets := map[string]bool{}
