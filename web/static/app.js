@@ -118,8 +118,9 @@ async function startRun() {
     state.runIdsBeforeStart = state.runs.map(r => r.id);
     state.runsBeforeStart = state.runs.length;
     state.timers.pendingNew = true;
-    await api('/api/run', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({file, yes: true}) });
-    $('#run-status').textContent = 'ран запущен — ищем его в списке…';
+    const yes = !$('#run-gate').checked;
+    await api('/api/run', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({file, yes}) });
+    $('#run-status').textContent = yes ? 'ран запущен (--yes) — ищем его в списке…' : 'ран запущен — гейты будут решать прямо здесь…';
   } catch (e) {
     $('#run-status').innerHTML = '<span style="color:var(--err)">' + esc(e.message) + '</span>';
     btn.disabled = false;
@@ -143,6 +144,7 @@ async function openRunDetail(id, force) {
   const inp = ctx.input ? Object.keys(ctx.input).length : 0;
 
   $('#detail').innerHTML = `
+    <div id="gate-card" style="display:none"></div>
     <div class="dhead">
       <button class="btn" onclick="closeDetail()">←</button>
       <h2>${esc(d.pipeline || '?')}</h2>
@@ -173,6 +175,7 @@ async function openRunDetail(id, force) {
   // журнал: полный прогон + polling хвоста
   state.journal = { events: d.events, since: d.events.length, total: d.events.length };
   renderJournal(d.events);
+  updateGateCard(id);
   clearInterval(state.timers.journal);
   state.timers.journal = setInterval(async () => {
     if (state.currentRun !== id || state.tab !== 'runs') { clearInterval(state.timers.journal); return; }
@@ -183,6 +186,7 @@ async function openRunDetail(id, force) {
         state.journal.events = state.journal.events.concat(tail.events);
         const tl = $('#tl'); if (tl) tl.innerHTML = renderTimeline(state.journal.events);
         renderJournal(tail.events, true);
+        updateGateCard(id);
         const d2 = state.journal.events[state.journal.events.length - 1];
         if (d2 && (d2.type === 'run_end' || d2.type === 'run_failed')) {
           const dd = await api('/api/runs/' + id);
@@ -233,6 +237,8 @@ function renderTimeline(events) {
     }
     if (type === 'step_failed') { html += ev(t(e), 'err', `✗ ${esc(e.step)}: ${esc(e.error || 'ошибка')}`, ''); continue; }
     if (type === 'step_skipped') { html += ev(t(e), 'skip', `↷ ${esc(e.step)} пропущен`, e.reason ? `reason: ${esc(e.reason)}${e.condition ? ' · ' + esc(e.condition) : ''}` : ''); continue; }
+    if (type === 'gate_wait') { html += ev(t(e), 'run', `👤 гейт ${esc(e.step)}: ожидает решение (в браузере)`, (e.actions || []).join('/') ); continue; }
+    if (type === 'gate_retry') { html += ev(t(e), 'skip', `⚠ гейт ${esc(e.step)}: ${esc(e.reason || 'переспрос')}`, 'попытка ' + (e.attempt || '?')); continue; }
     if (type === 'gate_decision') { html += ev(t(e), e.action === 'accept' ? 'ok' : 'skip', `👤 гейт ${esc(e.step)}: ${esc(e.action)}${e.auto ? ' (авто --yes)' : ''}`, e.materialized ? esc(JSON.stringify(e.materialized)) : ''); continue; }
     if (type === 'run_start') { html += ev(t(e), 'dim', `ран: ${esc(e.pipeline || '?')}${e.foreach ? ' · foreach ' + esc(e.foreach) : ''}`, ''); continue; }
     if (type === 'run_resumed') { html += ev(t(e), 'par', `ран возобновлён (resume)`, ''); continue; }
@@ -416,5 +422,87 @@ function drawDag(dag) {
   s += '</svg>';
   svg.outerHTML = s;
 }
+
+// ── v0.24: гейт-карточка (решение из браузера) ────────────────────────────
+function pendingGate(events) {
+  let gw = null;
+  for (const e of events) {
+    if (e.type === 'gate_wait') gw = e;
+    else if (e.type === 'gate_decision') gw = null;
+  }
+  return gw;
+}
+
+function updateGateCard(id) {
+  const card = $('#gate-card');
+  if (!card || state.currentRun !== id) return;
+  const gw = pendingGate(state.journal.events);
+  const key = gw ? gw.ts + ':' + gw.step : '';
+  if (!gw) {
+    if (card.dataset.submitted !== key && key === '') {
+      // гейт решён (или его не было): если карточка была нашей — убрать
+      if (card.dataset.gateFor && card.dataset.gateFor !== 'done') card.innerHTML = '';
+      card.style.display = 'none';
+      card.dataset.gateFor = '';
+    }
+    return;
+  }
+  if (card.dataset.gateFor === key) return; // уже отрисована (или отправлена) — не затираем ввод
+  card.dataset.gateFor = key;
+  card.style.display = '';
+  const fields = (gw.form || []).map(f => {
+    const val = String(f.value == null ? '' : f.value);
+    if (f.editable) {
+      return `<div class="gfield"><label>* ${esc(f.field)}${f.type ? ' · ' + esc(f.type) : ''} (JSON, пусто — оставить)</label>
+        <input data-field="${esc(f.field)}" value="${esc(val)}" spellcheck="false"/></div>`;
+    }
+    return `<div class="gfield"><label>${esc(f.field)}</label>
+      <input readonly value="${esc(val)}"/></div>`;
+  }).join('');
+  const btns = (gw.actions || ['accept', 'reject']).map(a => {
+    const cls = a === 'accept' ? 'ok' : (a === 'reject' ? 'err' : '');
+    const label = a === 'accept' ? '✓ принять' : a === 'reject' ? '✗ отклонить' : esc(a);
+    return `<button class="${cls}" onclick="submitGate('${id}','${esc(a)}')">${label}</button>`;
+  }).join('');
+  card.innerHTML = `
+    <h3>👤 human_gate · ${esc(gw.step)} — ран ждёт твоего решения</h3>
+    ${fields || '<div class="gstatus">форма пуста</div>'}
+    <div class="gactions">${btns}</div>
+    <div class="gstatus" id="gate-status"></div>`;
+}
+
+window.submitGate = async (id, action) => {
+  const card = $('#gate-card');
+  const st = $('#gate-status');
+  const edits = {};
+  let bad = null;
+  card.querySelectorAll('input[data-field]').forEach(inp => {
+    const v = inp.value.trim();
+    if (v === '') return; // пусто = оставить
+    let parsed;
+    try { parsed = JSON.parse(v); }
+    catch { bad = inp.dataset.field; return; }
+    edits[inp.dataset.field] = parsed;
+  });
+  if (bad) {
+    st.className = 'gstatus error';
+    st.textContent = 'не JSON: ' + bad + ' — поправь и нажми действие ещё раз';
+    return;
+  }
+  try {
+    await api('/api/runs/' + id + '/gate', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action, edits }),
+    });
+    card.dataset.gateFor = 'done'; // больше не перерисовывать
+    card.querySelectorAll('button').forEach(b => b.disabled = true);
+    card.querySelectorAll('input').forEach(i => i.readOnly = true);
+    st.className = 'gstatus';
+    st.textContent = 'решение «' + action + '» отправлено — ран продолжится…';
+  } catch (e) {
+    st.className = 'gstatus error';
+    st.textContent = e.message;
+  }
+};
 
 init();

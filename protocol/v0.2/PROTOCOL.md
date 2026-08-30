@@ -98,7 +98,7 @@ timeout: 30s   # обязателен по смыслу, дефолт 60s
 ## 8. Журнал прогона
 
 `runs/<timestamp>-<pipeline>/`:
-- `journal.jsonl` — append-only события: `run_start`, `item_start`, `step_start`, `step_end` (exit_code, ms, stderr), `step_skipped`, `gate_decision`, `item_aborted`, `item_end`, `run_end`
+- `journal.jsonl` — append-only события: `run_start`, `item_start`, `step_start`, `step_end` (exit_code, ms, stderr), `step_skipped`, `gate_wait` (v0.24), `gate_retry` (v0.24), `gate_decision`, `item_aborted`, `item_end`, `run_end`
 - `context.json` — снапшот контекста после каждого элемента/шага
 
 Это же — основа будущих `--resume` и GUI-дебаггера.

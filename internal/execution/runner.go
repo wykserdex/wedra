@@ -23,6 +23,11 @@ type RunOptions struct {
 	Resume  string
 	Store   string
 	DBPath  string
+	// v0.24: GUI — ID рана известен до старта (ответ API, карточка гейта)
+	RunID string
+	// v0.24: фабрика не-терминального ввода гейта (GUI/API). Вызывается на
+	// каждом встроенном gate-шаге; nil — терминальный stdin (дефолт).
+	GateUI func(*pipeline.Step) gate.GateUI
 }
 
 func (o RunOptions) logf(format string, a ...interface{}) {
@@ -46,6 +51,9 @@ func sanitize(s string) string {
 		return '-'
 	}, s)
 }
+
+// Sanitize — публичная обёртка (v0.24: GUI генерирует runID тем же форматом).
+func Sanitize(s string) string { return sanitize(s) }
 
 type Engine interface {
 	LoadManifest(ref string) (*pipeline.Manifest, error)
@@ -129,7 +137,10 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		opts.logf("▶ resume %q с элемента %d (журнал: %s)", pf.Pipeline.Name, startItemIdx, j.Dir)
 		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx})
 	} else {
-		runID := time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
+		runID := opts.RunID
+		if runID == "" {
+			runID = time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
+		}
 		// use store.Create so SQLite DB gets entry
 		j, err = store.Create(runID)
 		if err != nil {
@@ -568,7 +579,12 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 
 func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if plugin.IsBuiltin(st.Plugin) {
-		svc := gate.NewService()
+		var svc *gate.Service
+		if opts.GateUI != nil {
+			svc = gate.NewServiceWithUI(opts.GateUI(st))
+		} else {
+			svc = gate.NewService()
+		}
 		return svc.Run(st, ctx, j, gate.GateOptions{Yes: opts.Yes, Quiet: opts.Quiet}), nil
 	}
 	m, err := eng.LoadManifest(st.Plugin)
