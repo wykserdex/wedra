@@ -9,7 +9,7 @@ const snap = v => Math.round(v / GRID) * GRID;
 
 let state = {
   plugins: [],
-  doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', input: [], steps: [] },
+  doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [] },
   unsupported: [],
   sel: null,
   undo: [],
@@ -466,7 +466,7 @@ async function openFile(file) {
     const doc = await api('/api/parse/pipeline', { method: 'POST', body: yamlText });
     pushUndo();
     state.doc = {
-      name: doc.name, file,
+      name: doc.name, file, format_version: doc.format_version || '',
       input: (doc.input || []).map(i => ({ name: i.name, default: i.default || '' })),
       steps: (doc.steps || []).map(s => ({
         id: s.id, plugin: s.plugin,

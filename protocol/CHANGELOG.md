@@ -17,6 +17,7 @@
 - pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
 - **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
   `when:`, `foreach:` на шаге, `parallel_group`
+- **v0.26a (app): редактор сохраняет `format_version` исходного файла (новое doc → 0.2); протокол без изменений**.
 - **v0.26 (app): имя** — продукт/бинарник WEDRA (`wedra`), модуль `wedra`.
 - **v0.24 (app): браузерный гейт** — событие `gate_wait` (step, form с
   текущими значениями, actions) до блокировки на гейте; `gate_retry` —
