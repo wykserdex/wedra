@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"orchestrator/internal/common"
@@ -107,10 +106,10 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	}
 	// v0.23: свой process group — таймаут убивает группу, а не только прямой
 	// процесс (python-плагин с дочерними больше не оставляет сирот).
-	// Убийство группы — в момент таймаута (goroutine): cmd.Run ждёт закрытия
+	// Убийство группы — в момент таймаута (goroutine): Wait ждёт закрытия
 	// пайпов, унаследованных дочерними, и без group kill «замрёт» до их
 	// естественной смерти (sleep 30 = 30 секунд).
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcGroup(cmd)
 	// v0.23: stdout/stderr с лимитом (гигантский вывод = не вся память процесса)
 	stdoutCap, stderrCap := 16<<20, 1<<20
 	stdout := &cappedWriter{buf: &bytes.Buffer{}, limit: stdoutCap}
@@ -127,9 +126,7 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	}
 	go func() {
 		<-ctx.Done()
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
+		killProcessGroup(cmd)
 	}()
 
 	start := time.Now()
