@@ -1,7 +1,7 @@
 package main
 
 import (
-	"orchestrator/internal/cli"
+	"wedra/internal/cli"
 )
 
 func main() {

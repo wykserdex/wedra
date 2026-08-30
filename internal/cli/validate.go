@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"gopkg.in/yaml.v3"
-	"orchestrator/internal/core"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/core"
+	"wedra/internal/pipeline"
 )
 
 func RunPipelineValidate(args []string) {

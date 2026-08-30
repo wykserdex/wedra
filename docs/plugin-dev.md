@@ -104,7 +104,7 @@ tool run examples/my_first.yaml        # --yes = авто-accept гейтов (C
 
 Путь плагина в публичный реестр (`registry.yaml` в корне репо):
 
-1. **Зелёные контракт-тесты** — гейт. `orchestrator plugin test <dir>` — все
+1. **Зелёные контракт-тесты** — гейт. `wedra plugin test <dir>` — все
    PASS (минимум 3 кейса: happy path, доменная ошибка, битый JSON exit 2;
    реальных ключей в тестах нет — mock-режим, см. LLM-плагины).
 2. **Манифест честный**: `id` совпадает с именем в реестре, `permissions`
@@ -115,9 +115,9 @@ tool run examples/my_first.yaml        # --yes = авто-accept гейтов (C
      записи (`source`, `path`, `version` = тег релиза, `description`);
    - свой репо с тегом → запись в реестре указывает `source` на твой репо
      (полное владение плагином — у тебя).
-4. **CI** прогоняет `orchestrator registry validate`: манифест, id, все
+4. **CI** прогоняет `wedra registry validate`: манифест, id, все
    конформные тесты. Красный = в реестре не окажешься.
 
-После попадания: любой `orchestrator plugin install <твой_плагин>` — и плагин
+После попадания: любой `wedra plugin install <твой_плагин>` — и плагин
 у него в `plugins/`, а пресеты тянут его автоматически. Full cycle:
 `OUTREACH_ROUND2.md` (меню идей + как принимаем).

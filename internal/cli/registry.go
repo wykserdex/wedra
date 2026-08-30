@@ -14,12 +14,12 @@ import (
 	"sort"
 	"strings"
 
-	"orchestrator/internal/core"
-	"orchestrator/internal/pipeline"
-	"orchestrator/internal/registry"
+	"wedra/internal/core"
+	"wedra/internal/pipeline"
+	"wedra/internal/registry"
 )
 
-// RunRegistryValidate — orchestrator registry validate [--registry=<url|path>] [--local-source=<dir>]
+// RunRegistryValidate — wedra registry validate [--registry=<url|path>] [--local-source=<dir>]
 func RunRegistryValidate(args []string) {
 	regSrc := registry.DefaultSource()
 	localSource := ""

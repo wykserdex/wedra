@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"orchestrator/internal/core"
+	"wedra/internal/core"
 )
 
 func RunPipelineRun(args []string) {

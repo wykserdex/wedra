@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"orchestrator/internal/context"
+	"wedra/internal/context"
 )
 
 // Event не мутирует переданный map (footgun для переиспользуемых мап).

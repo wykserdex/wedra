@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"orchestrator/internal/context"
+	"wedra/internal/context"
 )
 
 // Journal — append-only журнал прогона: var/runs/<run_id>/journal.jsonl

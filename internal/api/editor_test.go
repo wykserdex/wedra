@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"orchestrator/internal/pipeline"
-	"orchestrator/internal/plugin"
+	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
 )
 
 func postBytes(t *testing.T, url string, body []byte) (int, map[string]interface{}) {

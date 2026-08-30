@@ -1,25 +1,25 @@
 ![WEDRA](banner.png)
 
-# orchestrator v0.25 — редактор пайплайнов: палитра, сетка, связи, undo — и YAML пишет ядро, не браузер
+# WEDRA v0.26 — продукт получил имя: бинарник `wedra`, модуль `wedra`, ассеты `wedra_*`
 
 
 Локальный оркестратор цепочек с человеком в петле.
 
-> **Название:** репо — `wedra`, продукт/бинарник — `orchestrator`
-> (имя модуля в go.mod и `cmd/orchestrator`; так было с M1). Пока держим оба:
-> переименование = имя release-ассетов, install-инструкции и ссылки реестра —
-> решаем осознанно, не на бегу. M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.25**.
+> **Имя (v0.26):** продукт — **WEDRA** (как и репозиторий). Бинарник — `wedra`
+> (до v0.26 — `orchestrator`), модуль — `wedra`, ассеты релизов — `wedra_<os>_<arch>`.
+> В старых доках/инструкциях — старое имя; команды: `orchestrator …` → `wedra …`.
+> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.26**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
 > «каждый кусок можно независимо написать, протестировать и заменить» · «контракт честный»
 
 ```
-orchestrator/
+wedra/
 ├── VERSION              # 0.21 (читает бинарник, CWD в приоритете)
 ├── registry.yaml        # реестр: 19 плагинов + 12 пресетов, формат заморожен
 ├── cmd/
-│   ├── orchestrator/    # точка входа (CLI + REST API)
+│   ├── wedra/           # точка входа (CLI + REST API)
 │   └── tool/            # compat-шим M5 (run/validate/plugin/runs)
 ├── protocol/            # VERSION (0.2), CHANGELOG, v0.2/PROTOCOL.md
 ├── schemas/             # pipeline.v0.2, manifest, request, response
@@ -50,29 +50,29 @@ API-поверхность для `cmd/*` и будущего M6, там жив�
 ## Быстрый старт (CLI — мясо)
 
 ```bash
-go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.25
+go build -o wedra ./cmd/wedra
+./wedra version   # v0.26
 go test ./...            # 112 тестов
 
 # плагины
-./orchestrator plugin validate plugins/csv_loader
-./orchestrator plugin test plugins/csv_loader   # 7 PASS
-./orchestrator plugin test plugins/email_triage # 10 PASS
+./`wedra plugin validate plugins/csv_loader
+./`wedra plugin test plugins/csv_loader   # 7 PASS
+./`wedra plugin test plugins/email_triage # 10 PASS
 
 # пайплайны
-./orchestrator pipeline validate examples/email_check.yaml
-./orchestrator pipeline lint examples/csv_foreach.yaml
-./orchestrator pipeline plan examples/csv_foreach.yaml
+./`wedra pipeline validate examples/email_check.yaml
+./`wedra pipeline lint examples/csv_foreach.yaml
+./`wedra pipeline plan examples/csv_foreach.yaml
 
 # v0.12: foreach по результату шага (было только input.*)
-./orchestrator pipeline run examples/csv_foreach.yaml --yes
+./`wedra pipeline run examples/csv_foreach.yaml --yes
 # фаза 1: load rows → фаза 2: foreach row → check → review, ok=2
 
 # v0.12: --resume
-./orchestrator runs list
-./orchestrator runs show <run_id>
-./orchestrator pipeline run examples/email_triage_chain.yaml --yes --resume=<run_id>
-./orchestrator runs resume <run_id> examples/email_triage_chain.yaml --yes
+./`wedra runs list
+./`wedra runs show <run_id>
+./`wedra pipeline run examples/email_triage_chain.yaml --yes --resume=<run_id>
+./`wedra runs resume <run_id> examples/email_triage_chain.yaml --yes
 
 # совместимость tool
 ./tool run examples/csv_foreach.yaml --yes
@@ -86,15 +86,15 @@ go test ./...            # 112 тестов
 
 ```bash
 # пресет из реестра + АВТОУСТАНОВКА его плагинов в plugins/
-./orchestrator pipeline install email_check
-./orchestrator pipeline run examples/email_check.yaml --yes
+./`wedra pipeline install email_check
+./`wedra pipeline run examples/email_check.yaml --yes
 
 # плагин из реестра (или с пином версии)
-./orchestrator plugin install text_analyzer
-./orchestrator plugin install my_summarizer@v0.16
+./`wedra plugin install text_analyzer
+./`wedra plugin install my_summarizer@v0.16
 
 # свой реестр (оффлайн: каталог с registry.yaml) — без сети
-./orchestrator pipeline install my_preset --registry=./my_registry
+./`wedra pipeline install my_preset --registry=./my_registry
 ```
 
 Ссылки на плагины в пайплайне (v0.16, назад-совместимо):
@@ -124,7 +124,23 @@ pipeline:
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
 
-## Что нового в v0.25 (редактор пайплайнов)
+## Что нового в v0.26 (имя: WEDRA)
+
+Продукт переименован в **WEDRA** — совпало с репозиторием, баннером и
+`WEDRA_NETWORK` (так переменная сети называлась ещё с v0.17 — имя выдержало
+время, остальное догнало).
+
+- **Бинарник**: `orchestrator` → **`wedra`** (`cmd/wedra`). После
+  переустановки команда — `wedra`; алиасы/скрипты — одна строка.
+- **Модуль**: go.mod `module wedra`, импорт-пути `wedra/internal/...`.
+- **Релиз**: ассеты `wedra_<os>_<arch>` (12, как раньше) + legacy `tool`.
+- **GUI**: шапки консоли и редактора — WEDRA; комментарий в генерируемых
+  YAML — «создан в редакторе WEDRA».
+- **Доки**: README, docs/, CONTRIBUTING, PROTOCOL, registry — новое имя.
+  CHANGELOG и archive — история, не переписываем (там старое имя — честно).
+  Текст демо-примеров не тронут (это входные данные, не бренд).
+
+## 
 
 Мёртвый прототип M5 (/editor/) переписан с нуля и поднят в первый класс
 (ссылка в консоли снова есть — теперь на работающий инструмент).
@@ -233,7 +249,7 @@ race-контур Send/Close; API: полный цикл wait→decision→ok, r
 
 ## 
 
-`orchestrator gui` больше не «отложен, косметика» — это рабочая консоль
+`wedra gui` больше не «отложен, косметика» — это рабочая консоль
 (web/static, без внешних зависимостей, офлайн):
 
 - **Раны** — список с живыми статусами (ok / aborted / failed / идёт…),
@@ -330,12 +346,12 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 (`registry validate`), атрибуция в манифесте, у всех `permissions` честные
 (без сети и ключей).
 
-Кто угодно: `orchestrator plugin install word_freq` — и плагин у вас в `plugins/`.
+Кто угодно: `wedra plugin install word_freq` — и плагин у вас в `plugins/`.
 Свой плагин — `docs/plugin-dev.md` (15 минут) + `OUTREACH_ROUND2.md` (меню идей).
 
 ## Что нового в v0.17 (trust)
 
-- **`orchestrator registry validate [--registry=<src>] [--local-source=<dir>]`** —
+- **`wedra registry validate [--registry=<src>] [--local-source=<dir>]`** —
   trust-гейт реестра: для КАЖДОЙ записи — манифест, `id` = имя в реестре,
   `plugin.test.yaml` с зелёными тестами (конформность обязательна для реестра),
   пресеты — парсинг + валидация. Запись без конформности = не запись, а долг.
@@ -390,11 +406,11 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 **2. --resume — журнал как фундамент**
 - `RunOptions.Resume` + `journal.OpenJournalAppend`
 - Загружает `var/runs/<id>/context.json`, парсит `journal.jsonl` → `max item_index`, пропускает пройденные
-- CLI: `orchestrator pipeline run --resume=<id>`, `orchestrator runs resume <id> <yaml>`
+- CLI: `wedra pipeline run --resume=<id>`, `wedra runs resume <id> <yaml>`
 
 **3. runs CLI**
-- `orchestrator runs list [var/runs]` — список прогонов с pipeline name и events count
-- `orchestrator runs show <id>` — полный журнал + context snapshot
+- `wedra runs list [var/runs]` — список прогонов с pipeline name и events count
+- `wedra runs show <id>` — полный журнал + context snapshot
 - `tool runs list/show` — совместимость
 
 **4. human_gate typing fix #19**
@@ -420,10 +436,12 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 - [x] v0.19: **волна 2, батч 2** — 6 community-плагинов (два новых автора) + 3 пресета с human_gate; конфликт имён решён (phone_check)
 - [x] v0.20: **управляющий поток** — `when:`, `foreach:` на шаге, `parallel_group` (PROTOCOL §12, 3 демо в CI)
 - [x] v0.21: **хирургия** — protocol/, schemas/, examples/, docs/, archive/; trust-гейт: локальный путь обязателен
-- [x] v0.22: **GUI-консоль** — live-терминал, таймлайн, DAG, запуск --yes из браузера (`orchestrator gui`)
+- [x] v0.22: **GUI-консоль** — live-терминал, таймлайн, DAG, запуск --yes из браузера (`wedra gui`)
 - [x] v0.23: **контракт рантайма** — типы/форматы на входе и выходе, гейт без молчаливого accept, атомарный журнал, group kill, лимиты вывода
 - [x] v0.24: **человек в гейте из браузера** — гейт-карточка в консоли, решение в живой ран (API + `gate_wait`/`gate_retry`), ссылка на мёртвый /editor/ убрана
 - [x] v0.25: **редактор пайплайнов** — палитра/сетка/связи/undo, YAML пишет ядро (parse/serialize API), honest-scope: when/foreach → YAML
+- [x] v0.25a: баннер WEDRA в README (первый буквенный релиз по схеме)
+- [x] v0.26: **имя WEDRA** — бинарник `wedra`, модуль `wedra`, ассеты `wedra_*`, доки переименованы
 - [ ] v1.0: GUI full (редактор + when/foreach в UI, import) + маркетплейс v1 (гейт из браузера — v0.24, редактор — v0.25)
 
 ## Тесты
@@ -432,8 +450,8 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов)
-- Дальше: when/foreach/parallel в UI редактора + решение по naming (orchestrator → wedra?) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA)
+- Дальше: when/foreach/parallel в UI редактора → v1.0 — GUI full + маркетплейс (имя WEDRA — решено, v0.26)
 - **Схема букв (с v0.23, договорённости):** цифра = функциональный срез;
   буква = фикс-релиз внутри среза без новых фич (v0.24a, v0.24b…).
   Отпущенный tag больше не сдвигается. После `z` — срез был объявлен рано,

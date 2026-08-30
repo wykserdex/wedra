@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"orchestrator/internal/registry"
+	"wedra/internal/registry"
 )
 
 type Engine struct {

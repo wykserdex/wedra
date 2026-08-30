@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"orchestrator/internal/context"
-	"orchestrator/internal/journal"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/context"
+	"wedra/internal/journal"
+	"wedra/internal/pipeline"
 )
 
 // fakeUI — скриптованный ввод: список строк, затем EOF.

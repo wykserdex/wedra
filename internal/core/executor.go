@@ -3,7 +3,7 @@ package core
 import (
 	"time"
 
-	"orchestrator/internal/plugin"
+	"wedra/internal/plugin"
 )
 
 type ExecResult struct {

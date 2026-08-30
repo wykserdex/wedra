@@ -12,9 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"orchestrator/internal/core"
-	"orchestrator/internal/pipeline"
-	"orchestrator/internal/registry"
+	"wedra/internal/core"
+	"wedra/internal/pipeline"
+	"wedra/internal/registry"
 )
 
 // ── plugin install ─────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ func RunPluginInstall(args []string) {
 		}
 	}
 	if ref == "" {
-		fmt.Println("нужно имя плагина: orchestrator plugin install <name>[@version] [--registry=<url|path>] [--dest=plugins]")
+		fmt.Println("нужно имя плагина: wedra plugin install <name>[@version] [--registry=<url|path>] [--dest=plugins]")
 		os.Exit(2)
 	}
 	name, ver := registry.SplitRef(ref)
@@ -144,7 +144,7 @@ func RunPipelineInstall(args []string) {
 		}
 	}
 	if preset == "" {
-		fmt.Println("нужен пресет: orchestrator pipeline install <name|file.yaml|url> [--registry=<url|path>]")
+		fmt.Println("нужен пресет: wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]")
 		os.Exit(2)
 	}
 

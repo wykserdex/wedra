@@ -1,4 +1,4 @@
-// v0.22 — консоль orchestrator: раны, live-терминал, контекст, DAG.
+// v0.22 — консоль WEDRA: раны, live-терминал, контекст, DAG.
 // Без внешних зависимостей (офлайн: всё встроено).
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));

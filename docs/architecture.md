@@ -1,4 +1,4 @@
-# Архитектура — orchestrator
+# Архитектура — WEDRA
 
 Короткий проводник для нового читателя. Контракт — `protocol/v0.2/PROTOCOL.md`,
 здесь — как устроено ядро и почему.
@@ -21,7 +21,7 @@
 ## Дерево
 
 ```
-cmd/orchestrator        # точка входа (CLI + REST API)
+cmd/wedra        # точка входа (CLI + REST API)
 cmd/tool                # compat-шим (M5): run/validate/plugin/runs
 internal/
   pipeline/             # модель, парсер, валидатор, планер (DAG), when-условия

@@ -9,10 +9,10 @@ import (
 	"runtime"
 	"strings"
 
-	"orchestrator/internal/api"
+	"wedra/internal/api"
 )
 
-// RunGUI — orchestrator gui [--listen 127.0.0.1:8765] [--open]
+// RunGUI — wedra gui [--listen 127.0.0.1:8765] [--open]
 // v0.22: консоль GUI (раны, live-терминал, DAG, запуск --yes из браузера).
 // Запускать из корня репозитория (CWD: plugins/, examples/, var/runs/, web/static/).
 func RunGUI(args []string) {

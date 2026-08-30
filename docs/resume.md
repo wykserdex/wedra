@@ -10,7 +10,7 @@
   несут индекс элемента.
 - При `--resume` ядро читает **максимальный пройденный индекс** из журнала
   (`MaxItemIndex`) и продолжает с `max+1`.
-- Прогноз «куда идём» виден в `orchestrator runs list` и `runs show <id>`
+- Прогноз «куда идём» виден в `wedra runs list` и `runs show <id>`
   (журнал + снапшот контекста `context.json`).
 - Агрегаты `steps.<id>_all` восстанавливаются из последнего снапшота
   контекста + добираются оставшимися элементами.
@@ -18,10 +18,10 @@
 ## Команды
 
 ```bash
-orchestrator runs list                    # все рановые каталоги
-orchestrator runs show <run_id>           # журнал + контекст
-./orchestrator pipeline run examples/csv_foreach.yaml --yes
-./orchestrator pipeline run ... --resume <run_id>
+wedra runs list                    # все рановые каталоги
+wedra runs show <run_id>           # журнал + контекст
+./wedra pipeline run examples/csv_foreach.yaml --yes
+./wedra pipeline run ... --resume <run_id>
 ```
 
 ## Ограничения (честные)

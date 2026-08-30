@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"orchestrator/internal/common"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/common"
+	"wedra/internal/pipeline"
 )
 
 type Manifest = pipeline.Manifest

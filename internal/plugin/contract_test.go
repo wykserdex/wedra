@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"orchestrator/internal/pipeline"
+	"wedra/internal/pipeline"
 )
 
 func TestKindOf(t *testing.T) {

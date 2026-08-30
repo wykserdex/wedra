@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"orchestrator/internal/api"
+	"wedra/internal/api"
 )
 
 func Run() {
@@ -32,7 +32,7 @@ func Run() {
 		if raw, err := os.ReadFile("VERSION"); err == nil {
 			ver = strings.TrimSpace(string(raw))
 		}
-		fmt.Printf("orchestrator v%s (CLI focus, M6 meat), protocol v0.2\n", ver)
+		fmt.Printf("wedra v%s — WEDRA (CLI focus, M6 meat), protocol v0.2\n", ver)
 	case "registry":
 		RunRegistryValidate(os.Args[2:])
 	case "validate":
@@ -49,12 +49,13 @@ func printHelp() {
 	if raw, err := os.ReadFile("VERSION"); err == nil {
 		ver = strings.TrimSpace(string(raw))
 	}
-	fmt.Printf(`orchestrator — CLI-оркестратор цепочек с человеком в петле (v%s, CLI focus)
+	fmt.Printf(`WEDRA — оркестратор цепочек с человеком в петле (v%s, CLI focus)
+  (бывш. orchestrator — v0.26: продукт получил имя, совпадающее с репозиторием)
 
 Команды (мясо, не косметика):
-  orchestrator pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json]
-  orchestrator pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
-  orchestrator pipeline validate <file.yaml>
+  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json]
+  wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
+  wedra pipeline validate <file.yaml>
   orchestrator pipeline plan <file.yaml>
   orchestrator pipeline lint <file.yaml>          # validate + file_ref error
   orchestrator plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/

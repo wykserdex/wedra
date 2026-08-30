@@ -1,6 +1,6 @@
 package core
 
-import "orchestrator/internal/pipeline"
+import "wedra/internal/pipeline"
 
 func Validate(pf *PipelineFile, eng *Engine) (errs, warns []string) {
 	return pipeline.Validate(pf, eng)

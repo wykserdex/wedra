@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/pipeline"
 )
 
 func requirePythonT(t *testing.T) {

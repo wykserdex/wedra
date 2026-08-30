@@ -1,6 +1,6 @@
 package core
 
-import ctxpkg "orchestrator/internal/context"
+import ctxpkg "wedra/internal/context"
 
 type Ctx = ctxpkg.Ctx
 
