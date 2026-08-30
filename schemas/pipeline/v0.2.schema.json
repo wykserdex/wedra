@@ -2,56 +2,162 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Pipeline v0.2",
   "type": "object",
-  "required": ["pipeline"],
+  "required": [
+    "pipeline"
+  ],
   "properties": {
-    "format_version": {"type": "string", "enum": ["0.1", "0.2"]},
+    "format_version": {
+      "type": "string",
+      "enum": [
+        "0.1",
+        "0.2"
+      ]
+    },
     "pipeline": {
       "type": "object",
-      "required": ["name", "steps"],
+      "required": [
+        "name",
+        "steps"
+      ],
       "properties": {
-        "name": {"type": "string"},
-        "input": {"type": "object"},
-        "foreach": {"type": "string", "pattern": "^input\\."},
-        "foreach_item": {"type": "string"},
-        "item_type": {"type": "string", "enum": ["string", "number", "boolean", "array", "object"]},
-        "item_format": {"type": "string", "enum": ["text", "email", "url", "ip", "file_ref"]},
+        "name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "foreach": {
+          "type": "string",
+          "pattern": "^(input|steps)\\."
+        },
+        "foreach_item": {
+          "type": "string"
+        },
+        "item_type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ]
+        },
+        "item_format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "email",
+            "url",
+            "ip",
+            "file_ref"
+          ]
+        },
         "steps": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["id", "plugin"],
+            "required": [
+              "id",
+              "plugin"
+            ],
             "properties": {
-              "id": {"type": "string"},
-              "plugin": {"type": "string"},
-              "on_error": {"type": "string", "enum": ["stop", "skip", "retry"]},
-              "on_reject": {"type": "string", "enum": ["stop", "continue"]},
-              "timeout": {"type": "string"},
-              "bind": {"type": "object", "additionalProperties": {"type": "string"}},
+              "id": {
+                "type": "string"
+              },
+              "plugin": {
+                "type": "string"
+              },
+              "on_error": {
+                "type": "string",
+                "enum": [
+                  "stop",
+                  "skip",
+                  "retry"
+                ]
+              },
+              "on_reject": {
+                "type": "string",
+                "enum": [
+                  "stop",
+                  "continue"
+                ]
+              },
+              "timeout": {
+                "type": "string"
+              },
+              "bind": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
               "form": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["field"],
+                  "required": [
+                    "field"
+                  ],
                   "properties": {
-                    "field": {"type": "string"},
-                    "editable": {"type": "boolean"},
-                    "type": {"type": "string"},
-                    "format": {"type": "string"}
+                    "field": {
+                      "type": "string"
+                    },
+                    "editable": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    }
                   }
                 }
               },
-              "actions": {"type": "array", "items": {"type": "string"}},
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "retry": {
                 "type": "object",
                 "properties": {
-                  "attempts": {"type": "integer", "minimum": 1},
-                  "delay": {"type": "string"},
-                  "backoff": {"type": "string", "enum": ["fixed", "exponential"]}
+                  "attempts": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "delay": {
+                    "type": "string"
+                  },
+                  "backoff": {
+                    "type": "string",
+                    "enum": [
+                      "fixed",
+                      "exponential"
+                    ]
+                  }
                 }
               }
             }
           }
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "v0.16: имена env-переменных, обязанных быть заданы (значения в YAML не живут)"
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "v0.17: declare-now — deny запрещает шаги, чей плагин заявил permissions.network"
         }
       }
     }
