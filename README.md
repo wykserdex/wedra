@@ -1,6 +1,6 @@
-# orchestrator v0.20 — управляющий поток: when, foreach на шаге, параллельные ветки
+# orchestrator v0.21 — хирургия структуры: протокол, схемы, docs, examples
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.20**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.21**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,23 +8,29 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.20
-├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
-├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
+├── VERSION              # 0.21 (читает бинарник, CWD в приоритете)
+├── registry.yaml        # реестр: 19 плагинов + 12 пресетов, формат заморожен
+├── cmd/
+│   ├── orchestrator/    # точка входа (CLI + REST API)
+│   └── tool/            # compat-шим M5 (run/validate/plugin/runs)
+├── protocol/            # VERSION (0.2), CHANGELOG, v0.2/PROTOCOL.md
+├── schemas/             # pipeline.v0.2, manifest, request, response
 ├── internal/
-│   ├── pipeline/        # модель (secrets), парсер, валидатор, планер
-│   ├── execution/       # runner (resume, two-phase foreach, secrets preflight), scheduler
-│   ├── plugin/          # registry, process, transport, fileref
-│   ├── registry/        # v0.16: реестр, install, pin-контракт (RefToDir)
-│   ├── journal/         # writer (New + OpenAppend), reader, store (RunStore)
-│   ├── gate/            # service, terminal + fix #19 typing
-│   ├── context/         # store, binding (nested input.row.name)
-│   ├── cli/             # pipeline|plugin|runs|gui|version + install
+│   ├── pipeline/        # модель, парсер, валидатор, планер (DAG), when
+│   ├── execution/       # runner: foreach-фазы, step-foreach, parallel_group
+│   ├── plugin/          # process, transport, enforce, manifest
+│   ├── registry/        # реестр v0.1, install, pin-контракт (RefToDir)
+│   ├── journal/         # writer/reader + RunStore (filesystem, json)
+│   ├── gate/            # human_gate: service, terminal, typing
+│   ├── context/         # shared context, dot-пути
+│   ├── cli/             # pipeline|plugin|runs|version + install
 │   ├── api/             # REST API (M6, отложен)
-│   └── core/            # shim-фасад (112 тестов)
-├── web/static/          # GUI scaffold (отложен)
-├── plugins/official/    # 5, community/ 14
-├── examples/           # 16
+│   └── core/            # shim-фасад + интеграционные тесты (см. «Судьба core/»)
+├── plugins/             # official/ 5, community/ 14
+├── examples/            # 16 пайплайнов (демо v0.20: when/foreach/parallel)
+├── docs/                # plugin-dev, quickstart, resume, architecture
+├── archive/             # устаревшие доки (M5, LANDING, POSTS)
+├── web/static/          # GUI scaffold (M6, отложен)
 └── var/runs/            # журналы + --resume
 ```
 
@@ -37,7 +43,7 @@ API-поверхность для `cmd/*` и будущего M6, там жив�
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.20
+./orchestrator version   # v0.21
 go test ./...            # 112 тестов
 
 # плагины
@@ -110,6 +116,25 @@ pipeline:
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
 
+## Что нового в v0.21 (хирургия структуры)
+
+Реструктуризация по согласованному дереву — `git mv`, ноль логики:
+
+- **`protocol/`** — единый дом протокола: `v0.2/PROTOCOL.md` (контракт),
+  `CHANGELOG` (история версий, слита из versions/), `VERSION` (0.2).
+- **`schemas/`** — единое место схем: `pipeline.v0.2`, `manifest`, `request`,
+  `response` (были в двух местах: protocol/schemas и schemas/pipeline).
+- **`pipelines/` → `examples/`** — плоское, 16 пайплайнов; старые M5-дубли
+  в examples/{pipelines,plugins} вычищены (идентичные копии).
+- **`docs/`** — `plugin-dev.md` (экс-TUTORIAL_PLUGINS), `quickstart.md`
+  (экс-START_HERE), `resume.md` и `architecture.md` (новые).
+- **`archive/`** — LANDING/POSTS/M5_FEEDBACK/TESTER_PACKET_5.
+- **trust-гейт дожат**: `registry validate --local-source` теперь требует,
+  чтобы путь записи резолвился в локальном source (ранее при расхождении
+  резолвинга тихо уходил в git-клон — молчаливый слепой участок).
+- Все ссылки перетянуты: CI, README, CONTRIBUTING, demo.sh, docs, код
+  (help-тексты, скелет `plugin create`).
+
 ## Что нового в v0.20 (управляющий поток)
 
 Контрольный поток переехал на уровень шага — три механизма (PROTOCOL §12):
@@ -123,6 +148,9 @@ pipeline:
 - **`parallel_group`** — смежные шаги с одинаковой группой исполняются
   параллельно, барьер ждёт все ветки; слияние выходов в порядке списка
   (детерминизм). human_gate в группах запрещён (гейты сериализуют терминал).
+- Diamond-паттерн (A,B → C) — из коробки; **циклы — сознательно не
+  поддерживаются**: цикл принадлежит плагину (бюджет итераций держит он),
+  ядро блокирует циклы в графе (решение в PROTOCOL §10).
 
 Демо в `examples/`: `when_demo`, `foreach_step_demo`, `parallel_demo`
 (все в CI + в реестре как пресеты). Планер (`pipeline plan`) аннотирует
@@ -251,7 +279,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 - [x] v0.18: **волна 2** — 5 community-плагинов (тестер №1) в реестре, оригинал dir_lister вместо реконструкции, fix версии бинарника
 - [x] v0.19: **волна 2, батч 2** — 6 community-плагинов (два новых автора) + 3 пресета с human_gate; конфликт имён решён (phone_check)
 - [x] v0.20: **управляющий поток** — `when:`, `foreach:` на шаге, `parallel_group` (PROTOCOL §12, 3 демо в CI)
-- [ ] v0.21: «хирургия» — структура репо по согласованному дереву (git mv, ноль логики)
+- [x] v0.21: **хирургия** — protocol/, schemas/, examples/, docs/, archive/; trust-гейт: локальный путь обязателен
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
@@ -260,5 +288,5 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток)
-- Дальше: v0.21 (хирургия структуры) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры)
+- Дальше: v1.0 — GUI + маркетплейс (live-терминал — первый кандидат: данные уже в journal/API)

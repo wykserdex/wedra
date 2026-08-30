@@ -1,5 +1,26 @@
 # Changelog — честная 0.x
 
+## v0.21 (2026-08-30) — хирургия структуры
+
+- **`protocol/`** — единый дом: `v0.2/PROTOCOL.md`, `CHANGELOG` (из
+  versions/{v0.1,v0.2}.md), `VERSION` (0.2). Заголовок PROTOCOL.md поправлен
+  (v0.1 → v0.2), устаревшая строчка §9.6 про foreach — актуализирована.
+- **`schemas/`** — pipeline.v0.2, manifest, request, response в одном месте
+  (были разнесены: protocol/schemas/v0.2 + schemas/pipeline).
+- **`pipelines/` → `examples/`** (16 пайплайнов, плоское); старые M5-дубли
+  examples/{pipelines,plugins} удалены (слово в слово с актуальными).
+- **`docs/`** — plugin-dev.md (экс-TUTORIAL_PLUGINS.md), quickstart.md
+  (экс-START_HERE.md), resume.md, architecture.md (новые).
+- **`archive/`** — LANDING, POSTS, M5_FEEDBACK, TESTER_PACKET_5.
+- **trust-гейт (реальный баг, найденный при переезде)**: `registry validate
+  --local-source` резолвил пресеты по имени через клон, минуя локальный путь —
+  запись с «висячим» path проходила зелёной. Теперь sameRepo-ветка
+  pluginSourceDir статит путь: не найден в локальном source = явная ошибка.
+- Ссылки перетянуты: CI (glob examples/, paths), README, CONTRIBUTING,
+  demo.sh, docs, help-тексты CLI, скелет `plugin create`.
+- Логики ядра не тронута (кроме stat-проверки выше); все тесты зелёные.
+
+
 ## v0.20 (2026-08-30) — управляющий поток на уровне шага
 
 - **`when:`** — условие выполнения шага (PROTOCOL §12.1). Строковый формат
