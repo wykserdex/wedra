@@ -1,5 +1,28 @@
 # Changelog — честная 0.x
 
+## v0.22 (2026-08-30) — GUI-консоль (первый срез)
+
+- `orchestrator gui` — рабочая консоль (было «отложено, косметика»):
+  web/static без внешних зависимостей (офлайн: inline CSS/JS).
+- **Live-терминал**: хвост journal.jsonl с авто-скроллом (polling `?since=N`),
+  параллельно — таймлайн (шаги/элементы foreach/параллельные группы/гейты)
+  и снапшот контекста (input.*, steps.*).
+- **Запуск из браузера**: `POST /api/run {file, yes}` — in-process ран в
+  сервере (один за раз, только --yes; гейт с правкой человека — из CLI).
+- **DAG** (SVG): фазы, parallel_group-рамки, метки when/foreach, рёбра от
+  bind/form/when/foreach-путей. `/api/plan/pipeline` аннотирует when/
+  foreach/foreach_item/parallel_group в нодах.
+- API: `/api/runs` — status/steps/started/last по журналу;
+  `/api/runs/<id>/journal?since=N` — live-хвост.
+- **Баг (найден при внедрении)**: `/api/runs` резолвил только runs.db-индекс и
+  не показывал свежие filesystem-раны — теперь FS-директории = источник
+  правды, runs.db дополняет (artifacts, старые индексы).
+- Баг: статус aborted читал int, а JSON отдаёт float64 — email_check-ран с
+  aborted=1 показывался «ok».
+- Старый scaffold (drag-and-drop редактор) → /editor/ (прототип, без изменений).
+- CI: новый step «v0.22 gui api live» (health + POST /api/run + ожидание ok).
+
+
 ## v0.21 (2026-08-30) — хирургия структуры
 
 - **`protocol/`** — единый дом: `v0.2/PROTOCOL.md`, `CHANGELOG` (из

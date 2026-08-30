@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"orchestrator/internal/core"
 	"orchestrator/internal/journal"
 	"orchestrator/internal/pipeline"
 	"orchestrator/internal/plugin"
@@ -16,13 +18,18 @@ import (
 
 // Version — версия бинарника. var (не const): release-воркфлоу переопределяет
 // через ldflags -X из тега сборки; фолбэк — текущая версия для локальных сборок.
-var Version = "0.17"
+var Version = "dev" // фолбэк без VERSION-файла (реальный — из CWD)/tag
 
 type Server struct {
 	PluginsDir   string
 	PipelinesDir string
 	RunsDir      string
 	Engine       *plugin.Engine
+
+	// v0.22: in-process запуск из GUI — один ран за раз (честное ограничение:
+	// человеческий гейт без терминала валиден только в --yes)
+	runMu   sync.Mutex
+	running bool
 }
 
 func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
@@ -43,6 +50,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineDetail)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/runs/", s.handleRunDetail)
+	mux.HandleFunc("/api/run", s.handleRunStart)
 	mux.HandleFunc("/api/validate/pipeline", s.handleValidatePipeline)
 	mux.HandleFunc("/api/plan/pipeline", s.handlePlanPipeline)
 	// static frontend — если нет web/static, отдаём 404, не падаем
@@ -193,51 +201,117 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "method not allowed", 405)
 }
 
+// runSummary — сводка рана из журнала (v0.22: статусы для GUI).
+func runSummary(dir string) map[string]interface{} {
+	rd := journal.NewReader(dir)
+	events, _ := rd.Events()
+	pipelineName, status, started, last := "", "running", "", ""
+	steps := 0
+	for _, e := range events {
+		if ts, ok := e["ts"].(string); ok {
+			if started == "" {
+				started = ts
+			}
+			last = ts
+		}
+		switch e["type"] {
+		case "run_start":
+			pipelineName, _ = e["pipeline"].(string)
+		case "step_end", "step_skipped", "step_failed":
+			steps++
+		case "run_end":
+			status = "ok"
+			// JSON-числа приходят float64
+			if ab, ok := e["aborted"].(float64); ok && ab > 0 {
+				status = "aborted"
+			}
+		case "run_failed":
+			status = "failed"
+		}
+	}
+	return map[string]interface{}{
+		"id": filepath.Base(dir), "dir": dir, "pipeline": pipelineName,
+		"status": status, "steps": steps, "events": len(events),
+		"started": started, "last": last,
+	}
+}
+
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	var list []map[string]interface{}
+	// v0.22: filesystem — источник правды (весь вар/runs), runs.db — только
+	// дополняет (artifacts; старые индексы дособираются)
+	var ids []string
+	seen := map[string]bool{}
+	entries, _ := os.ReadDir(s.RunsDir)
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
+			seen[e.Name()] = true
+		}
+	}
+	var artsMap map[string][]string
 	dbPath := filepath.Join(s.RunsDir, "runs.db")
 	if _, err := os.Stat(dbPath); err == nil {
 		store := journal.NewJsonStore(s.RunsDir, dbPath)
-		ids, _ := store.ListRuns()
-		for _, id := range ids {
-			dir := filepath.Join(s.RunsDir, id)
-			rd := journal.NewReader(dir)
-			events, _ := rd.Events()
-			pipelineName := ""
-			if len(events) > 0 {
-				if pn, ok := events[0]["pipeline"].(string); ok {
-					pipelineName = pn
-				}
+		artsMap = map[string][]string{}
+		storeIds, _ := store.ListRuns()
+		for _, id := range storeIds {
+			if !seen[id] {
+				ids = append(ids, id)
+				seen[id] = true
 			}
-			arts, _ := store.ListArtifacts(id)
-			list = append(list, map[string]interface{}{"id": id, "dir": dir, "pipeline": pipelineName, "events": len(events), "artifacts": arts, "store": "json"})
+			artsMap[id], _ = store.ListArtifacts(id)
 		}
-	} else {
-		entries, _ := os.ReadDir(s.RunsDir)
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			dir := filepath.Join(s.RunsDir, e.Name())
-			rd := journal.NewReader(dir)
-			events, _ := rd.Events()
-			pipelineName := ""
-			if len(events) > 0 {
-				if pn, ok := events[0]["pipeline"].(string); ok {
-					pipelineName = pn
-				}
-			}
-			list = append(list, map[string]interface{}{"id": e.Name(), "dir": dir, "pipeline": pipelineName, "events": len(events), "store": "fs"})
+	}
+	sortStringsDesc(ids)
+	var list []map[string]interface{}
+	for _, id := range ids {
+		m := runSummary(filepath.Join(s.RunsDir, id))
+		if artsMap != nil {
+			m["artifacts"] = artsMap[id]
 		}
+		list = append(list, m)
+	}
+	if list == nil {
+		list = []map[string]interface{}{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
+}
+
+func sortStringsDesc(a []string) {
+	for i := 1; i < len(a); i++ {
+		for j := i; j > 0 && a[j] > a[j-1]; j-- {
+			a[j], a[j-1] = a[j-1], a[j]
+		}
+	}
 }
 
 func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/runs/")
 	if id == "" {
 		http.Error(w, "missing id", 400)
+		return
+	}
+	// v0.22: /api/runs/<id>/journal?since=N — live-хвост для GUI
+	if rest, ok := strings.CutSuffix(id, "/journal"); ok {
+		dir := filepath.Join(s.RunsDir, rest)
+		rd := journal.NewReader(dir)
+		events, err := rd.Events()
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
+		}
+		since := 0
+		if v := r.URL.Query().Get("since"); v != "" {
+			fmt.Sscanf(v, "%d", &since)
+		}
+		if since < 0 || since > len(events) {
+			since = len(events)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"total": len(events), "events": events[since:],
+		})
 		return
 	}
 	dir := filepath.Join(s.RunsDir, id)
@@ -257,8 +331,72 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		store := journal.NewFilesystemStore(s.RunsDir)
 		arts, _ = store.ListArtifacts(id)
 	}
+	summary := runSummary(dir)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "events": events, "context": snap, "artifacts": arts})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id": id, "events": events, "context": snap, "artifacts": arts,
+		"status": summary["status"], "pipeline": summary["pipeline"],
+	})
+}
+
+// handleRunStart — v0.22: POST /api/run {file, yes} — in-process запуск.
+// Один ран за раз; только --yes (человеческий гейт без терминала не работает).
+func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST {file, yes}", 405)
+		return
+	}
+	var req struct {
+		File string `json:"file"`
+		Yes  bool   `json:"yes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "json: "+err.Error(), 400)
+		return
+	}
+	if req.File == "" || strings.ContainsAny(req.File, "/\\") || strings.Contains(req.File, "..") {
+		http.Error(w, "file: только имя из "+s.PipelinesDir, 400)
+		return
+	}
+	if !req.Yes {
+		http.Error(w, "GUI запускает только --yes (гейты без терминала)", 400)
+		return
+	}
+	if !s.runMu.TryLock() {
+		w.WriteHeader(409)
+		json.NewEncoder(w).Encode(map[string]string{"error": "уже идёт ран — дождись завершения"})
+		return
+	}
+	s.running = true
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "started", "file": req.File})
+
+	go func() {
+		defer s.runMu.Unlock()
+		path := filepath.Join(s.PipelinesDir, req.File)
+		pf, err := pipeline.LoadPipelineFile(path)
+		if err != nil {
+			fmt.Printf("[gui] запуск %s: %v\n", req.File, err)
+			return
+		}
+		eng := core.NewEngine()
+		eng.PluginsDir = s.PluginsDir
+		errs, warns := core.Validate(pf, eng)
+		for _, wmsg := range warns {
+			fmt.Printf("[gui] warning: %s\n", wmsg)
+		}
+		if len(errs) > 0 {
+			fmt.Printf("[gui] запуск %s отклонён валидацией: %v\n", req.File, errs)
+			return
+		}
+		stats, err := core.Run(pf, eng, core.RunOptions{Yes: true, RunsDir: s.RunsDir})
+		if err != nil {
+			fmt.Printf("[gui] %s: %v\n", req.File, err)
+		} else {
+			fmt.Printf("[gui] %s: ok=%d aborted=%d\n", req.File, stats.OK, stats.Aborted)
+		}
+	}()
 }
 
 func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) {
@@ -328,10 +466,31 @@ func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
 		if st.AfterForeach {
 			phase = "post"
 		}
+		whenLabel := ""
+		if st.When.IsSet() {
+			whenLabel = st.When.Path
+			if st.When.Op != "" && st.When.Op != "truthy" {
+				whenLabel += " " + st.When.Op
+				if st.When.Value != nil {
+					whenLabel += " " + fmt.Sprintf("%v", st.When.Value)
+				}
+			}
+		}
 		nodes = append(nodes, map[string]interface{}{
 			"id": st.ID, "plugin": st.Plugin, "phase": phase, "on_error": st.OnError,
 			"bind": st.Bind, "after_foreach": st.AfterForeach,
+			"when": whenLabel, "foreach": st.Foreach, "foreach_item": st.ForeachItem,
+			"parallel_group": st.ParallelGroup,
 		})
+		// v0.22: рёбра от путей when/foreach (зависимость на данные)
+		for _, p := range []string{st.Foreach, st.When.Path} {
+			if strings.HasPrefix(p, "steps.") {
+				parts := strings.Split(p, ".")
+				if len(parts) >= 2 {
+					edges = append(edges, map[string]string{"from": parts[1], "to": st.ID, "via": p})
+				}
+			}
+		}
 		// рёбра: из bind и form
 		for _, from := range st.Bind {
 			if strings.HasPrefix(from, "steps.") {
