@@ -7,8 +7,9 @@ package api
 // on_error/timeout + у гейта form/actions/on_reject + input-дефолты.
 // Позиции узлов хранятся в YAML как `pos: [x, y]` — лоадер ядра это поле
 // игнорирует (yaml.v3 без KnownFields), редактор читает обратно.
-// Всё, чего редактор не управляет (when, foreach, parallel_group, retry,
-// secrets, network, type-объявления в input) — выносится в unsupported:
+// v0.27: when — под управлением редактора (path/op/value, 10 операторов ядра).
+// Всё, чего редактор не управляет (foreach, parallel_group, after_foreach,
+// retry, secrets, network, type-объявления в input) — выносится в unsupported:
 // сохранение такого пайплайна из редактора запрещено (данные не теряются).
 
 import (
@@ -17,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +37,15 @@ type editorFormField struct {
 	Editable bool   `json:"editable"`
 }
 
+// editorWhen — v0.27: условие шага (ядро: internal/pipeline/when.go,
+// операторы WhenOps). Value — как ввёл пользователь (строка из UI),
+// на выходе коэрсируется для числовых операторов (см. serialize).
+type editorWhen struct {
+	Path  string      `json:"path"`
+	Op    string      `json:"op"`
+	Value interface{} `json:"value,omitempty"`
+}
+
 type editorStep struct {
 	ID       string            `json:"id"`
 	Plugin   string            `json:"plugin"`
@@ -45,6 +56,7 @@ type editorStep struct {
 	Form     []editorFormField `json:"form"`
 	Actions  []string          `json:"actions"`
 	OnReject string            `json:"on_reject"`
+	When     *editorWhen       `json:"when,omitempty"`
 }
 
 type editorDoc struct {
@@ -135,10 +147,10 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		}
 		es.Actions = st.Actions
 		es.OnReject = st.OnReject
-		// поля, которых редактор v0.25 не управляет
 		if st.When.IsSet() {
-			doc.Unsupported = append(doc.Unsupported, st.ID+": when")
+			es.When = &editorWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 		}
+		// поля, которых редактор v0.27 не управляет
 		if st.Foreach != "" {
 			doc.Unsupported = append(doc.Unsupported, st.ID+": foreach")
 		}
@@ -177,6 +189,13 @@ type outStep struct {
 	Form     []editorFormField `yaml:"form,omitempty"`
 	Actions  []string          `yaml:"actions,omitempty"`
 	OnReject string            `yaml:"on_reject,omitempty"`
+	When     *outWhen          `yaml:"when,omitempty"`
+}
+
+type outWhen struct {
+	Path  string      `yaml:"path"`
+	Op    string      `yaml:"op"`
+	Value interface{} `yaml:"value,omitempty"`
 }
 
 type outFile struct {
@@ -252,6 +271,25 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		}
 		step.Actions = st.Actions
 		step.OnReject = st.OnReject
+		if st.When != nil {
+			w := pipeline.When{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
+			if w.Op == "" {
+				w.Op = "truthy"
+			}
+			// пустая строка из UI = «значения нет» — не выводим в YAML
+			if t, ok := w.Value.(string); ok && t == "" {
+				w.Value = nil
+			}
+			// UI шлёт value строкой; числовые операторы ядра требуют число
+			if w.Op == "gt" || w.Op == "gte" || w.Op == "lt" || w.Op == "lte" {
+				if t, ok := w.Value.(string); ok {
+					if f, err := strconv.ParseFloat(t, 64); err == nil {
+						w.Value = f
+					}
+				}
+			}
+			step.When = w
+		}
 		pf.Pipeline.Steps = append(pf.Pipeline.Steps, step)
 	}
 	// схема → YAML (через теневой вывод, чтобы pos прописался)
@@ -277,6 +315,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		}
 		os.Actions = st.Actions
 		os.OnReject = st.OnReject
+		if st.When.IsSet() {
+			os.When = &outWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
+		}
 		out.Pipeline.Steps = append(out.Pipeline.Steps, os)
 	}
 	raw, err := yaml.Marshal(&out)
