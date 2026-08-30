@@ -1,7 +1,7 @@
 # Как попасть в реестр (v0.17)
 
 Реестр — `registry.yaml` в корне репо, формат v0.1 заморожен (как протокол).
-Единственный путь в реестр — зелёный CI: `orchestrator registry validate`.
+Единственный путь в реестр — зелёный CI: `wedra registry validate`.
 
 ## Чек-лист плагина
 
@@ -20,8 +20,8 @@
    `LLM_MOCK=1`), сеть — только если тестируемая (MX-запись и т.п.).
 3. Локальные проверки:
    ```
-   orchestrator plugin validate <dir>
-   orchestrator plugin test <dir>
+   wedra plugin validate <dir>
+   wedra plugin test <dir>
    ```
 4. **PR**: каталог `plugins/{official,community}/<name>/` + запись в
    `registry.yaml` (`source`, `path`, `version` = тег текущего релиза,
@@ -35,7 +35,7 @@
    - `format_version`, `steps`;
    - `secrets: [KEY]` — все ключи, которые цепочке нужны;
    - `network: deny` — если цепочка сетью пользоваться не должна.
-2. `orchestrator pipeline validate examples/<name>.yaml` — зелёный.
+2. `wedra pipeline validate examples/<name>.yaml` — зелёный.
 3. **PR**: файл + запись пресета в `registry.yaml`.
 
 ## Чек-лист ревьюера (человек)

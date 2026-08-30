@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"orchestrator/internal/common"
-	"orchestrator/internal/context"
-	"orchestrator/internal/journal"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/common"
+	"wedra/internal/context"
+	"wedra/internal/journal"
+	"wedra/internal/pipeline"
 )
 
 type GateOptions struct {

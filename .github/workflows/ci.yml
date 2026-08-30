@@ -26,8 +26,8 @@ jobs:
         run: go test ./internal/core -run TestConformance -v -count=1
       - name: build tool
         run: go build -o tool ./cmd/tool
-      - name: build orchestrator
-        run: go build -o orchestrator ./cmd/orchestrator
+      - name: build wedra
+        run: go build -o wedra ./cmd/wedra
       - name: plugin validate + test (official/community)
         run: |
           for d in plugins/official/* plugins/community/*; do
@@ -46,20 +46,20 @@ jobs:
         run: |
           for f in examples/*.yaml; do
             echo "== validate $f =="
-            ./orchestrator pipeline validate "$f"
+            ./wedra pipeline validate "$f"
             echo "== lint $f =="
-            ./orchestrator pipeline lint "$f"
+            ./wedra pipeline lint "$f"
             echo "== plan $f =="
-            ./orchestrator pipeline plan "$f"
+            ./wedra pipeline plan "$f"
           done
       - name: v0.20 control flow live (when, foreach-step, parallel)
         run: |
-          ./orchestrator pipeline run examples/when_demo.yaml --yes
-          ./orchestrator pipeline run examples/foreach_step_demo.yaml --yes
-          ./orchestrator pipeline run examples/parallel_demo.yaml --yes
+          ./wedra pipeline run examples/when_demo.yaml --yes
+          ./wedra pipeline run examples/foreach_step_demo.yaml --yes
+          ./wedra pipeline run examples/parallel_demo.yaml --yes
       - name: v0.22 GUI API live (health + in-process run)
         run: |
-          ./orchestrator gui --listen 127.0.0.1:8917 >/tmp/gui.log 2>&1 &
+          ./wedra gui --listen 127.0.0.1:8917 >/tmp/gui.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8917/api/health >/dev/null && break; sleep 0.5; done
           curl -sf localhost:8917/api/health | grep -q '"status":"ok"'
@@ -71,7 +71,7 @@ jobs:
           tail -n 5 /tmp/gui.log
       - name: v0.24 browser gate live (wait → decision via API)
         run: |
-          ./orchestrator gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
+          ./wedra gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8918/api/health >/dev/null && break; sleep 0.5; done
           RUN_ID=$(curl -sf -X POST localhost:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
@@ -95,7 +95,7 @@ jobs:
       - name: v0.25 editor live (parse/serialize round-trip)
         run: |
           node --check web/static/editor/app.js
-          ./orchestrator gui --listen 127.0.0.1:8919 >/tmp/gui-ed.log 2>&1 &
+          ./wedra gui --listen 127.0.0.1:8919 >/tmp/gui-ed.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8919/api/health >/dev/null && break; sleep 0.5; done
           curl -sf localhost:8919/editor/ | grep -q "редактор"
@@ -106,22 +106,22 @@ jobs:
           tail -n 3 /tmp/gui-ed.log
       - name: foreach + after_foreach live
         run: |
-          ./orchestrator pipeline run examples/csv_foreach.yaml --yes
-          ./orchestrator pipeline run examples/csv_foreach_summary.yaml --yes
+          ./wedra pipeline run examples/csv_foreach.yaml --yes
+          ./wedra pipeline run examples/csv_foreach_summary.yaml --yes
       - name: resume live
         run: |
-          ./orchestrator pipeline run examples/csv_foreach.yaml --yes --runs-dir=var/runs | tail
+          ./wedra pipeline run examples/csv_foreach.yaml --yes --runs-dir=var/runs | tail
           last=$(ls -t var/runs | head -1)
           echo "resume $last"
-          ./orchestrator runs show $last
-          ./orchestrator runs list
+          ./wedra runs show $last
+          ./wedra runs list
       - name: json store live
         run: |
-          ./orchestrator pipeline run examples/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
-          ./orchestrator runs list --store=json --db-path=var/runs/runs.db
-          last=$(./orchestrator runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
+          ./wedra pipeline run examples/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
+          ./wedra runs list --store=json --db-path=var/runs/runs.db
+          last=$(./wedra runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
           echo "json run $last"
-          ./orchestrator runs show $last --store=json --db-path=var/runs/runs.db
+          ./wedra runs show $last --store=json --db-path=var/runs/runs.db
       - name: schemas check
         run: |
           ls schemas/
@@ -129,7 +129,7 @@ jobs:
           cat schemas/pipeline.v0.2.schema.json | head -n 20
 
       - name: registry validate (local source)
-        run: ./orchestrator registry validate --registry=registry.yaml --local-source=.
+        run: ./wedra registry validate --registry=registry.yaml --local-source=.
 
   # v0.17: trust-гейт релиза — на теге реестр проверяется по РЕАЛЬНЫМ пинам
   # (клоны git по version из registry.yaml), без local-source.
@@ -141,5 +141,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-      - run: go build -o orchestrator ./cmd/orchestrator
-      - run: ./orchestrator registry validate --registry=registry.yaml
+      - run: go build -o wedra ./cmd/wedra
+      - run: ./wedra registry validate --registry=registry.yaml

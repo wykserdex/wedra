@@ -1,5 +1,17 @@
 # Changelog — честная 0.x
 
+## v0.26 (2026-08-31) — имя WEDRA
+
+- Продукт переименован **orchestrator → WEDRA** (совпадение с репозиторием,
+  баннером и WEDRA_NETWORK, которое так называлось с v0.17).
+- Бинарник: `orchestrator` → `wedra` (cmd/orchestrator → cmd/wedra).
+- Модуль: go.mod `module wedra`; импорт-пути `wedra/internal/...` (40 файлов).
+- Релиз: ассеты `wedra_<os>_<arch>`; GUI-шапки WEDRA; доки (README, docs/,
+  CONTRIBUTING, PROTOCOL, registry) переименованы. CHANGELOG/archive —
+  история, не трогаем.
+- Старый бинарник после переустановки — `wedra`; алиасы/скрипты — одна строка.
+- Баннер: новая версия (рваная бумага, без домена в графике).
+
 ## v0.25a (2026-08-31) — баннер + первый буквенный релиз
 
 - Баннер WEDRA в README (репозиторий теперь с лицом).

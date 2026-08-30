@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/pipeline"
+	"wedra/internal/pipeline"
 
 	"gopkg.in/yaml.v3"
 )
@@ -277,7 +277,7 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "yaml: "+err.Error(), 500)
 		return
 	}
-	text := "# создан в редакторе orchestrator (v0.25); pos: — позиции узлов (ядро игнорирует)\n" + string(raw)
+	text := "# создан в редакторе WEDRA (v0.26); pos: — позиции узлов (ядро игнорирует)\n" + string(raw)
 	// честность: сгенерированный YAML обязан читаться ядром и проходить валидацию
 	check, err := pipeline.LoadPipelineFileFromBytes([]byte(text))
 	if err != nil {

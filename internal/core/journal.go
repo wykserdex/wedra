@@ -1,6 +1,6 @@
 package core
 
-import "orchestrator/internal/journal"
+import "wedra/internal/journal"
 
 type Journal = journal.Journal
 

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"orchestrator/internal/common"
-	"orchestrator/internal/context"
-	"orchestrator/internal/gate"
-	"orchestrator/internal/journal"
-	"orchestrator/internal/pipeline"
-	"orchestrator/internal/plugin"
+	"wedra/internal/common"
+	"wedra/internal/context"
+	"wedra/internal/gate"
+	"wedra/internal/journal"
+	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
 )
 
 type RunOptions struct {

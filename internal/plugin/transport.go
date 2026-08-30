@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"orchestrator/internal/pipeline"
+	"wedra/internal/pipeline"
 )
 
 type Transport interface {

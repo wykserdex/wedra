@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"orchestrator/internal/journal"
+	"wedra/internal/journal"
 )
 
 func RunRunsList(args []string) {

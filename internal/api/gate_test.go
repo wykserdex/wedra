@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/journal"
+	"wedra/internal/journal"
 )
 
 const gatePipeYAML = `format_version: "0.1"

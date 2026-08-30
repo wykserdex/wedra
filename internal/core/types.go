@@ -1,6 +1,6 @@
 package core
 
-import "orchestrator/internal/pipeline"
+import "wedra/internal/pipeline"
 
 type Duration = pipeline.Duration
 type PipelineFile = pipeline.PipelineFile

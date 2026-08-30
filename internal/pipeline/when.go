@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"orchestrator/internal/context"
+	"wedra/internal/context"
 )
 
 // When — условие выполнения шага (v0.20).

@@ -3,7 +3,7 @@ package core
 import (
 	"strings"
 
-	"orchestrator/internal/gate"
+	"wedra/internal/gate"
 )
 
 func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {

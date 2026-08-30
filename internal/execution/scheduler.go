@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"orchestrator/internal/pipeline"
+	"wedra/internal/pipeline"
 )
 
 type RetryPolicy struct {

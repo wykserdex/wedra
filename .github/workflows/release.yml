@@ -1,4 +1,4 @@
-# v0.17: каждый тег = GitHub Release с бинарниками (orchestrator + tool, 3 ОС × 2 арх).
+# v0.17: каждый тег = GitHub Release с бинарниками (wedra + tool, 3 ОС × 2 арх).
 # Это то, что получают авторы во «волне»: скачать и запустить без Go.
 name: release
 on:
@@ -20,13 +20,13 @@ jobs:
         run: |
           mkdir -p dist
           VER="${GITHUB_REF_NAME#v}"
-          LDFLAGS="-s -w -X orchestrator/internal/api.Version=${VER}"
+          LDFLAGS="-s -w -X wedra/internal/api.Version=${VER}"
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
               ext=""
               [ "$os" = "windows" ] && ext=".exe"
               echo "== $os/$arch (Version=$VER)"
-              GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/orchestrator-${os}-${arch}${ext}" ./cmd/orchestrator
+              GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/wedra-${os}-${arch}${ext}" ./cmd/wedra
               GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
             done
           done

@@ -6,12 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"orchestrator/internal/core"
+	"wedra/internal/core"
 )
 
 func RunPluginValidate(args []string) {
 	if len(args) < 1 {
-		fmt.Println("нужен путь к плагину: orchestrator plugin validate <dir>")
+		fmt.Println("нужен путь к плагину: wedra plugin validate <dir>")
 		os.Exit(2)
 	}
 	errs := core.ValidatePluginDir(args[0])
@@ -26,7 +26,7 @@ func RunPluginValidate(args []string) {
 
 func RunPluginTest(args []string) {
 	if len(args) < 1 {
-		fmt.Println("нужен путь к плагину: orchestrator plugin test <dir>")
+		fmt.Println("нужен путь к плагину: wedra plugin test <dir>")
 		os.Exit(2)
 	}
 	dir := args[0]
@@ -80,12 +80,12 @@ func RunPluginCreate(args []string) {
 	} else {
 		fmt.Printf("  ✓ %d стартовых теста зелёные\n", passed)
 	}
-	fmt.Printf("\nДальше: правьте %s/main.py, затем orchestrator plugin test %s\n", dir, dir)
+	fmt.Printf("\nДальше: правьте %s/main.py, затем wedra plugin test %s\n", dir, dir)
 }
 
 func RunPluginInspect(args []string) {
 	if len(args) < 1 {
-		fmt.Println("нужен путь к плагину: orchestrator plugin inspect <dir>")
+		fmt.Println("нужен путь к плагину: wedra plugin inspect <dir>")
 		os.Exit(2)
 	}
 	eng := core.NewEngine()
@@ -125,7 +125,7 @@ func RunPluginList(args []string) {
 
 func RunPluginSearch(args []string) {
 	if len(args) < 1 {
-		fmt.Println("нужен запрос: orchestrator plugin search <query>")
+		fmt.Println("нужен запрос: wedra plugin search <query>")
 		os.Exit(2)
 	}
 	query := strings.ToLower(strings.Join(args, " "))

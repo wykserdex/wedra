@@ -10,8 +10,8 @@ import (
 	"net"
 	"regexp"
 
-	"orchestrator/internal/common"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/common"
+	"wedra/internal/pipeline"
 )
 
 // KindOf — JSON-тип значения (честно для Go-типов тоже).

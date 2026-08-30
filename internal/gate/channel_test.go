@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"orchestrator/internal/context"
-	"orchestrator/internal/journal"
-	"orchestrator/internal/pipeline"
+	"wedra/internal/context"
+	"wedra/internal/journal"
+	"wedra/internal/pipeline"
 )
 
 func gateTestStep(t *testing.T) *pipeline.Step {

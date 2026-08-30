@@ -1,4 +1,4 @@
-module orchestrator
+module wedra
 
 go 1.22
 

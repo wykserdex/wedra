@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"orchestrator/internal/core"
-	"orchestrator/internal/execution"
-	"orchestrator/internal/gate"
-	"orchestrator/internal/journal"
-	"orchestrator/internal/pipeline"
-	"orchestrator/internal/plugin"
+	"wedra/internal/core"
+	"wedra/internal/execution"
+	"wedra/internal/gate"
+	"wedra/internal/journal"
+	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
 )
 
 // Version — версия бинарника. var (не const): release-воркфлоу переопределяет
