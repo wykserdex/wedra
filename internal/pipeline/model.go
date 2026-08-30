@@ -61,6 +61,18 @@ type Step struct {
 	// v0.12: after_foreach — шаг выполняется один раз после foreach, а не per-item
 	AfterForeach bool `yaml:"after_foreach"`
 
+	// v0.20: управляющий поток на уровне шага
+	// When — условие: шаг выполняется, только если оно истинно (иначе skipped)
+	When When `yaml:"when"`
+	// Foreach — шаг выполняется по каждому элементу массива из пути
+	// (input.* или steps.<id>.<field>). Результаты агрегируются в
+	// steps.<id>_all; steps.<id> — выход последней итерации.
+	Foreach     string `yaml:"foreach"`
+	ForeachItem string `yaml:"foreach_item"`
+	// ParallelGroup — шаги с одинаковым именем группы выполняются
+	// параллельно, барьер ждёт всех веток до следующего шага.
+	ParallelGroup string `yaml:"parallel_group"`
+
 	// core/human_gate
 	Form     []FormField `yaml:"form"`
 	Actions  []string    `yaml:"actions"`
