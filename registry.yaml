@@ -23,99 +23,144 @@ plugins:
   syntax_mx_checker:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/syntax_mx_checker
-    version: v0.18.1
+    version: v0.19
     description: синтаксис email + MX-записи
   disposable_checker:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/disposable_checker
-    version: v0.18.1
+    version: v0.19
     description: disposable-домены
   llm_openai:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_openai
-    version: v0.18.1
+    version: v0.19
     description: OpenAI-вызов (ключ из env)
   llm_anthropic:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_anthropic
-    version: v0.18.1
+    version: v0.19
     description: Anthropic-вызов (ключ из env)
   llm_gemini:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_gemini
-    version: v0.18.1
+    version: v0.19
     description: Gemini-вызов (ключ из env)
   # community
   csv_loader:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/csv_loader
-    version: v0.18.1
+    version: v0.19
     description: CSV → rows
   text_analyzer:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/text_analyzer
-    version: v0.18.1
+    version: v0.19
     description: слова/длина текста
   email_triage:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/email_triage
-    version: v0.18.1
+    version: v0.19
     description: классификация email
   dir_lister:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/dir_lister
-    version: v0.18.1
+    version: v0.19
     description: список каталога
 
   word_freq:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/word_freq
-    version: v0.18.1
+    version: v0.19
     description: топ-N частых слов (стоп-слова ≤2 отброшены)
   json_diff:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/json_diff
-    version: v0.18.1
+    version: v0.19
     description: "diff двух JSON: added/removed/changed"
   batch_email_triage:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/batch_email_triage
-    version: v0.18.1
+    version: v0.19
     description: батч-триаж email (синтаксис + disposable, агрегат)
   report_formatter:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/report_formatter
-    version: v0.18.1
+    version: v0.19
     description: агрегат batch_email_triage → текстовый отчёт
+  iban_validator:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/iban_validator
+    version: v0.19
+    description: "Проверка IBAN (ISO 13616): синтаксис, страна, длина, контрольная сумма mod-97. Без сети и ключей."
+  phone_normalizer:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/phone_normalizer
+    version: v0.19
+    description: "Нормализация списка телефонов в E.164, батч с разбором валид/инвалид. Без сети и ключей."
+  phone_check:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/phone_check
+    version: v0.19
+    description: "Одиночный телефон в любом формате → E.164. Без сети и ключей."
+  text_similarity:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/text_similarity
+    version: v0.19
+    description: "Левенштейн + нормализованное сходство двух строк, флаг near-duplicate. Без сети и ключей."
+  date_parser:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/date_parser
+    version: v0.19
+    description: "Человекочитаемые даты → ISO 8601 (ru/en, частые форматы). Без сети и ключей."
+  json_flatten:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/json_flatten
+    version: v0.19
+    description: "JSON-объект → плоский map (точки в ключах), с лимитом глубины. Без сети и ключей."
 
 presets:
   csv_foreach:
     source: https://github.com/wykserdex/wedra
     path: pipelines/csv_foreach.yaml
-    version: v0.18.1
+    version: v0.19
     description: CSV → analysis → human gate (foreach steps.*)
   csv_foreach_summary:
     source: https://github.com/wykserdex/wedra
     path: pipelines/csv_foreach_summary.yaml
-    version: v0.18.1
+    version: v0.19
     description: CSV → foreach → агрегат (after_foreach)
   email_check:
     source: https://github.com/wykserdex/wedra
     path: pipelines/email_check.yaml
-    version: v0.18.1
+    version: v0.19
     description: "email: синтаксис + disposable + MX"
   email_triage_chain:
     source: https://github.com/wykserdex/wedra
     path: pipelines/email_triage_chain.yaml
-    version: v0.18.1
+    version: v0.19
     description: email → triage → human review
   dir_snapshots:
     source: https://github.com/wykserdex/wedra
     path: pipelines/dir_snapshots.yaml
-    version: v0.18.1
+    version: v0.19
     description: снимок каталога + гейт (artifacts)
   llm_text_chain:
     source: https://github.com/wykserdex/wedra
     path: pipelines/llm_text_chain.yaml
-    version: v0.18.1
+    version: v0.19
     description: LLM-цепочка (ключ — через secrets/env)
+  iban_check:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/iban_check.yaml
+    version: v0.19
+    description: "Проверка IBAN + human_gate на показ (community, волна 3)."
+  phones_audit:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/phones_audit.yaml
+    version: v0.19
+    description: "Батч-аудит телефонов (E.164, валид/инвалид) + human_gate (community, волна 3)."
+  near_dupe_check:
+    source: https://github.com/wykserdex/wedra
+    path: pipelines/near_dupe_check.yaml
+    version: v0.19
+    description: "Сравнение двух строк на near-duplicate + human_gate (community, волна 3)."

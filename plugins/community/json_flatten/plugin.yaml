@@ -1,0 +1,29 @@
+id: json_flatten
+version: 0.1.0
+platform_api: "^0.1"
+description: "JSON-объект → плоский map (точки в ключах)"
+author: "community · wedra showcase"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  data:
+    from: input.data
+    type: object
+  separator:
+    from: input.separator
+    type: string
+    optional: true
+
+output:
+  flat:        { type: object }
+  key_count:   { type: number }
+  max_depth:   { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

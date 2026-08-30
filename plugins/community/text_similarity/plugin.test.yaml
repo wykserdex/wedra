@@ -1,0 +1,55 @@
+tests:
+  - name: одинаковые строки → distance 0
+    input: { a: "кот сидит на окне", b: "кот сидит на окне" }
+    expect:
+      status: ok
+      output:
+        distance: 0
+        similarity: 1
+        similar: true
+
+  - name: одна буква разницы, порог 0.9 — near-duplicate
+    input: { a: "тест репозиторий", b: "тест репозитория", threshold: 0.9 }
+    expect:
+      status: ok
+      output:
+        distance: 1
+        similar: true
+        similarity: { present: true }
+
+  - name: разные строки — не дубликат
+    input: { a: "спам письмо", b: "полезная рассылка" }
+    expect:
+      status: ok
+      output:
+        similar: false
+        distance: { type: "number" }
+
+  - name: одна строка пустая → similarity 0, но шаг ok
+    input: { a: "", b: "привет" }
+    expect:
+      status: ok
+      output:
+        distance: 6
+        similarity: 0
+        similar: false
+
+  - name: обе пустые → доменная ошибка
+    input: { a: "", b: "" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+  - name: порог вне диапазона → доменная ошибка
+    input: { a: "x", b: "y", threshold: 1.5 }
+    expect:
+      status: error
+      error: { code: bad_threshold }
+
+  - name: a не строка → платформенная ошибка
+    input: { a: 42, b: "текст" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

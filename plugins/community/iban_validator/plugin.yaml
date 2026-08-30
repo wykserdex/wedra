@@ -1,0 +1,32 @@
+id: iban_validator
+version: 0.1.0
+platform_api: "^0.1"
+description: "Проверка IBAN (ISO 13616): синтаксис, страна и длина, контрольная сумма mod-97. Без сети."
+author: "community · волна 3 (plugin-pack wedra)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  iban:
+    from: input.iban
+    type: string
+    format: text
+
+output:
+  valid: { type: boolean }
+  country_code: { type: string }
+  country_name: { type: string }
+  normalized: { type: string }
+  formatted: { type: string }
+  checksum: { type: string }
+  checksum_ok: { type: boolean }
+  bban: { type: string }
+  bank_code: { type: string }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

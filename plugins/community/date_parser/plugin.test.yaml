@@ -1,0 +1,37 @@
+tests:
+  - name: русская дата «12 марта 2024»
+    input: { text: "12 марта 2024" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-03-12"
+        parsed: true
+        format: "ru_d_month_y"
+
+  - name: ISO на входе проходит как есть
+    input: { text: "2024-03-12" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-03-12"
+        format: "iso"
+
+  - name: английская дата March 12, 2024
+    input: { text: "March 12, 2024", lang: "en" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-03-12"
+        format: "en_month_d_y"
+
+  - name: нераспознанная дата — доменная ошибка
+    input: { text: "вчера-позавчера" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: unparseable_date, retryable: false }
+
+  - name: битый JSON — платформенная ошибка
+    input_raw: "{oops"
+    expect:
+      exit_code: 2

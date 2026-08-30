@@ -1,5 +1,28 @@
 # Changelog — честная 0.x
 
+## v0.19 (2026-08-30) — волна 2, батч 2: 6 community-плагинов + 3 пресета
+
+- **6 плагинов от двух новых community-авторов** (присланы как React-веб
+  шоукасы; источники извлечены из TS-данных, конформность по каждому):
+  - `iban_validator` (7 тестов), `phone_normalizer` (7), `text_similarity` (7)
+    — «community · волна 3 (plugin-pack wedra)»;
+  - `date_parser` (5), `json_flatten` (4), `phone_check` (5) — «community ·
+    wedra showcase».
+- **Конфликт имён**: оба автора написали `phone_normalizer` (разбивка меню не
+  спасла). Батч-вариант (список → E.164 + разбор валид/инвалид) сохранил имя;
+  одиночный переименован в `phone_check`.
+- 3 пресета с `human_gate`: `iban_check`, `phones_audit`, `near_dupe_check`
+  (live-прогон `--yes` зелёный; ссылки на плагины — локальные пути, как у
+  штатных пресетов).
+- Правки при приёмке (7, только в тестах/guard'ах, логика не тронута):
+  4 устаревших expect `bad_input` → `platform:bad_input` (в v9 exit≥2
+  сохраняет код как `platform:<code>`); valid-флаг в ожидании
+  phone_normalizer; 2 guard-типа возвращали доменную ошибку (exit 1) вместо
+  платформенной (exit 2) — исправлено в json_flatten и phone_check.
+- Реестр: 19 плагинов + 9 пресетов = 28 записей, все @ v0.19,
+  `registry validate --local-source` зелёный.
+
+
 ## v0.18.1 (2026-08-30) — долги
 
 - **Схема догнала контракт**: `schemas/pipeline/v0.2.schema.json` теперь знает
