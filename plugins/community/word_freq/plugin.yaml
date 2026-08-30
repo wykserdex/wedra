@@ -1,0 +1,30 @@
+id: word_freq
+version: 0.1.0
+platform_api: "^0.1"
+description: "Топ-N самых частых слов в тексте (стоп-слова длиной ≤2 отброшены)"
+author: "community · тестер №1 (волна 2, v0.18)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  text:
+    from: input.text
+    type: string
+    format: text
+  top_n:
+    from: input.top_n
+    type: number
+    optional: true
+
+output:
+  total_words: { type: number }
+  unique_words: { type: number }
+  top: { type: array }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

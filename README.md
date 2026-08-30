@@ -1,6 +1,6 @@
-# orchestrator v0.17 — trust: реестр с проверкой, сеть по декларации
+# orchestrator v0.18 — волна 2: community-плагины в реестре
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.17**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.18**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,7 +8,7 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.17
+├── VERSION              # 0.18
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
 ├── internal/
@@ -23,7 +23,7 @@ orchestrator/
 │   ├── api/             # REST API (M6, отложен)
 │   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
-├── plugins/official/    # 5, community/ 5
+├── plugins/official/    # 5, community/ 9
 ├── pipelines/           # 10
 └── var/runs/            # журналы + --resume
 ```
@@ -104,6 +104,18 @@ pipeline:
 
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
+
+## Что нового в v0.18 (волна 2)
+
+Первые **community-плагины в публичном реестре** — тестер №1 (M5) написал 5
+плагинов и вернул оригинал `dir_lister` (вместо моей реконструкции — открытый
+вопрос M5 закрыт): `word_freq`, `json_diff`, `batch_email_triage`,
+`report_formatter`, `dir_lister`. Каждый принят через конформность
+(`registry validate`), атрибуция в манифесте, у всех `permissions` честные
+(без сети и ключей).
+
+Кто угодно: `orchestrator plugin install word_freq` — и плагин у вас в `plugins/`.
+Свой плагин — `TUTORIAL_PLUGINS.md` (15 минут) + `OUTREACH_ROUND2.md` (меню идей).
 
 ## Что нового в v0.17 (trust)
 
@@ -188,6 +200,7 @@ pipeline:
 - [x] v0.15: честный релиз — JsonStore (честное имя) + ошибки loadDB, rune-safe Truncate, GateUI, один кэш Engine
 - [x] v0.16: **install-путь** — реестр v0.1, `plugin install`, `pipeline install` (автоустановка плагинов), pin `name@version`, `secrets:`, оффлайн
 - [x] v0.17: **trust** — `registry validate` как CI-гейт, declare-now сеть (`network: deny` + `WEDRA_NETWORK` + аудит), кросс-проверка secrets, CONTRIBUTING
+- [x] v0.18: **волна 2** — 5 community-плагинов (тестер №1) в реестре, оригинал dir_lister вместо реконструкции, fix версии бинарника
 - [ ] v0.18: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
@@ -197,5 +210,5 @@ pipeline:
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust)
-- Дальше: v0.18 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины)
+- Дальше: v0.19 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс

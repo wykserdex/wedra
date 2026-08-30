@@ -1,0 +1,47 @@
+tests:
+  - name: топ-5 слов (дефолт), "на" отфильтровано как ≤2 символа
+    input: { text: "кот сидит на окне кот смотрит кот молчит окно закрыто" }
+    expect:
+      status: ok
+      output:
+        total_words: 9
+        unique_words: 7
+        top:
+          equals:
+            - { word: "кот", count: 3 }
+            - { word: "сидит", count: 1 }
+            - { word: "окне", count: 1 }
+            - { word: "смотрит", count: 1 }
+            - { word: "молчит", count: 1 }
+
+  - name: явный top_n=1
+    input: { text: "спам спам спам полезное письмо", top_n: 1 }
+    expect:
+      status: ok
+      output:
+        top: { equals: [{ word: "спам", count: 3 }] }
+
+  - name: пустой текст → доменная ошибка
+    input: { text: "" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+  - name: только короткие слова (≤2 симв) → нет слов
+    input: { text: "я ты он на из" }
+    expect:
+      status: error
+      error: { code: no_words }
+
+  - name: некорректный top_n → доменная ошибка, не крэш
+    input: { text: "любой текст тут есть", top_n: "abc" }
+    expect:
+      status: error
+      error: { code: bad_top_n, retryable: false }
+
+  - name: top_n = 0 → доменная ошибка
+    input: { text: "любой текст тут есть", top_n: 0 }
+    expect:
+      status: error
+      error: { code: bad_top_n }

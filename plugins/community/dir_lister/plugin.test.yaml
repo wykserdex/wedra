@@ -1,29 +1,39 @@
-# Контракт-тесты dir_lister (воспроизводят сценарии из отчёта пакета №5).
 tests:
-  - name: считает файлы и расширения в testdata/before
-    input: { path: "testdata/before" }   # относительный путь — от директории плагина!
-    expect:
-      status: ok
-      output:
-        file_count: 3
-        by_extension: { ".txt": 2, ".md": 1 }
-
-  - name: counts differ на testdata/after (сценарий до/после)
-    input: { path: "testdata/after" }
+  - name: считает файлы по расширениям в фикстуре
+    input: { path: "fixtures/sample_dir" }
     expect:
       status: ok
       output:
         file_count: 4
-        by_extension: { ".txt": 2, ".md": 1, ".jpg": 1 }
+        by_extension: { equals: { ".txt": 2, ".json": 1, "(no_ext)": 1 } }
 
-  - name: несуществующая директория — доменная ошибка
-    input: { path: "testdata/no_such_dir" }
+  - name: пустой path → доменная ошибка
+    input: { path: "" }
     expect:
       status: error
       exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+  - name: несуществующий путь → not_found
+    input: { path: "fixtures/does_not_exist" }
+    expect:
+      status: error
       error: { code: not_found, retryable: false }
 
-  - name: битый JSON является платформенной ошибкой
-    input_raw: "{oops"
+  - name: путь указывает на файл, не директорию
+    input: { path: "fixtures/sample_dir/one.txt" }
     expect:
-      exit_code: 2
+      status: error
+      error: { code: not_a_dir }
+
+  - name: попытка выйти за пределы workspace через ../ → path_escape
+    input: { path: "../../../etc" }
+    expect:
+      status: error
+      error: { code: path_escape, retryable: false }
+
+  - name: абсолютный путь наружу workspace → path_escape (найдено ручным ред-тимом)
+    input: { path: "/etc" }
+    expect:
+      status: error
+      error: { code: path_escape, retryable: false }
