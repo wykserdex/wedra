@@ -1,6 +1,6 @@
 package api
 
-// v0.25: редактор — round-trip parse → doc → serialize → YAML обязан
+// v0.25 (v0.26a: format_version): редактор — round-trip parse → doc → serialize → YAML обязан
 // читаться ядром и проходить валидацию; pos возвращается; unsupported
 // блокирует serialize.
 
@@ -45,6 +45,9 @@ func TestEditorParseSingleCheck(t *testing.T) {
 	}
 	if doc["name"] != "single_check" {
 		t.Fatalf("name = %v", doc["name"])
+	}
+	if doc["format_version"] != "0.2" {
+		t.Fatalf("format_version = %v (single_check — 0.2)", doc["format_version"])
 	}
 	steps, _ := doc["steps"].([]interface{})
 	if len(steps) != 3 {
@@ -133,6 +136,10 @@ func TestEditorSerializeRoundTrip(t *testing.T) {
 	if !strings.Contains(yamlText, "pos:") || !strings.Contains(yamlText, "120") {
 		t.Fatalf("yaml без pos:\n%s", yamlText)
 	}
+	// v0.26a: версия исходного файла (0.1) сохраняется, а не подменяется
+	if doc["format_version"] != "0.1" || !strings.Contains(yamlText, `format_version: "0.1"`) {
+		t.Fatalf("round-trip потерял format_version (doc=%v):\n%s", doc["format_version"], yamlText)
+	}
 	// сгенерированный YAML обязан читаться ядром
 	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
 	if err != nil {
@@ -178,5 +185,9 @@ func TestEditorSerializeNewGatePipeline(t *testing.T) {
 	yamlText, _ := out["yaml"].(string)
 	if !strings.Contains(yamlText, "core/human_gate") || !strings.Contains(yamlText, "on_reject: stop") {
 		t.Fatalf("yaml:\n%s", yamlText)
+	}
+	// v0.26a: новое doc без версии → текущая 0.2
+	if !strings.Contains(yamlText, `format_version: "0.2"`) {
+		t.Fatalf("новому doc не присвоено 0.2:\n%s", yamlText)
 	}
 }

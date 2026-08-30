@@ -48,10 +48,11 @@ type editorStep struct {
 }
 
 type editorDoc struct {
-	Name        string        `json:"name"`
-	Input       []editorInput `json:"input"`
-	Steps       []editorStep  `json:"steps"`
-	Unsupported []string      `json:"unsupported"`
+	Name          string        `json:"name"`
+	FormatVersion string        `json:"format_version"` // v0.26a: сохраняется из исходника (пусто = новое → 0.2)
+	Input         []editorInput `json:"input"`
+	Steps         []editorStep  `json:"steps"`
+	Unsupported   []string      `json:"unsupported"`
 }
 
 // editorPosFile — теневой разбор только под позиции (ядро pos не знает).
@@ -87,10 +88,11 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	doc := editorDoc{
-		Name:        pf.Pipeline.Name,
-		Input:       []editorInput{},
-		Steps:       []editorStep{},
-		Unsupported: []string{},
+		Name:          pf.Pipeline.Name,
+		FormatVersion: pf.FormatVersion,
+		Input:         []editorInput{},
+		Steps:         []editorStep{},
+		Unsupported:   []string{},
 	}
 	names := make([]string, 0, len(pf.Pipeline.Input))
 	for n := range pf.Pipeline.Input {
@@ -207,8 +209,13 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// документ → схема ядра
+	// v0.26a: версия формата — из исходного файла; новое doc (без версии) → текущая 0.2
+	fv := doc.FormatVersion
+	if fv == "" {
+		fv = "0.2"
+	}
 	pf := pipeline.PipelineFile{
-		FormatVersion: "0.1",
+		FormatVersion: fv,
 		Pipeline:      pipeline.Pipeline{Name: doc.Name, Input: map[string]interface{}{}, Steps: []pipeline.Step{}},
 	}
 	for _, in := range doc.Input {
