@@ -77,16 +77,31 @@
 
 | id | Что делает | вход → выход |
 |---|---|---|
-| `json_flatten` | JSON → плоский map (точки в ключах) | string(json) → string(json) |
 | `date_parser` | человекочитаемые даты → ISO 8601 (ru/en, частые форматы) | string → string(iso) |
 | `phone_normalizer` | любой формат → E.164 (+375 (29) 123-45-67 → +375291234567) | string → string(e164) |
+| `regex_extract` | все совпадения паттерна в тексте | text + pattern → array + count |
 | `url_metadata` | url → domain/tld/path/query (чистый парсинг, без сети) | string → 4 поля |
+| `json_validate` | JSON-строка против списка обязательных ключей | string(json) + keys → ok/mismatch |
 | `text_dedup` | дедуп строк + счётчики | string → array + count |
-| `entity_normalizer` | username/email/phone → каноничные формы (домен Тестера №3) | string → object |
+| `time_diff` | длительность между двумя ISO-датами | 2×string(iso) → string + number(sec) |
+| `slugify` | человекочитаемая строка → url-safe slug | string → string(slug) |
+| `markdown_links` | все ссылки из markdown/текста | string → array + count |
+| `json_flatten` | JSON → плоский map (точки в ключах) | string(json) → string(json) |
+| `entity_normalizer` | username/email/phone → каноничные формы (резерв — домен Тестера №3) | string → object |
 
 Правила каждого: happy path + доменная ошибка (когда не распарсить) +
 битый JSON (exit 2). Манифест: `permissions: network: []`, `secrets: []` —
 честно, раз сети и ключей нет.
+
+**Раздача по сетам (во избежание столкновений, 2 автора × 2–3 плагина):**
+
+- **Сет A**: date_parser, phone_normalizer, regex_extract
+- **Сет B**: url_metadata, json_validate, text_dedup
+- **Резерв** (для Тестера №3 / следующих): entity_normalizer, time_diff,
+  slugify, markdown_links, json_flatten
+
+Каждый автор берёт 2–3 СВОИХ сета; своё тоже можно, если есть идея —
+главное, чтобы не пересекалось со вторым (пересеклось — скажу, поменяем).
 
 ## Как принимаем (трение по возрастанию — автору любой вариант ок)
 
@@ -106,6 +121,15 @@
   у третьего: «вот пресет, поставь и скажи, что сломалось»).
 - 0 ситуаций «не понял, что писать в permissions» — если случится, чиним
   TUTORIAL, а не автора.
+
+## Приёмка батчей (что спрашивать у автора, чтобы не тянуть)
+
+1. Где файлы: ссылка на Drive-папку / zip / гит-репо (gdown берёт Drive-папки).
+2. Атрибуция: как записать в `author:` (ник/имя + канал, напр. «волна 2»).
+3. Какие из меню взял + свои (чтобы проверить пересечения сразу).
+
+Дальше я: конформность (`plugin validate` + `plugin test`), правки только в
+тестах/манифестах (логику не трогаю, кроме явных багов), реестр, релиз-тег.
 
 ## Трекер раунда
 
