@@ -1,6 +1,6 @@
-# orchestrator v0.19 — волна 2, батч 2: ещё 6 community-плагинов
+# orchestrator v0.20 — управляющий поток: when, foreach на шаге, параллельные ветки
 
-Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.19**.
+Локальный оркестратор цепочек с человеком в петле. M1–M5 закрыты, M6 GUI **отложен** — ставка на CLI. Честная версия: **v0.20**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
 
@@ -8,7 +8,7 @@
 
 ```
 orchestrator/
-├── VERSION              # 0.19
+├── VERSION              # 0.20
 ├── PROTOCOL.md          # контракт v0.2 + v0.12 foreach steps.*
 ├── registry.yaml        # v0.16: реестр v0.1 (plugins + presets), формат заморожен
 ├── internal/
@@ -24,7 +24,7 @@ orchestrator/
 │   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
 ├── plugins/official/    # 5, community/ 14
-├── pipelines/           # 13
+├── pipelines/           # 16
 └── var/runs/            # журналы + --resume
 ```
 
@@ -37,7 +37,7 @@ API-поверхность для `cmd/*` и будущего M6, там жив�
 
 ```bash
 go build -o orchestrator ./cmd/orchestrator
-./orchestrator version   # v0.19
+./orchestrator version   # v0.20
 go test ./...            # 112 тестов
 
 # плагины
@@ -109,6 +109,24 @@ pipeline:
 
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
+
+## Что нового в v0.20 (управляющий поток)
+
+Контрольный поток переехал на уровень шага — три механизма (PROTOCOL §12):
+
+- **`when:`** — условие шага: строка (путь, «истинно?») или
+  `{path, op, value}` с операторами `eq/neq/gt/gte/lt/lte/exists/missing/contains`.
+  Ложно → шаг `skipped` (журнал `step_skipped`, reason=when).
+- **`foreach:` на шаге** — шаг по каждому элементу массива
+  (`input.*` или `steps.<id>.<field>`); `steps.<id>_all` — агрегат,
+  `steps.<id>` — последняя итерация. stop = стоп рана (здесь нет «элемента»).
+- **`parallel_group`** — смежные шаги с одинаковой группой исполняются
+  параллельно, барьер ждёт все ветки; слияние выходов в порядке списка
+  (детерминизм). human_gate в группах запрещён (гейты сериализуют терминал).
+
+Демо в `pipelines/`: `when_demo`, `foreach_step_demo`, `parallel_demo`
+(все в CI + в реестре как пресеты). Планер (`pipeline plan`) аннотирует
+DAG: when/foreach/parallel_group + рёбра зависимостей.
 
 ## Что нового в v0.19 (волна 2, батч 2)
 
@@ -232,7 +250,8 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 - [x] v0.17: **trust** — `registry validate` как CI-гейт, declare-now сеть (`network: deny` + `WEDRA_NETWORK` + аудит), кросс-проверка secrets, CONTRIBUTING
 - [x] v0.18: **волна 2** — 5 community-плагинов (тестер №1) в реестре, оригинал dir_lister вместо реконструкции, fix версии бинарника
 - [x] v0.19: **волна 2, батч 2** — 6 community-плагинов (два новых автора) + 3 пресета с human_gate; конфликт имён решён (phone_check)
-- [ ] v0.20: `foreach` как шаг (а не только pipeline), параллельные ветки, `when:` условия
+- [x] v0.20: **управляющий поток** — `when:`, `foreach:` на шаге, `parallel_group` (PROTOCOL §12, 3 демо в CI)
+- [ ] v0.21: «хирургия» — структура репо по согласованному дереву (git mv, ноль логики)
 - [ ] v1.0: GUI full (import YAML, SVG, run из GUI, human_gate форма) + маркетплейс v1
 
 ## Тесты
@@ -241,5 +260,5 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2)
-- Дальше: v0.20 (foreach как шаг, параллельные ветки, when:) → v1.0 — GUI + маркетплейс
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток)
+- Дальше: v0.21 (хирургия структуры) → v1.0 — GUI + маркетплейс

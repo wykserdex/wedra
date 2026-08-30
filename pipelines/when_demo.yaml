@@ -1,0 +1,27 @@
+# v0.20: when — условие выполнения шага.
+# freq выполняется, только если слов больше 10 (steps.stats.words >= 10),
+# иначе шаг пропущен (skipped) — видно в логе и в журнале (step_skipped,
+# reason=when). Уменьшите текст в input, чтобы увидеть пропуск.
+format_version: "0.2"
+pipeline:
+  name: when_demo
+  input:
+    text: "оркестратор, пайплайн, плагин, контекст, журнал, гейт — всё вместе составляет условие для следующего шага"
+  steps:
+    - id: stats
+      plugin: plugins/community/text_analyzer
+      on_error: stop
+
+    - id: freq
+      plugin: plugins/community/word_freq
+      when: { path: steps.stats.words, op: gte, value: 10 }
+      on_error: stop
+
+    - id: show
+      plugin: core/human_gate
+      form:
+        - field: steps.stats.words
+          editable: false
+        - field: steps.stats.longest_word
+          editable: false
+      actions: [accept]

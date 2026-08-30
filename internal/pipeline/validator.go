@@ -64,7 +64,7 @@ func scalarMatchesFormat(lit interface{}, format string) bool {
 	return chk(s)
 }
 
-func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (srcInfo, string) {
+func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile, st *Step) (srcInfo, string) {
 	parts := strings.Split(path, ".")
 	if len(parts) < 2 {
 		return srcInfo{}, "путь слишком короткий: " + path
@@ -73,6 +73,16 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile) (s
 	switch parts[0] {
 	case "input":
 		key := parts[1]
+		// v0.20: input.<foreach_item> шага с foreach — динамическая переменная элемента
+		if st != nil && st.Foreach != "" {
+			sitemKey := st.ForeachItem
+			if sitemKey == "" {
+				sitemKey = "item"
+			}
+			if key == sitemKey {
+				return srcInfo{Name: path, Type: "string", Format: "text"}, ""
+			}
+		}
 		itemKey := p.ForeachItem
 		if itemKey == "" {
 			itemKey = "item"
@@ -271,7 +281,7 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 				}
 			}
 			for _, f := range st.Form {
-				if src, e := resolveSource(f.Field, prior, pf); e != "" {
+				if src, e := resolveSource(f.Field, prior, pf, nil); e != "" {
 					warns = append(warns, fmt.Sprintf("шаг %s, form: %s — поле может отсутствовать", st.ID, e))
 				} else if src.Step != nil && src.Step.OnError == "skip" {
 					warns = append(warns, fmt.Sprintf("шаг %s, form: %s читает из skip-able шага %s", st.ID, f.Field, src.Step.ID))
@@ -309,7 +319,7 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: нет привязки", st.ID, portName))
 				continue
 			}
-			src, perr := resolveSource(srcPath, prior, pf)
+			src, perr := resolveSource(srcPath, prior, pf, st)
 			if perr != "" {
 				if port.Optional {
 					warns = append(warns, fmt.Sprintf("шаг %s, порт %s: %s (optional)", st.ID, portName, perr))

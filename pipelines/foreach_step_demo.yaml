@@ -1,0 +1,26 @@
+# v0.20: foreach на уровне шага (не всего пайплайна)
+# Шаг freqs выполняется по каждому тексту; результаты — steps.freqs_all
+# (steps.freqs — выход последней итерации). Гейт показывает агрегат.
+format_version: "0.2"
+pipeline:
+  name: foreach_step_demo
+  input:
+    texts:
+      - "оркестратор запускает пайплайны, оркестратор ждёт человека, пайплайны видны по шагам"
+      - "плагин — это контракт: плагин читает stdin, плагин пишет stdout, ядро проверяет"
+      - "короткий"
+  steps:
+    - id: freqs
+      plugin: plugins/community/word_freq
+      foreach: input.texts
+      foreach_item: text
+      on_error: stop
+
+    - id: show
+      plugin: core/human_gate
+      form:
+        - field: steps.freqs_all
+          editable: false
+        - field: steps.freqs
+          editable: false
+      actions: [accept]

@@ -73,15 +73,15 @@ func (w *When) String() string {
 }
 
 const (
-	OpTruthy  = "truthy"
-	OpExists  = "exists"
-	OpMissing = "missing"
-	OpEq      = "eq"
-	OpNeq     = "neq"
-	OpGt      = "gt"
-	OpGte     = "gte"
-	OpLt      = "lt"
-	OpLte     = "lte"
+	OpTruthy   = "truthy"
+	OpExists   = "exists"
+	OpMissing  = "missing"
+	OpEq       = "eq"
+	OpNeq      = "neq"
+	OpGt       = "gt"
+	OpGte      = "gte"
+	OpLt       = "lt"
+	OpLte      = "lte"
 	OpContains = "contains"
 )
 

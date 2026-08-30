@@ -18,11 +18,14 @@ type DAG struct {
 }
 
 type DAGNode struct {
-	ID           string            `json:"id"`
-	Plugin       string            `json:"plugin"`
-	Phase        string            `json:"phase"`
-	Bind         map[string]string `json:"bind"`
-	AfterForeach bool              `json:"after_foreach"`
+	ID            string            `json:"id"`
+	Plugin        string            `json:"plugin"`
+	Phase         string            `json:"phase"`
+	Bind          map[string]string `json:"bind"`
+	AfterForeach  bool              `json:"after_foreach"`
+	When          string            `json:"when,omitempty"`
+	Foreach       string            `json:"foreach,omitempty"`
+	ParallelGroup string            `json:"parallel_group,omitempty"`
 }
 
 type DAGEdge struct {
@@ -57,8 +60,16 @@ func PlanPipeline(pf *PipelineFile, eng Engine) (*Plan, error) {
 		if st.AfterForeach {
 			phase = "post"
 		}
+		if st.ParallelGroup != "" {
+			phase = "parallel"
+		}
+		whenStr := ""
+		if st.When.IsSet() {
+			whenStr = st.When.String()
+		}
 		nodes = append(nodes, DAGNode{
 			ID: st.ID, Plugin: st.Plugin, Phase: phase, Bind: st.Bind, AfterForeach: st.AfterForeach,
+			When: whenStr, Foreach: st.Foreach, ParallelGroup: st.ParallelGroup,
 		})
 		for _, from := range st.Bind {
 			if strings.HasPrefix(from, "steps.") {
@@ -69,6 +80,16 @@ func PlanPipeline(pf *PipelineFile, eng Engine) (*Plan, error) {
 						dep = strings.TrimSuffix(dep, "_all")
 					}
 					edges = append(edges, DAGEdge{From: dep, To: st.ID, Via: from})
+				}
+			}
+		}
+		// v0.20: зависимости from when/foreach
+		for _, depPath := range []string{st.When.Path, st.Foreach} {
+			if strings.HasPrefix(depPath, "steps.") {
+				parts := strings.Split(depPath, ".")
+				if len(parts) >= 2 {
+					dep := parts[1]
+					edges = append(edges, DAGEdge{From: dep, To: st.ID, Via: depPath})
 				}
 			}
 		}

@@ -205,8 +205,8 @@ func TestRunStepForeachSkipContinues(t *testing.T) {
 
 func TestValidateV020Rules(t *testing.T) {
 	cases := []struct {
-		name string
-		pf   *PipelineFile
+		name     string
+		pf       *PipelineFile
 		wantErrs []string
 	}{
 		{

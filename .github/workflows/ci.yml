@@ -52,6 +52,11 @@ jobs:
             echo "== plan $f =="
             ./orchestrator pipeline plan "$f"
           done
+      - name: v0.20 control flow live (when, foreach-step, parallel)
+        run: |
+          ./orchestrator pipeline run pipelines/when_demo.yaml --yes
+          ./orchestrator pipeline run pipelines/foreach_step_demo.yaml --yes
+          ./orchestrator pipeline run pipelines/parallel_demo.yaml --yes
       - name: foreach + after_foreach live
         run: |
           ./orchestrator pipeline run pipelines/csv_foreach.yaml --yes

@@ -9,14 +9,14 @@ import (
 func whenData() map[string]interface{} {
 	return map[string]interface{}{
 		"input": map[string]interface{}{
-			"n":      float64(15),
-			"empty":  "",
-			"arr":    []interface{}{"a", "b"},
-			"obj":    map[string]interface{}{"x": 1},
-			"zero":   float64(0),
-			"neg":    float64(-3),
-			"word":   "привет мир",
-			"names":  []interface{}{"ann", "bob"},
+			"n":     float64(15),
+			"empty": "",
+			"arr":   []interface{}{"a", "b"},
+			"obj":   map[string]interface{}{"x": 1},
+			"zero":  float64(0),
+			"neg":   float64(-3),
+			"word":  "привет мир",
+			"names": []interface{}{"ann", "bob"},
 		},
 		"steps": map[string]interface{}{
 			"stats": map[string]interface{}{
