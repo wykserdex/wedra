@@ -1,5 +1,39 @@
 # Changelog — честная 0.x
 
+## v0.20 (2026-08-30) — управляющий поток на уровне шага
+
+- **`when:`** — условие выполнения шага (PROTOCOL §12.1). Строковый формат
+  (путь, «истинно?») или `{path, op, value}`; операторы `truthy/exists/missing/
+  eq/neq/gt/gte/lt/lte/contains`. Честные числа (YAML-int = JSON-float64),
+  null-семантика для missing. Ложь → `skipped` (журнал step_skipped, reason=when);
+  не оценивается (gt по строке) → ошибка рана.
+- **`foreach:` на шаге** (§12.2) — шаг по каждому элементу массива из
+  `input.*` или `steps.<id>.<field>`; переменная элемента — `input.<foreach_item>`;
+  `steps.<id>` = последняя итерация, `steps.<id>_all` = агрегат (skip-итерации
+  не входят). В отличие от pipeline-foreach, stop останавливает весь ран.
+  Валидатор: источник — только из input или уже выполненных шагов.
+- **`parallel_group`** (§12.3) — смежные шаги с одинаковым именем группы
+  исполняются параллельно (ветки на копиях контекста, барьер, детерминированное
+  слияние в порядке списка). stop/платформенная ошибка в ветке = стоп рана;
+  human_gate в группе запрещён (сериализация терминала). Журнал:
+  parallel_start/parallel_end + переплетённые события веток.
+- Правка семантики `on_error=skip`: шаг больше не оставляет **чужое** значение
+  в неймспейсе (чистит `steps.<id>`) — иначе значение предыдущей итерации
+  утёкало бы в foreach-агрегаты.
+- Валидатор v0.20: правила when/foreach/parallel_group (операторы, пути,
+  смежность групп, конфликты foreach×after_foreach×group, гейты вне групп) +
+  динамический `input.<foreach_item>` как легальный источник порта.
+- Схема `schemas/pipeline/v0.2.schema.json`: when/foreach/foreach_item/
+  parallel_group (+ `after_foreach`, которого не хватало с v0.12).
+- Планер: DAG-ноды несут when/foreach/parallel_group, рёбра от путей
+  when/foreach; фаза `parallel`.
+- Демо: `pipelines/when_demo.yaml`, `foreach_step_demo.yaml`,
+  `parallel_demo.yaml` (live в CI + реестр-пресеты).
+- Тесты: unit (when: 6 групп сценариев) + интеграция (when true/false/numeric,
+  step-foreach агрегат/stop/skip, parallel группа/stop/when-skip, правила
+  валидатора) — 12 новых тестов.
+
+
 ## v0.19 (2026-08-30) — волна 2, батч 2: 6 community-плагинов + 3 пресета
 
 - **6 плагинов от двух новых community-авторов** (присланы как React-веб

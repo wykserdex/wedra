@@ -1,0 +1,35 @@
+# v0.20: parallel_group — ветки группы исполняются параллельно,
+# барьер ждёт всех до следующего шага. Журнал покажет parallel_start/
+# parallel_end и переплетённые step_start веток.
+format_version: "0.2"
+pipeline:
+  name: parallel_demo
+  input:
+    text: "две ветки считаются одновременно: метрики текста и flattening конфигурации"
+    data:
+      app:
+        name: wedra
+        version: "0.20"
+        features:
+          - when
+          - foreach
+          - parallel
+  steps:
+    - id: words
+      plugin: plugins/community/word_freq
+      parallel_group: analyze
+      on_error: stop
+
+    - id: flat
+      plugin: plugins/community/json_flatten
+      parallel_group: analyze
+      on_error: stop
+
+    - id: show
+      plugin: core/human_gate
+      form:
+        - field: steps.words.top
+          editable: false
+        - field: steps.flat.flat
+          editable: false
+      actions: [accept]
