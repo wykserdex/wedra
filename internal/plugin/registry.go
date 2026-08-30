@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"sync"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 )
 
 type Engine struct {
+	mu sync.Mutex
 	Cache      map[string]*pipeline.Manifest
 	PluginsDir string // дефолт "plugins"
 }
@@ -34,12 +36,15 @@ func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
+	e.mu.Lock()
 	if e.Cache == nil {
 		e.Cache = make(map[string]*pipeline.Manifest)
 	}
 	if m, ok := e.Cache[ref]; ok {
+		e.mu.Unlock()
 		return m, nil
 	}
+	e.mu.Unlock()
 	// v0.16: голое имя (или имя@версия) — реестр; пути — как раньше.
 	dir, err := registry.RefToDir(ref, e.PluginsDir)
 	if err != nil {
@@ -57,6 +62,8 @@ func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		return nil, fmt.Errorf("плагин %q: в манифесте нет id", ref)
 	}
 	m.Dir = dir
+	e.mu.Lock()
 	e.Cache[ref] = &m
+	e.mu.Unlock()
 	return &m, nil
 }

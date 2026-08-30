@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -12,6 +13,9 @@ import (
 )
 
 type Engine struct {
+	// mu защищает Cache (v0.20: parallel_group вызывает LoadManifest из
+	// нескольких goroutine)
+	mu          sync.Mutex
 	Cache       map[string]*Manifest
 	PluginsDir  string // куда ставятся плагины из реестра (дефолт "plugins")
 	RegistrySrc string // источник реестра (дефолт: registry.DefaultSource())
@@ -36,12 +40,15 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
+	e.mu.Lock()
 	if e.Cache == nil {
 		e.Cache = make(map[string]*Manifest)
 	}
 	if m, ok := e.Cache[ref]; ok {
+		e.mu.Unlock()
 		return m, nil
 	}
+	e.mu.Unlock()
 	// v0.16: голое имя (или имя@версия) — это имя из реестра;
 	// локальные пути проходят как раньше.
 	dir, err := registry.RefToDir(ref, e.PluginsDir)
@@ -60,6 +67,8 @@ func (e *Engine) LoadManifest(ref string) (*Manifest, error) {
 		return nil, fmt.Errorf("плагин %q: в манифесте нет id", ref)
 	}
 	m.Dir = dir
+	e.mu.Lock()
 	e.Cache[ref] = &m
+	e.mu.Unlock()
 	return &m, nil
 }
