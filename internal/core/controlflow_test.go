@@ -323,3 +323,103 @@ func TestValidateV020Rules(t *testing.T) {
 		}
 	}
 }
+
+// ── parallel_group: обе ветки отработали, барьер закрылся ─────────────
+
+func TestRunParallelGroup(t *testing.T) {
+	requirePython(t)
+	pf := &PipelineFile{
+		FormatVersion: PlatformAPI,
+		Pipeline: Pipeline{
+			Name:  "t_parallel",
+			Input: map[string]interface{}{"value": "x"},
+			Steps: []Step{
+				{ID: "a", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5), ParallelGroup: "g"},
+				{ID: "b", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5), ParallelGroup: "g"},
+				{ID: "after", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5)},
+			},
+		},
+	}
+	stats, err := Run(pf, NewEngine(), quietOpts(t))
+	if err != nil {
+		t.Fatalf("ран упал: %v", err)
+	}
+	snap := readContextSnapshot(t, stats.RunDir)
+	steps := snap["steps"].(map[string]interface{})
+	for _, id := range []string{"a", "b", "after"} {
+		if _, ok := steps[id]; !ok {
+			t.Fatalf("выход шага %s отсутствует: %v", id, steps)
+		}
+	}
+	events := readEvents(t, stats.RunDir)
+	if countEvents(events, "parallel_start") != 1 || countEvents(events, "parallel_end") != 1 {
+		t.Fatalf("ожидалось по одному parallel_start/end: %v", events)
+	}
+	// «after» должен быть после parallel_end (барьер)
+	lastEnd, lastAfter := -1, -1
+	for i, e := range events {
+		if e["type"] == "parallel_end" {
+			lastEnd = i
+		}
+		if e["type"] == "step_start" && e["step"] == "after" {
+			lastAfter = i
+		}
+	}
+	if lastEnd < 0 || lastAfter < 0 || lastAfter < lastEnd {
+		t.Fatalf("послебарьерный шаг до parallel_end: end=%d after=%d", lastEnd, lastAfter)
+	}
+}
+
+// ── parallel_group: stop в ветке → ран остановлен ──────────────────────
+
+func TestRunParallelGroupStopAborts(t *testing.T) {
+	requirePython(t)
+	pf := &PipelineFile{
+		FormatVersion: PlatformAPI,
+		Pipeline: Pipeline{
+			Name:  "t_parallel_stop",
+			Input: map[string]interface{}{"value": "bad"},
+			Steps: []Step{
+				{ID: "a", Plugin: fxPlugins + "failer", OnError: "stop", Timeout: sec(5), ParallelGroup: "g"},
+				{ID: "b", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5), ParallelGroup: "g"},
+			},
+		},
+	}
+	_, err := Run(pf, NewEngine(), quietOpts(t))
+	if err == nil {
+		t.Fatal("ожидалось падение рана (stop в параллельной группе)")
+	}
+	if !strings.Contains(err.Error(), "параллельная группа") {
+		t.Fatalf("сообщение не про группу: %v", err)
+	}
+}
+
+// ── parallel_group: when-false ветка пропущена, другая жива ────────────
+
+func TestRunParallelGroupWhenSkipped(t *testing.T) {
+	requirePython(t)
+	pf := &PipelineFile{
+		FormatVersion: PlatformAPI,
+		Pipeline: Pipeline{
+			Name:  "t_parallel_when",
+			Input: map[string]interface{}{"value": "x"},
+			Steps: []Step{
+				{ID: "a", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5), ParallelGroup: "g",
+					When: pipeline.When{Path: "input.never", Op: pipeline.OpTruthy}},
+				{ID: "b", Plugin: fxPlugins + "echo_ok", OnError: "stop", Timeout: sec(5), ParallelGroup: "g"},
+			},
+		},
+	}
+	stats, err := Run(pf, NewEngine(), quietOpts(t))
+	if err != nil {
+		t.Fatalf("ран упал: %v", err)
+	}
+	snap := readContextSnapshot(t, stats.RunDir)
+	steps := snap["steps"].(map[string]interface{})
+	if _, ok := steps["a"]; ok {
+		t.Errorf("ветка с ложным when выполнила выход: %v", steps)
+	}
+	if _, ok := steps["b"]; !ok {
+		t.Errorf("вторая ветка потерялась: %v", steps)
+	}
+}
