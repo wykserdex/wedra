@@ -57,6 +57,18 @@ jobs:
           ./orchestrator pipeline run examples/when_demo.yaml --yes
           ./orchestrator pipeline run examples/foreach_step_demo.yaml --yes
           ./orchestrator pipeline run examples/parallel_demo.yaml --yes
+      - name: v0.22 GUI API live (health + in-process run)
+        run: |
+          ./orchestrator gui --listen 127.0.0.1:8917 >/tmp/gui.log 2>&1 &
+          GUI_PID=$!
+          for i in $(seq 1 20); do curl -sf localhost:8917/api/health >/dev/null && break; sleep 0.5; done
+          curl -sf localhost:8917/api/health | grep -q '"status":"ok"'
+          curl -sf localhost:8917/api/runs | grep -q 'status'
+          curl -sf -X POST localhost:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep -q started
+          sleep 4
+          curl -sf localhost:8917/api/runs | grep -q when_demo
+          kill $GUI_PID 2>/dev/null || true
+          tail -n 5 /tmp/gui.log
       - name: foreach + after_foreach live
         run: |
           ./orchestrator pipeline run examples/csv_foreach.yaml --yes
