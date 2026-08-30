@@ -206,7 +206,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if opts.Resume == "" {
 			opts.logf("  → фаза 1: получение массива %s из %d шагов", pf.Pipeline.Foreach, len(preSteps))
 			for _, st := range preSteps {
-				action, err := runStep(eng, pf, st, ctx, j, opts)
+				action, err := runStepFlow(eng, pf, st, ctx, j, opts)
 				if err != nil {
 					j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 					j.Snapshot(ctx)
@@ -282,6 +282,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
 					for _, st := range loopSteps {
 						delete(stepsMap, st.ID)
+						delete(stepsMap, st.ID+"_all")
 					}
 				}
 			}
@@ -292,7 +293,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 
 		itemStatus := "ok"
 		for _, st := range loopSteps {
-			action, err := runStep(eng, pf, st, ctx, j, opts)
+			action, err := runStepFlow(eng, pf, st, ctx, j, opts)
 			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 				j.Snapshot(ctx)
@@ -303,7 +304,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				j.Event("item_aborted", map[string]interface{}{"item_index": idx, "at_step": st.ID})
 				break
 			}
-			if v, ok := ctx.Data["steps"].(map[string]interface{})[st.ID]; ok {
+			// v0.20: у шага с foreach агрегируем его внутренний _all, не последний выход
+			srcKey := st.ID
+			if st.Foreach != "" {
+				srcKey = st.ID + "_all"
+			}
+			if v, ok := ctx.Data["steps"].(map[string]interface{})[srcKey]; ok {
 				agg[st.ID] = append(agg[st.ID], v)
 			}
 		}
@@ -325,7 +331,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		j.Event("post_phase_start", map[string]interface{}{"steps": len(postSteps)})
 		for _, st := range postSteps {
-			action, err := runStep(eng, pf, st, ctx, j, opts)
+			action, err := runStepFlow(eng, pf, st, ctx, j, opts)
 			if err != nil {
 				j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
 				j.Snapshot(ctx)
@@ -343,6 +349,69 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted})
 	opts.logf("\n■ ран завершён: ok=%d aborted=%d → %s", stats.OK, stats.Aborted, j.Dir)
 	return stats, nil
+}
+
+// runStepFlow — обёртка над runStep с управляющим потоком v0.20:
+// when-условие (skip) и foreach на уровне шага (per-item мини-цикл).
+func runStepFlow(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+	if st.When.IsSet() {
+		ok, err := pipeline.EvaluateWhen(st.When, ctx.Data)
+		if err != nil {
+			j.Event("step_skipped", map[string]interface{}{"step": st.ID, "reason": "when", "error": err.Error()})
+			return "", fmt.Errorf("шаг %s: when: %w", st.ID, err)
+		}
+		if !ok {
+			opts.logf("  → %-12s (условие не выполнено: %s — skipped)", st.ID, st.When.String())
+			j.Event("step_skipped", map[string]interface{}{"step": st.ID, "reason": "when", "condition": st.When.String()})
+			return "ok", nil
+		}
+	}
+	if st.Foreach != "" {
+		return runStepForeach(eng, pf, st, ctx, j, opts)
+	}
+	return runStep(eng, pf, st, ctx, j, opts)
+}
+
+// runStepForeach — v0.20: шаг по каждому элементу массива из пути.
+// input.<foreach_item> перезаписывается на итерацию; steps.<id> — выход
+// последней итерации; steps.<id>_all — массив всех выходов.
+// В отличие от pipeline-foreach, «item» здесь не существует: on_error=stop
+// останавливает весь ран.
+func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+	v, ok := ctx.Get(st.Foreach)
+	if !ok {
+		return "", fmt.Errorf("foreach: путь %s не найден в контексте", st.Foreach)
+	}
+	arr, ok := v.([]interface{})
+	if !ok {
+		return "", fmt.Errorf("foreach: %s не массив (шаг %s)", st.Foreach, st.ID)
+	}
+	itemKey := st.ForeachItem
+	if itemKey == "" {
+		itemKey = "item"
+	}
+	var results []interface{}
+	for i, it := range arr {
+		j.Event("foreach_item_start", map[string]interface{}{"step": st.ID, "index": i, "item": it})
+		ctx.SetInput(itemKey, it)
+		action, err := runStep(eng, pf, st, ctx, j, opts)
+		if err != nil {
+			j.Event("foreach_item_failed", map[string]interface{}{"step": st.ID, "index": i, "error": err.Error()})
+			return "", fmt.Errorf("foreach шаг %s: элемент %d/%d: %w", st.ID, i+1, len(arr), err)
+		}
+		if action == "abort_item" {
+			j.Event("foreach_item_failed", map[string]interface{}{"step": st.ID, "index": i, "reason": "on_error=stop"})
+			return "", fmt.Errorf("foreach шаг %s: элемент %d/%d упал (on_error=stop) — ран остановлен", st.ID, i+1, len(arr))
+		}
+		if out, ok := ctx.Data["steps"].(map[string]interface{})[st.ID]; ok {
+			results = append(results, out)
+		}
+		j.Event("foreach_item_end", map[string]interface{}{"step": st.ID, "index": i})
+	}
+	if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+		stepsMap[st.ID+"_all"] = results
+	}
+	return "ok", nil
 }
 
 func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
@@ -416,7 +485,12 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *cont
 	switch st.OnError {
 	case "skip":
 		opts.logf("    ! пропущен по on_error=skip: %s", res.ErrMsg)
-		j.Event("step_skipped", map[string]interface{}{"step": st.ID, "code": res.ErrCode, "message": res.ErrMsg})
+		j.Event("step_skipped", map[string]interface{}{"step": st.ID, "reason": "on_error", "code": res.ErrCode, "message": res.ErrMsg})
+		// v0.20: skip = шаг не дал выход — чистим неймспейс, иначе
+		// значение предыдущей итерации утёкнет в foreach-агрегацию
+		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+			delete(stepsMap, st.ID)
+		}
 		return "ok", nil
 	default:
 		opts.logf("    × %s: %s — элемент остановлен", res.ErrCode, res.ErrMsg)
