@@ -14,7 +14,9 @@ import (
 	"orchestrator/internal/plugin"
 )
 
-const Version = "0.14.1"
+// Version — версия бинарника. var (не const): release-воркфлоу переопределяет
+// через ldflags -X из тега сборки; фолбэк — текущая версия для локальных сборок.
+var Version = "0.17"
 
 type Server struct {
 	PluginsDir   string
