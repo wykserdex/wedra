@@ -19,10 +19,10 @@ echo; echo "▶ 2/4  plugin test: контрактные тесты автора
 $TOOL plugin test /tmp/orch_demo_plugin
 
 echo; echo "▶ 3/4  validate: статическая проверка цепочки до запуска"
-$TOOL validate pipelines/llm_same_provider.yaml
+$TOOL validate examples/llm_same_provider.yaml
 
-echo '── $ LLM_MOCK=1 ./tool run pipelines/llm_same_provider.yaml   (в гейте правим текст)'
+echo '── $ LLM_MOCK=1 ./tool run examples/llm_same_provider.yaml   (в гейте правим текст)'
 echo "▶ 4/4  run: Gemini-черновик → человек правит → ТОТ ЖЕ плагин дорабатывает правку (bind, v0.2)"
-printf '"Правка человека: сжато и по делу."\na\n' | LLM_MOCK=1 $TOOL run pipelines/llm_same_provider.yaml
+printf '"Правка человека: сжато и по делу."\na\n' | LLM_MOCK=1 $TOOL run examples/llm_same_provider.yaml
 
 echo; echo "── итог: create → test → validate → run с гейтом человека. Один бинарник, без SDK."

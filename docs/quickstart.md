@@ -22,12 +22,12 @@ bin/darwin-amd64/tool           ← macOS Intel
 
 **1. Статическая проверка цепочки (покажет, что контракты ловятся до запуска):**
 ```bash
-tool validate pipelines/email_check.yaml
+tool validate examples/email_check.yaml
 ```
 
 **2. Пак A — проверка email-списка, человек в петле:**
 ```bash
-tool run pipelines/email_check.yaml
+tool run examples/email_check.yaml
 ```
 Прогонит 3 email (третий — заведомо битый, смотри журнал событий). На паузе `human_gate`: Enter (без правки) → `a` (принять) или `r` (отклонить).
 
@@ -35,7 +35,7 @@ tool run pipelines/email_check.yaml
 ```bash
 # Windows (cmd):    set LLM_MOCK=1 && tool.exe run pipelines\llm_text_chain.yaml
 # PowerShell:       $env:LLM_MOCK=1; .\tool.exe run pipelines\llm_text_chain.yaml
-# Linux/macOS:      LLM_MOCK=1 ./tool run pipelines/llm_text_chain.yaml
+# Linux/macOS:      LLM_MOCK=1 ./tool run examples/llm_text_chain.yaml
 ```
 На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку. С ключами (`GEMINI_API_KEY`, `LLM_OAI_API_KEY`) то же самое по-настоящему.
 

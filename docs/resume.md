@@ -1,0 +1,34 @@
+# Resume — продолжение прерванного рана
+
+`--resume <run_id>` продолжает батч (pipeline-`foreach`) с того элемента, где
+остановился. Работает только для ранов с pipeline-`foreach`; step-`foreach`
+внутри элементов переделывается целиком (у него нет «элемента»).
+
+## Как это работает
+
+- Журнал (`journal.jsonl`) пишется на каждый переход: `item_start`/`item_end`
+  несут индекс элемента.
+- При `--resume` ядро читает **максимальный пройденный индекс** из журнала
+  (`MaxItemIndex`) и продолжает с `max+1`.
+- Прогноз «куда идём» виден в `orchestrator runs list` и `runs show <id>`
+  (журнал + снапшот контекста `context.json`).
+- Агрегаты `steps.<id>_all` восстанавливаются из последнего снапшота
+  контекста + добираются оставшимися элементами.
+
+## Команды
+
+```bash
+orchestrator runs list                    # все рановые каталоги
+orchestrator runs show <run_id>           # журнал + контекст
+./orchestrator pipeline run examples/csv_foreach.yaml --yes
+./orchestrator pipeline run ... --resume <run_id>
+```
+
+## Ограничения (честные)
+
+- Resume — по элементам pipeline-`foreach`. Шаги без foreach в ране не имеют
+  «позиции» и не возобновляются (ран без foreach — запускается заново).
+- Правки человека в гейте при resume не «проигрываются» повторно — гейт
+  встречного элемента снова спросит (в `--yes` — авто).
+- store: resume поддерживается для filesystem; JSON-store пишет те же
+  события, но `--resume` сейчас проверен на filesystem.

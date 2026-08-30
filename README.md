@@ -24,7 +24,7 @@ orchestrator/
 │   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
 ├── plugins/official/    # 5, community/ 14
-├── pipelines/           # 16
+├── examples/           # 16
 └── var/runs/            # журналы + --resume
 ```
 
@@ -46,22 +46,22 @@ go test ./...            # 112 тестов
 ./orchestrator plugin test plugins/email_triage # 10 PASS
 
 # пайплайны
-./orchestrator pipeline validate pipelines/email_check.yaml
-./orchestrator pipeline lint pipelines/csv_foreach.yaml
-./orchestrator pipeline plan pipelines/csv_foreach.yaml
+./orchestrator pipeline validate examples/email_check.yaml
+./orchestrator pipeline lint examples/csv_foreach.yaml
+./orchestrator pipeline plan examples/csv_foreach.yaml
 
 # v0.12: foreach по результату шага (было только input.*)
-./orchestrator pipeline run pipelines/csv_foreach.yaml --yes
+./orchestrator pipeline run examples/csv_foreach.yaml --yes
 # фаза 1: load rows → фаза 2: foreach row → check → review, ok=2
 
 # v0.12: --resume
 ./orchestrator runs list
 ./orchestrator runs show <run_id>
-./orchestrator pipeline run pipelines/email_triage_chain.yaml --yes --resume=<run_id>
-./orchestrator runs resume <run_id> pipelines/email_triage_chain.yaml --yes
+./orchestrator pipeline run examples/email_triage_chain.yaml --yes --resume=<run_id>
+./orchestrator runs resume <run_id> examples/email_triage_chain.yaml --yes
 
 # совместимость tool
-./tool run pipelines/csv_foreach.yaml --yes
+./tool run examples/csv_foreach.yaml --yes
 ./tool runs list
 ```
 
@@ -73,7 +73,7 @@ go test ./...            # 112 тестов
 ```bash
 # пресет из реестра + АВТОУСТАНОВКА его плагинов в plugins/
 ./orchestrator pipeline install email_check
-./orchestrator pipeline run pipelines/email_check.yaml --yes
+./orchestrator pipeline run examples/email_check.yaml --yes
 
 # плагин из реестра (или с пином версии)
 ./orchestrator plugin install text_analyzer
@@ -124,7 +124,7 @@ pipeline:
   параллельно, барьер ждёт все ветки; слияние выходов в порядке списка
   (детерминизм). human_gate в группах запрещён (гейты сериализуют терминал).
 
-Демо в `pipelines/`: `when_demo`, `foreach_step_demo`, `parallel_demo`
+Демо в `examples/`: `when_demo`, `foreach_step_demo`, `parallel_demo`
 (все в CI + в реестре как пресеты). Планер (`pipeline plan`) аннотирует
 DAG: when/foreach/parallel_group + рёбра зависимостей.
 
@@ -163,7 +163,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 (без сети и ключей).
 
 Кто угодно: `orchestrator plugin install word_freq` — и плагин у вас в `plugins/`.
-Свой плагин — `TUTORIAL_PLUGINS.md` (15 минут) + `OUTREACH_ROUND2.md` (меню идей).
+Свой плагин — `docs/plugin-dev.md` (15 минут) + `OUTREACH_ROUND2.md` (меню идей).
 
 ## Что нового в v0.17 (trust)
 
@@ -190,7 +190,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
   источник; позже реестр выносится в отдельный репо — формат не меняется.
 - **`plugin install <name>[@version]`** — clone из `source`, валидация,
   lock-файл `.wedra` (name/source/version) в каталоге плагина.
-- **`pipeline install <name|file|url>`** — пресет → `pipelines/<name>.yaml` +
+- **`pipeline install <name|file|url>`** — пресет → `examples/<name>.yaml` +
   автоустановка плагинов + валидация.
 - **`name` / `name@version`** в `plugin:` (наряду с локальными путями).
 - **`secrets:`** в пайплайне — имена env, preflight в раннере.
@@ -217,7 +217,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
   - preSteps (0..srcID) выполняются один раз, получают массив
   - foreachSteps (srcID+1..) выполняются per-item
 - Валидатор: `foreach` теперь `input.*` ИЛИ `steps.<id>.<field>`, проверяет существование шага-источника
-- Демо: `pipelines/csv_foreach.yaml` — `load` (csv_loader) → `foreach: steps.load.rows` → `check` (text_analyzer на `input.row.name`) → `review` (gate)
+- Демо: `examples/csv_foreach.yaml` — `load` (csv_loader) → `foreach: steps.load.rows` → `check` (text_analyzer на `input.row.name`) → `review` (gate)
 
 **2. --resume — журнал как фундамент**
 - `RunOptions.Resume` + `journal.OpenJournalAppend`
