@@ -8,12 +8,13 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"orchestrator/internal/api"
 	"orchestrator/internal/core"
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `orchestrator v0.12 — оркестратор плагинов (контракт: PROTOCOL.md)
-
+	fmt.Fprintf(os.Stderr, "orchestrator v%s — оркестратор плагинов (контракт: PROTOCOL.md)\n", api.Version)
+	fmt.Fprintln(os.Stderr, `
   tool run <pipeline.yaml> [--yes] [--runs <dir>] [--resume <run_id>]   запуск цепочки
                                                      --yes: auto-accept human_gate (CI/демо)
                                                      --resume: продолжить с последнего item

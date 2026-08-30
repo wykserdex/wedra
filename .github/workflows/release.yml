@@ -19,13 +19,15 @@ jobs:
       - name: build all platforms
         run: |
           mkdir -p dist
+          VER="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w -X orchestrator/internal/api.Version=${VER}"
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
               ext=""
               [ "$os" = "windows" ] && ext=".exe"
-              echo "== $os/$arch"
-              GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "dist/orchestrator-${os}-${arch}${ext}" ./cmd/orchestrator
-              GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
+              echo "== $os/$arch (Version=$VER)"
+              GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/orchestrator-${os}-${arch}${ext}" ./cmd/orchestrator
+              GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
             done
           done
           ls -la dist/
