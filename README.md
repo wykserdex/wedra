@@ -23,10 +23,15 @@ orchestrator/
 │   ├── api/             # REST API (M6, отложен)
 │   └── core/            # shim-фасад (112 тестов)
 ├── web/static/          # GUI scaffold (отложен)
-├── plugins/official/    # 5, community/ 9
+├── plugins/official/    # 5, community/ 8
 ├── pipelines/           # 10
 └── var/runs/            # журналы + --resume
 ```
+
+**Судьба `core/` (решение v0.18):** shim остаётся — это стабильный внутренний
+фасад над `execution`/`pipeline`/`journal` (алиасы типов + тонкие обёртки),
+API-поверхность для `cmd/*` и будущего M6, там живут интеграционные тесты.
+Удалять его = сломать compat-шим `tool` без выгоды; чистка — не раньше M6.
 
 ## Быстрый старт (CLI — мясо)
 
