@@ -104,9 +104,12 @@ pipeline:
 	for _, u := range unsup {
 		text += u.(string) + " "
 	}
-	if !strings.Contains(text, "a: when") || !strings.Contains(text, "a: parallel_group") ||
-		!strings.Contains(text, "input.n") {
-		t.Fatalf("unsupported = %q (ждём when, parallel_group, input.n)", text)
+	// v0.27: when теперь под управлением редактора — в unsupported не попадает
+	if strings.Contains(text, "a: when") {
+		t.Fatalf("unsupported = %q (when больше не unsupported)", text)
+	}
+	if !strings.Contains(text, "a: parallel_group") || !strings.Contains(text, "input.n") {
+		t.Fatalf("unsupported = %q (ждём parallel_group, input.n)", text)
 	}
 	// serialize такого — 409 (редактор не управляет полями → не терять их)
 	d, _ := json.Marshal(doc)
@@ -155,6 +158,137 @@ func TestEditorSerializeRoundTrip(t *testing.T) {
 	pos, _ := st2["pos"].([]interface{})
 	if len(pos) != 2 || pos[0] != float64(120) || pos[1] != float64(80) {
 		t.Fatalf("pos после round-trip = %v", st2["pos"])
+	}
+}
+
+func TestEditorWhenParse(t *testing.T) {
+	// v0.27: when_demo — when теперь под управлением редактора (parse не
+	// требует манифестов — только структура)
+	ts, _ := gateTestServer(t)
+	raw := fileToBytes(t, "../../examples/when_demo.yaml")
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	unsup, _ := doc["unsupported"].([]interface{})
+	if len(unsup) != 0 {
+		t.Fatalf("unsupported = %v (when_demo теперь редакторский)", unsup)
+	}
+	steps := doc["steps"].([]interface{})
+	w, _ := steps[1].(map[string]interface{})["when"].(map[string]interface{})
+	if w == nil || w["path"] != "steps.stats.words" || w["op"] != "gte" || w["value"] != float64(10) {
+		t.Fatalf("when = %v (ждём {steps.stats.words gte 10})", w)
+	}
+}
+
+func TestEditorWhenRoundTrip(t *testing.T) {
+	// v0.27: полный цикл parse → serialize → ядро читает+валидирует → re-parse.
+	// Синтетика из core/human_gate: в тестовом окружении нет plugins/ —
+	// builtin гейт манифест не требует.
+	ts, _ := gateTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: when_test
+  input:
+    n: 5
+  steps:
+    - id: a
+      plugin: core/human_gate
+      form:
+        - field: input.n
+          editable: true
+      actions: [accept]
+
+    - id: b
+      plugin: core/human_gate
+      when: { path: steps.a.n, op: gte, value: 10 }
+      form:
+        - field: input.n
+          editable: false
+      actions: [accept]
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	if !strings.Contains(yamlText, "when:") || !strings.Contains(yamlText, "steps.a.n") ||
+		!strings.Contains(yamlText, "op: gte") || !strings.Contains(yamlText, "value: 10") {
+		t.Fatalf("yaml без when:\n%s", yamlText)
+	}
+	// ядро читает и валидирует сгенерированный YAML (when-проверки валидатора
+	// проходят: шаги в порядке, op из WhenOps)
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ядро не читает свой же YAML: %v", err)
+	}
+	errs, _ := pipeline.Validate(pf, plugin.NewEngine())
+	if len(errs) > 0 {
+		t.Fatalf("валидация: %v", errs)
+	}
+	// re-parse: when вернулся с теми же параметрами
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", []byte(yamlText))
+	w2, _ := doc2["steps"].([]interface{})[1].(map[string]interface{})["when"].(map[string]interface{})
+	if w2 == nil || w2["path"] != "steps.a.n" || w2["op"] != "gte" || w2["value"] != float64(10) {
+		t.Fatalf("when после round-trip = %v", w2)
+	}
+}
+
+func TestEditorWhenTruthyAndCoerce(t *testing.T) {
+	// v0.27: новое doc с when — truthy без value; и коэрсия строки «5» в число
+	// для gt (UI шлёт value текстом)
+	ts, _ := gateTestServer(t)
+	doc := map[string]interface{}{
+		"name":  "when_fresh",
+		"input": []interface{}{map[string]interface{}{"name": "n", "default": "1"}},
+		"steps": []interface{}{
+			map[string]interface{}{
+				"id": "a", "plugin": "core/human_gate", "pos": []interface{}{0.0, 0.0},
+				"on_error": "stop", "form": []interface{}{}, "actions": []interface{}{"accept"},
+				"on_reject": "stop",
+				"when":      map[string]interface{}{"path": "input.n", "op": "truthy"},
+			},
+			map[string]interface{}{
+				"id": "b", "plugin": "core/human_gate", "pos": []interface{}{0.0, 40.0},
+				"on_error": "stop", "form": []interface{}{}, "actions": []interface{}{"accept"},
+				"on_reject": "stop",
+				"when":      map[string]interface{}{"path": "input.n", "op": "gt", "value": "5"},
+			},
+		},
+		"unsupported": []interface{}{},
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	if !strings.Contains(yamlText, "op: truthy") {
+		t.Fatalf("truthy потерялся:\n%s", yamlText)
+	}
+	// gt: «5» (строка из UI) обязано стать 5 (число) — иначе ядро на рантайме
+	// не сможет сравнить
+	if strings.Contains(yamlText, `value: "5"`) || !strings.Contains(yamlText, "value: 5") {
+		t.Fatalf("коэрсия «5» → 5 не сработала:\n%s", yamlText)
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ядро не читает: %v", err)
+	}
+	errs, _ := pipeline.Validate(pf, plugin.NewEngine())
+	if len(errs) > 0 {
+		t.Fatalf("валидация: %v", errs)
 	}
 }
 

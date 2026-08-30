@@ -1,6 +1,7 @@
 // v0.25 — редактор пайплайнов: палитра → холст (сетка 20px), bind-связи,
 // undo/redo, валидация и сериализация через ядро (Go), сохранение PUT.
-// Честный скоуп среза: when/foreach/parallel/retry/secrets/network не
+// v0.27: when — условие шага (path/op/value, 10 операторов ядра).
+// Честный скоуп: foreach/parallel/after_foreach/retry/secrets/network не
 // управляются — такие пайплайны открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
@@ -110,7 +111,7 @@ function addStep(plugin, x, y) {
   pushUndo();
   const st = {
     id: nextStepId(), plugin, pos: [snap(x), snap(y)],
-    on_error: 'stop', timeout: '', bind: {},
+    on_error: 'stop', timeout: '', bind: {}, when: null,
   };
   if (plugin === 'core/human_gate') {
     st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop';
@@ -158,7 +159,7 @@ function renderNodes() {
     node.innerHTML = `
       <div class="nh"><span class="nid">${esc(st.id)}</span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
       <div class="body">${ins}<div style="margin-top:6px">${outs}</div></div>
-      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
+      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
     canvas.appendChild(node);
     node.addEventListener('mousedown', e => startNodeDrag(e, st));
     node.addEventListener('click', e => { e.stopPropagation(); state.sel = st.id; renderAll(); });
@@ -201,11 +202,41 @@ function renderEdges() {
 }
 
 // ── панель свойств ────────────────────────────────────────────────────────
+const WHEN_OPS = [
+  ['', '— без условия —'], ['truthy', 'truthy — значение истинно'],
+  ['exists', 'exists — путь существует'], ['missing', 'missing — пути нет'],
+  ['eq', 'eq — равно'], ['neq', 'neq — не равно'],
+  ['gt', 'gt — больше (число)'], ['gte', 'gte — больше или равно (число)'],
+  ['lt', 'lt — меньше (число)'], ['lte', 'lte — меньше или равно (число)'],
+  ['contains', 'contains — содержит (строка/массив)'],
+];
+const NO_VALUE_OPS = ['truthy', 'exists', 'missing'];
+function whenBlock(st) {
+  const w = st.when;
+  const opOpts = WHEN_OPS.map(([v, t]) => `<option value="${v}"${(w ? w.op : '') === v ? ' selected' : ''}>${t}</option>`).join('');
+  if (!w) return `<div class="pblock"><label>when — условие (шаг идёт, только если истинно; иначе skipped)</label>
+    <select data-whenop>${opOpts}</select></div>`;
+  const srcs = sourceOptions(st.id);
+  let pathOpts = '<option value="">— путь —</option>' +
+    srcs.map(o => `<option value="${esc(o)}"${w.path === o ? ' selected' : ''}>${esc(o)}</option>`).join('');
+  if (w.path && !srcs.includes(w.path)) {
+    pathOpts += `<option value="${esc(w.path)}" selected>${esc(w.path)} (вручную)</option>`;
+  }
+  const needVal = !NO_VALUE_OPS.includes(w.op);
+  return `
+  <div class="pblock"><label>when — условие (шаг идёт, только если истинно; иначе skipped)</label>
+    <select data-whenop>${opOpts}</select></div>
+  <div class="prow"><div class="pblock" style="flex:2"><label>when.path (input.* / steps.X.out)</label>
+    <select data-whenpath>${pathOpts}</select></div>
+  ${needVal ? `<div class="pblock" style="flex:1"><label>when.value${w.op.startsWith('g') || w.op.startsWith('l') ? ' (число)' : ''}</label>
+    <input data-whenv value="${esc(w.value ?? '')}" placeholder="10 / text" spellcheck="false"/></div>` : ''}</div>`;
+}
+
 function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.25 не управляет:
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.27 не управляет:
       <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
       правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
   }
@@ -240,6 +271,7 @@ function renderProps() {
       </div>
       <div class="pblock"><label>плагин</label><input value="${esc(st.plugin)}" readonly style="color:var(--dim)"/></div>
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
+      ${whenBlock(st)}
       ${ins}
       ${gateBlock}
       <button class="danger" data-del>удалить шаг</button>
@@ -253,7 +285,7 @@ function renderProps() {
       <div class="pblock"><label>вход (input.*)</label>${rows || '<div class="hint">нет входов</div>'}
         <button data-inadd>+ вход</button></div>
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
-      Когда/foreach/parallel — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      foreach/parallel/after_foreach/retry — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -288,6 +320,24 @@ function wireProps(st) {
   if (serr) serr.onchange = () => { pushUndo(); st.on_error = serr.value; renderAll(); };
   const sto = el.querySelector('[data-stimeout]');
   if (sto) sto.onchange = () => { pushUndo(); st.timeout = sto.value.trim(); renderAll(); };
+  const wop = el.querySelector('[data-whenop]');
+  if (wop) wop.onchange = () => {
+    pushUndo();
+    const op = wop.value;
+    if (!op) { st.when = null; }
+    else {
+      const cur = st.when || {};
+      st.when = {
+        path: cur.path || '', op,
+        value: NO_VALUE_OPS.includes(op) ? undefined : (cur.value !== undefined ? cur.value : ''),
+      };
+    }
+    renderAll();
+  };
+  const wpath = el.querySelector('[data-whenpath]');
+  if (wpath) wpath.onchange = () => { pushUndo(); if (st.when) st.when.path = wpath.value; renderAll(); };
+  const wval = el.querySelector('[data-whenv]');
+  if (wval) wval.onchange = () => { pushUndo(); if (st.when) st.when.value = wval.value; renderAll(); };
   const gform = el.querySelector('[data-gform]');
   if (gform) gform.onchange = () => {
     pushUndo();
@@ -473,6 +523,7 @@ async function openFile(file) {
         pos: Array.isArray(s.pos) && s.pos.length === 2 ? [s.pos[0], s.pos[1]] : [20 * (1 + Math.random() * 8), 20 * (1 + Math.random() * 6)],
         on_error: s.on_error || 'stop', timeout: s.timeout || '',
         bind: s.bind || {}, form: s.form || [], actions: s.actions || [], on_reject: s.on_reject || '',
+        when: s.when || null,
       })),
     };
     state.unsupported = doc.unsupported || [];

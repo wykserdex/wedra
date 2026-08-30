@@ -101,7 +101,12 @@ jobs:
           curl -sf localhost:8919/editor/ | grep -q "редактор"
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep -q '"name":"gate_demo"'
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml | grep -q '"plugin":"core/human_gate"'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep -q "when"
+          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep -q '"when":{"path":"steps.stats.words","op":"gte","value":10}'
+          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d "$(curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml)" | grep -q '"ok":true'
+          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"truthy"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep -q '"ok":true'
+          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci2","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"gt","value":"15"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep -q 'value: 15'
+          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci3","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"bogo"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep -q '"ok":false'
+          echo "when editor: live checks ok"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-ed.log
       - name: foreach + after_foreach live

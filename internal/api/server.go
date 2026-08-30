@@ -448,7 +448,7 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 // handleRunGate — v0.24: GET/POST /api/runs/<id>/gate.
 // GET — ожидающий ли гейт (из журнала: gate_wait без gate_decision после).
 // POST {action, edits} — решение: POST в ChannelUI активного рана (409, если
-// гейта нет или уже решён).
+// гейта нет, уже решён или ран завершён).
 func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string) {
 	dir := filepath.Join(s.RunsDir, id)
 	switch r.Method {
@@ -491,6 +491,15 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 		if ui == nil {
 			w.WriteHeader(409)
 			json.NewEncoder(w).Encode(map[string]string{"error": "нет ожидающего гейта (ран не на гейте или завершён)"})
+			return
+		}
+		// v0.27: ран завершён (run_end в журнале) — решения не принимает, даже
+		// если clearGate ещё не успел сработать (окно между записью run_end и
+		// dereg под нагрузкой давало 202 на мёртвый ран)
+		if sum := runSummary(dir); sum["status"] != "running" {
+			st, _ := sum["status"].(string)
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]string{"error": "ран завершён (" + st + ") — решения не принимает"})
 			return
 		}
 		if !ui.SendDecision(gate.Decision{Action: req.Action, Edits: req.Edits}) {
