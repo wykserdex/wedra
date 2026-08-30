@@ -76,7 +76,7 @@ func printHelp() {
   orchestrator validate <file.yaml> == pipeline validate
 
 Версия: v%s (CLI focus, честная 0.x), протокол v0.2
-См. PROTOCOL.md, TUTORIAL_PLUGINS.md, CHANGELOG.md
+См. protocol/v0.2/PROTOCOL.md, docs/plugin-dev.md, CHANGELOG.md
 `, ver, ver)
 }
 
