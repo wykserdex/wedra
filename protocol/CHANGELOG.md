@@ -1,0 +1,41 @@
+# Протокол — история версий
+
+## v0.2 (текущая)
+
+Расширение v0.1, обратно совместимо (изменения записаны по мере выхода, с
+версией приложения, где появились):
+
+- `bind:` в шаге пайплайна перекрывает `from` манифеста (PROTOCOL §9)
+- Манифест без `from` легален: «привязку обязан дать пайплайн»
+- `bind` на несуществующий порт — ошибка валидации (защита от опечаток)
+- `optional: true` порт без привязки = warning, не error (fix #10)
+- `file_ref` warning до запуска, если относительный путь не резолвится от cwd
+  плагина, с подсказкой «есть ли от корня»
+- `format` только для строк, проверяется в `plugin validate` (fix #8)
+- `format_version` теперь `0.1` или `0.2`, опечатка — ошибка, не warning+OK
+  (fix #13)
+- pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
+- **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
+  `when:`, `foreach:` на шаге, `parallel_group`
+- secrets (app v0.16), network declare-now (app v0.17, PROTOCOL §11)
+
+## v0.1
+
+Изначальный протокол (замер в M1–M3):
+
+- Плагин — процесс: stdin JSON → stdout JSON конверт
+- Manifest с обязательным `from` для каждого input-порта
+- `format` — подтип строк: text, email, url, ip, file_ref
+- Exit codes: 0 ok, 1 domain, ≥2 platform
+- Shared Context: `input.*` и `steps.<id>.<field>`
+- Enforce: незадекларированные выходы отбрасываются (warning), обязательные
+  без значения — ошибка
+- Политики: stop|skip|retry, foreach per-item scope
+- human_gate: form с полями, материализация под `steps.<gate>.*` по basename
+
+## Правила версионирования
+
+- `platform_api` в plugin.yaml — semver-диапазон совместимости с ядром (`^0.1`)
+- `format_version` в pipeline.yaml — `0.1` или `0.2`
+- `protocol_version` в конверте — план v0.3 (сейчас не обязателен)
+- Обратная совместимость: v0.2 ⊃ v0.1 (from остаётся дефолтом)

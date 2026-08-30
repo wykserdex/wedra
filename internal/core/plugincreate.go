@@ -125,7 +125,7 @@ func manifestTemplate(id string, opts CreateOptions) string {
 	if opts.Author == "" {
 		authorLine = `author: "TODO"                # или сразу: plugin create <path> --author me`
 	}
-	header := `# Манифест плагина — контракт с ядром (подробнее: PROTOCOL.md)
+	header := `# Манифест плагина — контракт с ядром (подробнее: protocol/v0.2/PROTOCOL.md)
 # Комментарии здесь — учебник для первого раза: когда освоитесь, смело чистите.
 id: ` + id + `
 version: 0.1.0              # семвер; маркетплейс ставит версии по тегу
@@ -133,7 +133,7 @@ platform_api: "^0.1"        # диапазон совместимости с я�
 ` + descLine + `
 ` + authorLine + `
 
-# ШПАРГАЛКА ВАЛИДАТОРА (освобождает от листания PROTOCOL.md):
+# ШПАРГАЛКА ВАЛИДАТОРА (освобождает от листания protocol/v0.2/PROTOCOL.md):
 #   type портов:   string | number | boolean | array | object
 #   format строк:  text | email | url | ip | file_ref     (file_ref: путь — cwd = папка плагина!)
 #   type: array    — массив JSON-значений; элементы-объекты не типизируются
@@ -191,7 +191,7 @@ func mainPyTemplate(id string) string {
 	tpl := `#!/usr/bin/env python3
 """{{ID}} — плагин оркестратора (сгенерировано: tool plugin create).
 
-Протокол (PROTOCOL.md v0.1):
+Протокол (protocol/v0.2/PROTOCOL.md v0.1):
   stdin  ← JSON со входом: ядро собирает его из полей input манифеста
   stdout → ровно один JSON-конверт:
            ok:    {"status": "ok", "output": {...}}               exit 0
@@ -280,7 +280,7 @@ func mainPyArrayTemplate(id string) string {
 
 Шаблон с входом-МАССИВОМ (--example array).
 
-Протокол (PROTOCOL.md):
+Протокол (protocol/v0.2/PROTOCOL.md):
   stdin  ← JSON {"items": [...]} — ядро собирает его из полей input манифеста
   stdout → ровно один JSON-конверт:
            ok:    {"status": "ok", "output": {...}}               exit 0
@@ -383,7 +383,7 @@ tool plugin test ` + id + `      # контракт-тесты (зелёные �
 tool plugin validate ` + id + `  # проверка манифеста
 ` + "```" + `
 
-Протокол и правила контракта: PROTOCOL.md в корне репозитория.
+Протокол и правила контракта: protocol/v0.2/PROTOCOL.md в корне репозитория.
 `
 }
 
@@ -405,6 +405,6 @@ tool plugin test ` + id + `      # контракт-тесты (зелёные �
 tool plugin validate ` + id + `  # проверка манифеста
 ` + "```" + `
 
-Протокол и правила контракта: PROTOCOL.md в корне репозитория.
+Протокол и правила контракта: protocol/v0.2/PROTOCOL.md в корне репозитория.
 `
 }

@@ -77,9 +77,9 @@ jobs:
           ./orchestrator runs show $last --store=json --db-path=var/runs/runs.db
       - name: schemas check
         run: |
-          ls protocol/schemas/
-          ls schemas/pipeline/
-          cat protocol/schemas/v0.2/*.json | head -n 20
+          ls schemas/
+          ls protocol/ protocol/v0.2/
+          cat schemas/pipeline.v0.2.schema.json | head -n 20
 
       - name: registry validate (local source)
         run: ./orchestrator registry validate --registry=registry.yaml --local-source=.
