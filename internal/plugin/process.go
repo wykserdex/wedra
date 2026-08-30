@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"orchestrator/internal/common"
@@ -104,13 +105,30 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	if len(extraEnv) > 0 {
 		cmd.Env = mergeEnv(os.Environ(), extraEnv)
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// v0.23: свой process group — таймаут убивает группу, а не только прямой
+	// процесс (python-плагин с дочерними больше не оставляет сирот).
+	// Убийство группы — в момент таймаута (goroutine): cmd.Run ждёт закрытия
+	// пайпов, унаследованных дочерними, и без group kill «замрёт» до их
+	// естественной смерти (sleep 30 = 30 секунд).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// v0.23: stdout/stderr с лимитом (гигантский вывод = не вся память процесса)
+	stdoutCap, stderrCap := 16<<20, 1<<20
+	stdout := &cappedWriter{buf: &bytes.Buffer{}, limit: stdoutCap}
+	stderr := &cappedWriter{buf: &bytes.Buffer{}, limit: stderrCap}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+
+	go func() {
+		<-ctx.Done()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
 
 	start := time.Now()
 	runErr := cmd.Run()
 	res.Duration = time.Since(start)
-	res.Stderr = stderr.String()
+	res.Stderr = common.Truncate(stderr.String(), 4000)
 
 	if ctx.Err() == context.DeadlineExceeded {
 		res.Platform = true
@@ -131,6 +149,12 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 		res.ExitCode = 0
 	}
 
+	if stdout.overflow {
+		res.Platform = true
+		res.ErrCode, res.ErrMsg = "protocol_violation", fmt.Sprintf("stdout плагина превысил лимит %d МБ — обрезан (возможно, мусор в выводе)", stdoutCap>>20)
+		res.ExitCode = 2
+		return res
+	}
 	var wr wireResponse
 	outTrim := bytes.TrimSpace(stdout.Bytes())
 	if len(outTrim) > 0 {
@@ -220,6 +244,34 @@ func EnforceOutput(m *Manifest, out map[string]interface{}) (clean map[string]in
 		if _, ok := clean[name]; !ok && !port.Optional {
 			return nil, dropped, fmt.Errorf("нарушение контракта: плагин %s не вернул обязательное поле %q", m.ID, name)
 		}
+		// v0.23: контракт = есть И правильного типа/формата (README: «ядро
+		// проверяет после каждого запуска»)
+		if v, ok := clean[name]; ok {
+			if err := CheckValue(name, fmt.Sprintf("вывод %s", m.ID), port, v); err != nil {
+				return nil, dropped, err
+			}
+		}
 	}
 	return clean, dropped, nil
 }
+
+// cappedWriter — буфер с лимитом (v0.23: защита от гигантского вывода).
+// NB: НЕ embed-ит bytes.Buffer: в exec-пути (os/exec → io.Copy → fast path)
+// embedded-буфер заполняется, минуя метод-обёртку (проверено экспериментом) —
+// лимит молча не срабатывал. Частное поле + свой Write — работает.
+type cappedWriter struct {
+	buf      *bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (c *cappedWriter) Write(p []byte) (int, error) {
+	if c.limit > 0 && c.buf.Len()+len(p) > c.limit {
+		c.overflow = true
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
+func (c *cappedWriter) Bytes() []byte  { return c.buf.Bytes() }
+func (c *cappedWriter) String() string { return c.buf.String() }

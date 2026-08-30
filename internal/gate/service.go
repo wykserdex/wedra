@@ -157,7 +157,11 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			continue
 		}
 		fmt.Printf("  (*) новое значение для %s (JSON, Enter — оставить): ", f.Field)
-		line, _ := ui.ReadLine()
+		line, rerr := ui.ReadLine()
+		if rerr != nil {
+			fmt.Println("  ! ввод закрыт (EOF) — перехожу к действию")
+			break
+		}
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -200,15 +204,41 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			keys[i] = strings.ToLower(a[:1])
 		}
 	}
-	fmt.Printf("  действие [%s]: ", strings.Join(keys, "/"))
-	ans, _ := ui.ReadLine()
-	ans = strings.ToLower(strings.TrimSpace(ans))
-	action := actions[0]
-	for i, a := range actions {
-		if ans == a || ans == keys[i] {
-			action = a
-			break
+	action := ""
+	for attempt := 0; attempt < 5; attempt++ {
+		fmt.Printf("  действие [%s]: ", strings.Join(keys, "/"))
+		ans, rerr := ui.ReadLine()
+		if rerr != nil {
+			// v0.23: EOF — не «accept». Гейт — это человек; закрытый ввод
+			// трактуем как остановку рана, не как молчаливое одобрение.
+			fmt.Println("  ! ввод закрыт (EOF) — гейт: стоп")
+			j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "EOF (ввод закрыт)"})
+			return "abort_item"
 		}
+		ans = strings.ToLower(strings.TrimSpace(ans))
+		if ans == "" {
+			fmt.Println("  ! пусто — введи одно из: " + strings.Join(actions, "/"))
+			continue
+		}
+		matched := false
+		for i, a := range actions {
+			if ans == a || ans == keys[i] {
+				action = a
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			fmt.Printf("  ! %q не из списка — введи: %s\n", ans, strings.Join(actions, "/"))
+			continue
+		}
+		break
+	}
+	if action == "" {
+		// 5 мусорных попыток — тоже не «accept»
+		fmt.Println("  ! не удалось распознать действие — гейт: стоп")
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "нераспознанный ввод (5 попыток)"})
+		return "abort_item"
 	}
 
 	if action == "reject" {

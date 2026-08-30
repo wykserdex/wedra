@@ -17,6 +17,9 @@
 - pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
 - **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
   `when:`, `foreach:` на шаге, `parallel_group`
+- **v0.23 (app): контракт рантайма** — типы и форматы выходов (и входов)
+  проверяются после каждого запуска (до этого — только наличие); несовпадение
+  = нарушение контракта, шаг падает. Форматы: text/email/url/ip/file_ref
 - secrets (app v0.16), network declare-now (app v0.17, PROTOCOL §11)
 
 ## v0.1
