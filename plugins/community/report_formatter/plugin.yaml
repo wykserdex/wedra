@@ -1,0 +1,40 @@
+# Манифест плагина — контракт с ядром (подробнее: PROTOCOL.md)
+# Комментарии здесь — учебник для первого раза: когда освоитесь, смело чистите.
+id: report_formatter
+version: 0.1.0              # семвер; маркетплейс ставит версии по тегу
+platform_api: "^0.1"        # диапазон совместимости с ядром
+description: "Форматирует агрегат batch_email_triage в текстовый отчёт для LLM/аналитика"
+author: "community · тестер №1 (волна 2, v0.18)"
+
+# ШПАРГАЛКА ВАЛИДАТОРА (освобождает от листания PROTOCOL.md):
+#   type портов:   string | number | boolean | array | object
+#   format строк:  text | email | url | ip | file_ref     (file_ref: путь — cwd = папка плагина!)
+#   type: array    — массив JSON-значений; элементы-объекты не типизируются
+
+runtime:
+  type: python              # python | binary | ...
+  entry: main.py
+  requires: []              # pip-зависимости (развернутся в изолированном окружении)
+
+# Что плагин читает (ядро соберёт stdin-JSON ровно из этих полей).
+# from — ДЕФОЛТНАЯ привязка к контексту; пайплайн всегда может перекрыть её
+# через bind: в шаге (контракт v0.2). from можно опустить — тогда bind обязателен.
+# Пример с МАССИВОМ (--example array) — обработчики результатов берут его:
+input:
+  results:
+    from: input.results
+    type: array
+  by_verdict:
+    from: input.by_verdict
+    type: object
+
+# Что плагин обязан вернуть (ядро проверяет после КАЖДОГО запуска):
+output:
+  summary: { type: string, format: text }
+
+# Декларативные разрешения (уровень L0): видны пользователю до установки
+# и ревьюеру маркетплейса. Не заявленное здесь — подозрительно.
+permissions:
+  network: []               # [{ host: "api.example.com", port: 443 }]
+  filesystem: none          # none | workspace
+  secrets: []               # имена env-переменных с ключами API

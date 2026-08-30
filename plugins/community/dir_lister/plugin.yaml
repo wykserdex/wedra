@@ -1,27 +1,27 @@
 id: dir_lister
 version: 0.1.0
 platform_api: "^0.1"
-description: "Снапшот директории: число файлов и раскладка по расширениям"
-author: "community · тестер №1 (M5, пакет №5)"   # воссоздан по отчёту; ждём оригинал автора
+description: "Инвентаризация файлов в директории workspace: счёт по расширениям, суммарный размер"
+author: "community · тестер №1 (M5 — оригинал, заменил реконструкцию v0.18)"
 
 runtime:
   type: python
   entry: main.py
   requires: []
 
-# Контракт v0.2: плагин «без привязки» — from намеренно отсутствует,
-# разводку входов целиком задаёт пайплайн через bind (см. pipelines/dir_snapshots.yaml).
 input:
   path:
+    from: input.path
     type: string
-    format: file_ref   # ВАЖНО: относительные пути — от ДИРЕКТОРИИ ПЛАГИНА (PROTOCOL §1)
+    format: text
 
 output:
-  path:         { type: string }
-  file_count:   { type: number }
-  by_extension: { type: object }   # {".txt": 2, "no_ext": 1}
+  path: { type: string }
+  file_count: { type: number }
+  total_size_bytes: { type: number }
+  by_extension: { type: object }
 
 permissions:
   network: []
-  filesystem: read     # только чтение указанной директории
+  filesystem: workspace
   secrets: []

@@ -1,0 +1,36 @@
+tests:
+  - name: смешанный батч — считает по вердиктам
+    input:
+      items:
+        - "analyst@yandex.ru"
+        - "temp@mailinator.com"
+        - "not-an-email"
+        - "boss@company.io"
+    expect:
+      status: ok
+      output:
+        total: 4
+        by_verdict: { equals: { ok: 2, disposable: 1, bad_syntax: 1 } }
+
+  - name: все валидные, не disposable
+    input:
+      items: ["a@corp.io", "b@corp.io"]
+    expect:
+      status: ok
+      output:
+        total: 2
+        by_verdict: { equals: { ok: 2 } }
+
+  - name: пустой массив → доменная ошибка (не платформенная)
+    input: { items: [] }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_batch, retryable: false }
+
+  - name: не-массив на входе → платформенная ошибка (guard типа, exit 2)
+    input_raw: '{"items": "not-a-list"}'
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

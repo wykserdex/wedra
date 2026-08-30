@@ -1,0 +1,19 @@
+tests:
+  - name: форматирует смешанный батч в текстовый отчёт
+    input:
+      results:
+        - { email: "a@corp.io", verdict: "ok" }
+        - { email: "b@mailinator.com", verdict: "disposable" }
+      by_verdict: { ok: 1, disposable: 1 }
+    expect:
+      status: ok
+      output:
+        summary: { contains: "Триаж 2 email" }
+
+  - name: пустой results → доменная ошибка
+    input:
+      results: []
+      by_verdict: {}
+    expect:
+      status: error
+      error: { code: empty_input, retryable: false }

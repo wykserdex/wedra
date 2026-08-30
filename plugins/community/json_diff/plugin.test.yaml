@@ -1,0 +1,41 @@
+tests:
+  - name: добавлен, удалён и изменён ключ
+    input:
+      before: { a: 1, b: 2, c: 3 }
+      after: { a: 1, b: 99, d: 4 }
+    expect:
+      status: ok
+      output:
+        added: { equals: ["d"] }
+        removed: { equals: ["c"] }
+        changed: { equals: ["b"] }
+        unchanged_count: 1
+        has_diff: true
+
+  - name: идентичные объекты — нет диффа
+    input:
+      before: { x: 1 }
+      after: { x: 1 }
+    expect:
+      status: ok
+      output:
+        added: { equals: [] }
+        removed: { equals: [] }
+        changed: { equals: [] }
+        has_diff: false
+
+  - name: оба пусты → доменная ошибка
+    input:
+      before: {}
+      after: {}
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input, retryable: false }
+
+  - name: not-object на входе → платформенная ошибка (exit 2, тело сохранено как platform:bad_input)
+    input_raw: '{"before": "not-an-object", "after": {}}'
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_input" }
