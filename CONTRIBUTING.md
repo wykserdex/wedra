@@ -31,11 +31,11 @@
 
 ## Чек-лист пресета
 
-1. `pipelines/<name>.yaml`:
+1. `examples/<name>.yaml`:
    - `format_version`, `steps`;
    - `secrets: [KEY]` — все ключи, которые цепочке нужны;
    - `network: deny` — если цепочка сетью пользоваться не должна.
-2. `orchestrator pipeline validate pipelines/<name>.yaml` — зелёный.
+2. `orchestrator pipeline validate examples/<name>.yaml` — зелёный.
 3. **PR**: файл + запись пресета в `registry.yaml`.
 
 ## Чек-лист ревьюера (человек)

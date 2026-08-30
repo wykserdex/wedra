@@ -31,5 +31,5 @@ OSINT — только 1 чат как один из use-case, не основн
 ### Готовые ссылки
 - Репа: https://github.com/wykserdex/wedra
 - Release zip: orchestrator-mvp-2026-08-28-v9.zip (в этом воркспейсе /home/user/orchestrator-mvp-2026-08-28-v9.zip)
-- Туториал: TUTORIAL_PLUGINS.md
+- Туториал: docs/plugin-dev.md
 - Демо одной командой: ./demo.sh

@@ -101,9 +101,15 @@ func doPluginInstall(name, ver, registrySrc, dest string) error {
 // 2) реестр загружен из локального каталога и path существует рядом (оффлайн-шорткат)
 // 3) git clone source@version (сеть)
 func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSource string) (srcDir, tmp string, err error) {
-	// v0.17: явное override — source совпадает с этим локальным чеккаутом
+	// v0.17: явное override — source совпадает с этим локальным чеккаутом.
+	// v0.21: путь обязан резолвиться локально — trust-гейт не молчит и не
+	// уходит в клон, если файл в локальном source отсутствует.
 	if localSource != "" && sameRepo(entry.Source, localSource) {
-		return filepath.Join(localSource, entry.Path), "", nil
+		p := filepath.Join(localSource, entry.Path)
+		if _, e := os.Stat(p); e != nil {
+			return "", "", fmt.Errorf("запись %s: путь %s не найден в локальном source (--local-source=%s)", entry.Path, entry.Path, localSource)
+		}
+		return p, "", nil
 	}
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
 		return filepath.Join(entry.Source, entry.Path), "", nil

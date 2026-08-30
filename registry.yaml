@@ -121,61 +121,61 @@ plugins:
 presets:
   csv_foreach:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/csv_foreach.yaml
+    path: examples/csv_foreach.yaml
     version: v0.20
     description: CSV → analysis → human gate (foreach steps.*)
   csv_foreach_summary:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/csv_foreach_summary.yaml
+    path: examples/csv_foreach_summary.yaml
     version: v0.20
     description: CSV → foreach → агрегат (after_foreach)
   email_check:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/email_check.yaml
+    path: examples/email_check.yaml
     version: v0.20
     description: "email: синтаксис + disposable + MX"
   email_triage_chain:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/email_triage_chain.yaml
+    path: examples/email_triage_chain.yaml
     version: v0.20
     description: email → triage → human review
   dir_snapshots:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/dir_snapshots.yaml
+    path: examples/dir_snapshots.yaml
     version: v0.20
     description: снимок каталога + гейт (artifacts)
   llm_text_chain:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/llm_text_chain.yaml
+    path: examples/llm_text_chain.yaml
     version: v0.20
     description: LLM-цепочка (ключ — через secrets/env)
   iban_check:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/iban_check.yaml
+    path: examples/iban_check.yaml
     version: v0.20
     description: "Проверка IBAN + human_gate на показ (community, волна 3)."
   phones_audit:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/phones_audit.yaml
+    path: examples/phones_audit.yaml
     version: v0.20
     description: "Батч-аудит телефонов (E.164, валид/инвалид) + human_gate (community, волна 3)."
   near_dupe_check:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/near_dupe_check.yaml
+    path: examples/near_dupe_check.yaml
     version: v0.20
     description: "Сравнение двух строк на near-duplicate + human_gate (community, волна 3)."
   when_demo:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/when_demo.yaml
+    path: examples/when_demo.yaml
     version: v0.20
     description: "when: шаг выполняется по условию (steps.stats.words >= 10) + human_gate."
   foreach_step_demo:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/foreach_step_demo.yaml
+    path: examples/foreach_step_demo.yaml
     version: v0.20
     description: "foreach на шаге: word_freq по списку текстов, агрегат steps.freqs_all + human_gate."
   parallel_demo:
     source: https://github.com/wykserdex/wedra
-    path: pipelines/parallel_demo.yaml
+    path: examples/parallel_demo.yaml
     version: v0.20
     description: "parallel_group: word_freq и json_flatten параллельно, барьер, human_gate."

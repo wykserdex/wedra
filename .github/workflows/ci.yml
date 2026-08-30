@@ -44,7 +44,7 @@ jobs:
           ./tool plugin search llm
       - name: pipeline validate + lint + plan (all pipelines)
         run: |
-          for f in pipelines/*.yaml; do
+          for f in examples/*.yaml; do
             echo "== validate $f =="
             ./orchestrator pipeline validate "$f"
             echo "== lint $f =="
@@ -54,23 +54,23 @@ jobs:
           done
       - name: v0.20 control flow live (when, foreach-step, parallel)
         run: |
-          ./orchestrator pipeline run pipelines/when_demo.yaml --yes
-          ./orchestrator pipeline run pipelines/foreach_step_demo.yaml --yes
-          ./orchestrator pipeline run pipelines/parallel_demo.yaml --yes
+          ./orchestrator pipeline run examples/when_demo.yaml --yes
+          ./orchestrator pipeline run examples/foreach_step_demo.yaml --yes
+          ./orchestrator pipeline run examples/parallel_demo.yaml --yes
       - name: foreach + after_foreach live
         run: |
-          ./orchestrator pipeline run pipelines/csv_foreach.yaml --yes
-          ./orchestrator pipeline run pipelines/csv_foreach_summary.yaml --yes
+          ./orchestrator pipeline run examples/csv_foreach.yaml --yes
+          ./orchestrator pipeline run examples/csv_foreach_summary.yaml --yes
       - name: resume live
         run: |
-          ./orchestrator pipeline run pipelines/csv_foreach.yaml --yes --runs-dir=var/runs | tail
+          ./orchestrator pipeline run examples/csv_foreach.yaml --yes --runs-dir=var/runs | tail
           last=$(ls -t var/runs | head -1)
           echo "resume $last"
           ./orchestrator runs show $last
           ./orchestrator runs list
       - name: json store live
         run: |
-          ./orchestrator pipeline run pipelines/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
+          ./orchestrator pipeline run examples/csv_foreach_summary.yaml --yes --store=json --db-path=var/runs/runs.db
           ./orchestrator runs list --store=json --db-path=var/runs/runs.db
           last=$(./orchestrator runs list --store=json --db-path=var/runs/runs.db | grep -oE '[0-9]{8}-[0-9]{6}-[a-z0-9_-]+' | head -1)
           echo "json run $last"

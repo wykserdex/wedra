@@ -83,12 +83,12 @@ pipeline:
 ```
 
 ```bash
-tool validate pipelines/my_first.yaml   # ловит типы/форматы/разводку ДО запуска
-tool run pipelines/my_first.yaml        # --yes = авто-accept гейтов (CI)
+tool validate examples/my_first.yaml   # ловит типы/форматы/разводку ДО запуска
+tool run examples/my_first.yaml        # --yes = авто-accept гейтов (CI)
 ```
 
 Один плагин дважды в цепочке — нормально: второй вызов с другим `bind:`
-(см. `pipelines/llm_same_provider.yaml`, `dir_snapshots.yaml`).
+(см. `examples/llm_same_provider.yaml`, `dir_snapshots.yaml`).
 
 ## 6. Грабли, на которые уже наступили (и как их не наступить)
 
