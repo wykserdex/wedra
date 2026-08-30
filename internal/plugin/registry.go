@@ -1,11 +1,11 @@
 package plugin
 
 import (
-	"sync"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -14,7 +14,7 @@ import (
 )
 
 type Engine struct {
-	mu sync.Mutex
+	mu         sync.Mutex
 	Cache      map[string]*pipeline.Manifest
 	PluginsDir string // дефолт "plugins"
 }
