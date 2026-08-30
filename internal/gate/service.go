@@ -55,6 +55,14 @@ func NewServiceWithUI(ui GateUI) *Service {
 	return &Service{UI: ui}
 }
 
+// StructuredUI — необязательный интерфейс не-терминального ввода (v0.24):
+// один структурированный круг (решение + правки) вместо построчного потока.
+// Если GateUI его реализует (ChannelUI — браузер), Service.Run идёт через
+// runStructured; терминальный путь остаётся построчным.
+type StructuredUI interface {
+	WaitDecision() (Decision, error)
+}
+
 func kindOf(v interface{}) string {
 	switch v.(type) {
 	case bool:
@@ -147,6 +155,11 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 	if ui == nil {
 		ui = NewStdinUI()
 	}
+	// v0.24: не-терминальный ввод (браузер) — структурированный круг,
+	// не построчный поток. Терминальный путь ниже не тронут.
+	if su, ok := ui.(StructuredUI); ok {
+		return s.runStructured(st, ctx, j, su)
+	}
 	bnCountForEdits := map[string]int{}
 	for _, f := range st.Form {
 		bnCountForEdits[basename(f.Field)]++
@@ -181,17 +194,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			fmt.Printf("    ! тип %s не подходит под %s (выведен из %s) — правка пропущена\n", kindOf(v), expectedType, f.Field)
 			continue
 		}
-		bn := basename(f.Field)
-		key := bn
-		if bnCountForEdits[bn] > 1 {
-			parts := strings.Split(f.Field, ".")
-			if len(parts) >= 3 && parts[0] == "steps" {
-				key = parts[1] + "_" + bn
-			} else {
-				key = strings.ReplaceAll(f.Field, ".", "_")
-			}
-		}
-		edits[key] = v
+		edits[editKey(f, bnCountForEdits)] = v
 	}
 
 	actions := st.Actions
@@ -254,4 +257,136 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 	}
 	j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "edits": edits, "materialized": m})
 	return "ok"
+}
+
+// ── v0.24: структурированный гейт (браузер) ──────────────────────────────
+
+// editKey — ключ правки в материализации: имя поля, а при коллизии basename
+// (steps.X.field) — «X_field». Общий для терминального и браузерного путей.
+func editKey(f pipeline.FormField, bnCount map[string]int) string {
+	bn := basename(f.Field)
+	if bnCount[bn] > 1 {
+		parts := strings.Split(f.Field, ".")
+		if len(parts) >= 3 && parts[0] == "steps" {
+			return parts[1] + "_" + bn
+		}
+		return strings.ReplaceAll(f.Field, ".", "_")
+	}
+	return bn
+}
+
+// runStructured — гейт без терминала (v0.24): события в журнал (браузер
+// рендерит их), решение — один круг через WaitDecision.
+// Семантика v0.23 сохранена: EOF → стоп, нераспознанное действие (5 раз) → стоп.
+func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, su StructuredUI) string {
+	actions := st.Actions
+	if len(actions) == 0 {
+		actions = []string{"accept", "reject"}
+	}
+	formView := []map[string]interface{}{}
+	for _, f := range st.Form {
+		bv := "<нет данных>"
+		if v, ok := ctx.Get(f.Field); ok {
+			if b, err := json.Marshal(v); err == nil {
+				bv = common.Truncate(string(b), 500)
+			}
+		}
+		formView = append(formView, map[string]interface{}{
+			"field": f.Field, "editable": f.Editable, "type": f.Type, "value": bv,
+		})
+	}
+	j.Event("gate_wait", map[string]interface{}{
+		"step": st.ID, "form": formView, "actions": actions,
+	})
+
+	var action string
+	var edits map[string]interface{}
+	for attempt := 0; attempt < 5; attempt++ {
+		d, err := su.WaitDecision()
+		if err != nil {
+			// EOF (вкладку закрыли, ран убивают) — стоп, не accept (v0.23).
+			j.Event("gate_decision", map[string]interface{}{
+				"step": st.ID, "action": "stop", "reason": "ввод закрыт (EOF)",
+			})
+			return "abort_item"
+		}
+		matched := false
+		for _, a := range actions {
+			if strings.EqualFold(d.Action, a) {
+				action, matched = a, true
+				break
+			}
+		}
+		if !matched {
+			j.Event("gate_retry", map[string]interface{}{
+				"step": st.ID, "attempt": attempt + 1,
+				"reason": fmt.Sprintf("действие %q не из списка %v", d.Action, actions),
+			})
+			continue
+		}
+		edits = d.Edits
+		break
+	}
+	if action == "" {
+		j.Event("gate_decision", map[string]interface{}{
+			"step": st.ID, "action": "stop", "reason": "нераспознанное действие (5 попыток)",
+		})
+		return "abort_item"
+	}
+
+	if action == "reject" {
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "reject"})
+		if st.OnReject == "" || st.OnReject == "stop" {
+			return "abort_item"
+		}
+		return "ok"
+	}
+
+	clean, skipped := validateStructuredEdits(st, ctx, edits)
+	m := gateMaterialize(st.Form, ctx, clean)
+	if len(m) > 0 {
+		ctx.SetStep(st.ID, m)
+	}
+	kv := map[string]interface{}{"step": st.ID, "action": "accept", "edits": clean, "materialized": m}
+	if len(skipped) > 0 {
+		kv["skipped_edits"] = skipped
+	}
+	j.Event("gate_decision", kv)
+	return "ok"
+}
+
+// validateStructuredEdits — правки из браузера: ключ — полный путь поля
+// (как в gate_wait), валидация типа как в терминальном пути (f.Type или
+// тип текущего значения). Неподходящие — пропускаются, список в skipped.
+func validateStructuredEdits(st *pipeline.Step, ctx *context.Ctx, edits map[string]interface{}) (map[string]interface{}, []string) {
+	clean := map[string]interface{}{}
+	var skipped []string
+	if len(edits) == 0 {
+		return clean, skipped
+	}
+	bnCount := map[string]int{}
+	for _, f := range st.Form {
+		bnCount[basename(f.Field)]++
+	}
+	for _, f := range st.Form {
+		if !f.Editable {
+			continue
+		}
+		v, ok := edits[f.Field]
+		if !ok {
+			continue
+		}
+		expectedType := f.Type
+		if expectedType == "" {
+			if srcVal, ok := ctx.Get(f.Field); ok {
+				expectedType = kindOf(srcVal)
+			}
+		}
+		if expectedType != "" && kindOf(v) != expectedType {
+			skipped = append(skipped, fmt.Sprintf("%s (типа %s, а ожидается %s)", f.Field, kindOf(v), expectedType))
+			continue
+		}
+		clean[editKey(f, bnCount)] = v
+	}
+	return clean, skipped
 }

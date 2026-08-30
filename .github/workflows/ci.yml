@@ -69,6 +69,29 @@ jobs:
           curl -sf localhost:8917/api/runs | grep -q when_demo
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui.log
+      - name: v0.24 browser gate live (wait → decision via API)
+        run: |
+          ./orchestrator gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
+          GUI_PID=$!
+          for i in $(seq 1 20); do curl -sf localhost:8918/api/health >/dev/null && break; sleep 0.5; done
+          RUN_ID=$(curl -sf -X POST localhost:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
+          echo "run: $RUN_ID"
+          for i in $(seq 1 40); do
+            curl -sf "localhost:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true' && break
+            sleep 0.5
+          done
+          curl -sf "localhost:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true'
+          curl -sf -X POST "localhost:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep -q queued
+          # повторный submit — 409
+          curl -s -o /dev/null -w '%{http_code}' -X POST "localhost:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"reject"}' | grep -q 409
+          for i in $(seq 1 40); do
+            curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"' && break
+            sleep 0.5
+          done
+          curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"'
+          curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"action":"accept"'
+          kill $GUI_PID 2>/dev/null || true
+          tail -n 5 /tmp/gui-gate.log
       - name: foreach + after_foreach live
         run: |
           ./orchestrator pipeline run examples/csv_foreach.yaml --yes

@@ -1,0 +1,17 @@
+format_version: "0.1"
+
+# Минимальный гейт (v0.24): без плагинов — только человек.
+# Браузер: orchestrator gui → «человек в гейте — в браузере» → решение кнопкой.
+# CLI: orch pipeline run examples/gate_demo.yaml (ввод в терминале).
+
+pipeline:
+  name: gate_demo
+  input:
+    note: "запустил ран"
+  steps:
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: input.note, editable: true, type: string }
+      actions: [accept, reject]
+      on_reject: stop   # reject = неуспех рана (exit 1) — как в CI-режиме

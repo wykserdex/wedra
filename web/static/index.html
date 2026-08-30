@@ -92,6 +92,20 @@
   .dagtxt.par{fill:var(--par);font-size:10px}
   .dagedge{stroke:#484f58;stroke-width:1.3;fill:none}
   .empty{color:var(--dim);padding:40px;text-align:center;font-size:13px}
+  /* v0.24: гейт-карточка */
+  #gate-card{background:var(--bg2);border:1px solid var(--acc);border-radius:10px;margin-bottom:16px;padding:14px 16px;box-shadow:0 0 0 3px rgba(88,166,255,.12)}
+  #gate-card h3{margin:0 0 10px;font-size:13px;color:var(--acc)}
+  #gate-card .gfield{margin:8px 0}
+  #gate-card .gfield label{display:block;font-size:11px;color:var(--dim);font-family:var(--mono);margin-bottom:3px}
+  #gate-card .gfield input{width:100%;background:#0a0d12;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:var(--mono);font-size:12px}
+  #gate-card .gfield input[readonly]{color:var(--dim);background:var(--bg3)}
+  #gate-card .gactions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  #gate-card .gactions button{background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:7px 16px;cursor:pointer;font-size:13px}
+  #gate-card .gactions button:hover{border-color:var(--acc)}
+  #gate-card .gactions button.ok:hover{border-color:var(--ok);color:var(--ok)}
+  #gate-card .gactions button.err:hover{border-color:var(--err);color:var(--err)}
+  #gate-card .gstatus{font-size:12px;color:var(--dim);margin-top:10px}
+  #gate-card .gstatus.error{color:var(--err)}
 </style>
 </head>
 <body>
@@ -102,7 +116,6 @@
     <button id="tab-runs" class="active">Раны</button>
     <button id="tab-pipelines">Пайплайны</button>
   </nav>
-  <a class="link" href="/editor/">редактор (прототип) →</a>
 </header>
 
 <main>
@@ -111,9 +124,13 @@
     <div class="panel">
       <h3>Новый ран</h3>
       <select id="run-select"></select>
-      <button id="run-btn" class="primary">Запустить (--yes)</button>
-      <div class="hint">В браузере — только <b>--yes</b> (гейты без терминала).
-      Человек в гейте работает из CLI. Один ран за раз.</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);margin-top:8px;cursor:pointer">
+        <input type="checkbox" id="run-gate" checked style="width:auto"/>
+        человек в гейте — в браузере
+      </label>
+      <button id="run-btn" class="primary">Запустить</button>
+      <div class="hint">Гейт: ран ждёт, решение — кнопкой прямо в консоли (v0.24).
+      Без галочки — <b>--yes</b>: гейты авто-приняты. Один ран за раз.</div>
       <div id="run-status" class="hint"></div>
     </div>
     <div class="panel" style="border-bottom:none">

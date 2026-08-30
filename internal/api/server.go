@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"orchestrator/internal/core"
+	"orchestrator/internal/execution"
+	"orchestrator/internal/gate"
 	"orchestrator/internal/journal"
 	"orchestrator/internal/pipeline"
 	"orchestrator/internal/plugin"
@@ -26,10 +29,14 @@ type Server struct {
 	RunsDir      string
 	Engine       *plugin.Engine
 
-	// v0.22: in-process запуск из GUI — один ран за раз (честное ограничение:
-	// человеческий гейт без терминала валиден только в --yes)
+	// v0.22: in-process запуск из GUI — один ран за раз
 	runMu   sync.Mutex
 	running bool
+
+	// v0.24: ожидающие браузерные гейты активных ранов: runID → ChannelUI.
+	// Заполняется лениво (когда ран доходит до gate-шага), чистится при выходе.
+	gatesMu sync.Mutex
+	gates   map[string]*gate.ChannelUI
 }
 
 func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
@@ -38,7 +45,29 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 		PipelinesDir: pipelinesDir,
 		RunsDir:      runsDir,
 		Engine:       plugin.NewEngine(),
+		gates:        map[string]*gate.ChannelUI{},
 	}
+}
+
+func (s *Server) setGate(id string, ui *gate.ChannelUI) {
+	s.gatesMu.Lock()
+	defer s.gatesMu.Unlock()
+	s.gates[id] = ui
+}
+
+func (s *Server) clearGate(id string) {
+	s.gatesMu.Lock()
+	defer s.gatesMu.Unlock()
+	if ui, ok := s.gates[id]; ok {
+		ui.Close() // если ран умер с ожидающим гейтом — не висит в памяти
+		delete(s.gates, id)
+	}
+}
+
+func (s *Server) gateFor(id string) *gate.ChannelUI {
+	s.gatesMu.Lock()
+	defer s.gatesMu.Unlock()
+	return s.gates[id]
 }
 
 func (s *Server) Routes() http.Handler {
@@ -292,6 +321,11 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", 400)
 		return
 	}
+	// v0.24: /api/runs/<id>/gate — статус/решение браузерного гейта
+	if rest, ok := strings.CutSuffix(id, "/gate"); ok {
+		s.handleRunGate(w, r, rest)
+		return
+	}
 	// v0.22: /api/runs/<id>/journal?since=N — live-хвост для GUI
 	if rest, ok := strings.CutSuffix(id, "/journal"); ok {
 		dir := filepath.Join(s.RunsDir, rest)
@@ -340,7 +374,9 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRunStart — v0.22: POST /api/run {file, yes} — in-process запуск.
-// Один ран за раз; только --yes (человеческий гейт без терминала не работает).
+// v0.24: yes=false — человеческий гейт в браузере: ран блокируется на
+// gate-шаге, решение — POST /api/runs/<runID>/gate. ID рана известен заранее
+// (в ответе 202) — карточка гейта не гадает имя.
 func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "POST {file, yes}", 405)
@@ -358,28 +394,27 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file: только имя из "+s.PipelinesDir, 400)
 		return
 	}
-	if !req.Yes {
-		http.Error(w, "GUI запускает только --yes (гейты без терминала)", 400)
-		return
-	}
 	if !s.runMu.TryLock() {
 		w.WriteHeader(409)
 		json.NewEncoder(w).Encode(map[string]string{"error": "уже идёт ран — дождись завершения"})
 		return
 	}
+	path := filepath.Join(s.PipelinesDir, req.File)
+	pf, err := pipeline.LoadPipelineFile(path)
+	if err != nil {
+		s.runMu.Unlock()
+		http.Error(w, "pipeline: "+err.Error(), 400)
+		return
+	}
+	runID := time.Now().Format("20060102-150405") + "-" + execution.Sanitize(pf.Pipeline.Name)
 	s.running = true
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(202)
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "started", "file": req.File})
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "started", "file": req.File, "run": runID})
 
 	go func() {
 		defer s.runMu.Unlock()
-		path := filepath.Join(s.PipelinesDir, req.File)
-		pf, err := pipeline.LoadPipelineFile(path)
-		if err != nil {
-			fmt.Printf("[gui] запуск %s: %v\n", req.File, err)
-			return
-		}
+		defer s.clearGate(runID)
 		eng := core.NewEngine()
 		eng.PluginsDir = s.PluginsDir
 		errs, warns := core.Validate(pf, eng)
@@ -390,13 +425,82 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("[gui] запуск %s отклонён валидацией: %v\n", req.File, errs)
 			return
 		}
-		stats, err := core.Run(pf, eng, core.RunOptions{Yes: true, RunsDir: s.RunsDir})
+		opts := core.RunOptions{Yes: req.Yes, Quiet: true, RunsDir: s.RunsDir, RunID: runID}
+		if !req.Yes {
+			opts.GateUI = func(st *pipeline.Step) gate.GateUI {
+				ui := gate.NewChannelUI()
+				s.setGate(runID, ui)
+				return ui
+			}
+		}
+		stats, err := core.Run(pf, eng, opts)
 		if err != nil {
 			fmt.Printf("[gui] %s: %v\n", req.File, err)
 		} else {
 			fmt.Printf("[gui] %s: ok=%d aborted=%d\n", req.File, stats.OK, stats.Aborted)
 		}
 	}()
+}
+
+// handleRunGate — v0.24: GET/POST /api/runs/<id>/gate.
+// GET — ожидающий ли гейт (из журнала: gate_wait без gate_decision после).
+// POST {action, edits} — решение: POST в ChannelUI активного рана (409, если
+// гейта нет или уже решён).
+func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string) {
+	dir := filepath.Join(s.RunsDir, id)
+	switch r.Method {
+	case "GET":
+		rd := journal.NewReader(dir)
+		events, err := rd.Events()
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
+		}
+		pending := false
+		var lastWait map[string]interface{}
+		for _, e := range events {
+			switch e["type"] {
+			case "gate_wait":
+				pending, lastWait = true, e
+			case "gate_decision":
+				pending, lastWait = false, nil
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if pending {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"pending": true, "step": lastWait["step"],
+				"form": lastWait["form"], "actions": lastWait["actions"],
+			})
+		} else {
+			json.NewEncoder(w).Encode(map[string]interface{}{"pending": false})
+		}
+	case "POST":
+		var req struct {
+			Action string                 `json:"action"`
+			Edits  map[string]interface{} `json:"edits"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "json: "+err.Error(), 400)
+			return
+		}
+		ui := s.gateFor(id)
+		if ui == nil {
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]string{"error": "нет ожидающего гейта (ран не на гейте или завершён)"})
+			return
+		}
+		if !ui.SendDecision(gate.Decision{Action: req.Action, Edits: req.Edits}) {
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]string{"error": "гейт уже решён"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(202)
+		json.NewEncoder(w).Encode(map[string]string{"status": "queued"})
+	default:
+		http.Error(w, "GET or POST", 405)
+	}
 }
 
 func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) {
