@@ -3,68 +3,118 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>orchestrator v0.11 — GUI</title>
+<title>orchestrator — редактор пайплайнов</title>
 <style>
-  body{font-family:Inter,system-ui,sans-serif;margin:0;background:#0f0f0f;color:#e5e5e5}
-  header{padding:12px 20px;border-bottom:1px solid #222;display:flex;gap:12px;align-items:center}
-  header h1{font-size:18px;margin:0}
-  #app{display:grid;grid-template-columns:260px 1fr 340px;height:calc(100vh - 49px)}
-  #plugins{border-right:1px solid #222;padding:10px;overflow:auto}
-  #canvas{position:relative;background:#121212;overflow:auto}
-  #props{border-left:1px solid #222;padding:10px;overflow:auto}
-  .plugin{padding:8px 10px;margin:6px 0;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;cursor:grab}
-  .plugin small{color:#888}
-  .node{position:absolute;min-width:180px;background:#1e1e1e;border:1px solid #333;border-radius:10px;padding:10px;cursor:move}
-  .node.selected{border-color:#6aa6ff;box-shadow:0 0 0 2px rgba(106,166,255,.2)}
-  .node h4{margin:0 0 6px 0;font-size:13px}
-  .port{font-size:11px;color:#aaa;margin:2px 0}
-  .port.ok{color:#7dd87d}
-  .port.warn{color:#ffcc66}
-  .port.err{color:#ff6666}
-  button{background:#222;color:#eee;border:1px solid #333;border-radius:8px;padding:6px 10px;cursor:pointer}
-  button.primary{background:#2a5bd7;border-color:#2a5bd7}
-  pre{white-space:pre-wrap;word-break:break-all;background:#0a0a0a;padding:8px;border-radius:8px;font-size:12px;max-height:300px;overflow:auto}
-  .row{display:flex;gap:8px;margin:6px 0}
-  input,textarea,select{width:100%;background:#111;color:#eee;border:1px solid #333;border-radius:6px;padding:6px}
-  .badge{font-size:10px;padding:2px 6px;border-radius:10px;background:#222;border:1px solid #333}
-  .badge.ok{background:#12351a;border-color:#1a5a2a;color:#7dd87d}
-  .badge.err{background:#3a1414;border-color:#5a1a1a;color:#ff8888}
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2330; --line:#2d333b;
+    --tx:#e6edf3; --dim:#8b949e; --acc:#58a6ff;
+    --ok:#3fb950; --err:#f85149; --skip:#d29922; --par:#bc8cff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--tx);font-size:14px}
+  header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg2);flex-wrap:wrap}
+  header h1{font-size:14px;margin:0;font-weight:600;white-space:nowrap}
+  header h1 .dim{color:var(--dim);font-weight:400}
+  .badge{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--dim);font-family:var(--mono);white-space:nowrap}
+  .badge.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
+  .badge.err{color:var(--err);border-color:rgba(248,81,73,.4)}
+  .badge.run{color:var(--acc);border-color:rgba(88,166,255,.4)}
+  a.link{color:var(--dim);text-decoration:none;font-size:12px}
+  a.link:hover{color:var(--acc)}
+  button{background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;font-size:12px}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:#1f6feb;border-color:#1f6feb;font-weight:600}
+  button:disabled{opacity:.45;cursor:default}
+  input,select,textarea{background:#0a0d12;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;font-family:var(--mono)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+  #app{display:grid;grid-template-columns:270px 1fr 340px;height:calc(100vh - 45px)}
+  aside{overflow-y:auto;padding:12px}
+  #palette{border-right:1px solid var(--line)}
+  #props{border-left:1px solid var(--line)}
+  aside h3{margin:14px 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  aside h3:first-child{margin-top:0}
+  .plug{padding:8px 10px;margin:5px 0;background:var(--bg2);border:1px solid var(--line);border-radius:8px;cursor:grab;font-size:12px}
+  .plug:hover{border-color:var(--acc)}
+  .plug b{display:block;font-family:var(--mono);font-size:12px}
+  .plug small{color:var(--dim);display:block;margin-top:2px;line-height:1.4}
+  .plug .io{font-family:var(--mono);font-size:10px;color:var(--par);margin-top:3px}
+  .plug.gate{border-color:rgba(188,140,255,.4)}
+  /* canvas */
+  #canvas-wrap{overflow:auto;position:relative;background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:20px 20px;background-color:var(--bg)}
+  #canvas{position:relative;width:2600px;height:1700px}
+  #edges{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+  .edge{stroke:#484f58;stroke-width:1.4;fill:none}
+  .edge.hi{stroke:var(--acc)}
+  .node{position:absolute;width:230px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+  .node.selected{border-color:var(--acc);box-shadow:0 0 0 2px rgba(88,166,255,.25)}
+  .node .nh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;cursor:move;border-bottom:1px solid var(--line)}
+  .node .nh .nid{font-family:var(--mono);font-weight:600}
+  .node .nh .nplug{color:var(--dim);font-family:var(--mono);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .node.gate .nh{background:rgba(188,140,255,.07)}
+  .node .body{padding:8px 10px}
+  .inrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 6px;margin:3px 0;background:var(--bg3);border-radius:5px;font-family:var(--mono);font-size:11px}
+  .inrow .src{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+  .inrow .src.set{color:var(--ok)}
+  .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
+  .node .foot{padding:6px 10px;border-top:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:10px;display:flex;gap:10px}
+  /* props */
+  .pblock{margin-bottom:14px}
+  .pblock label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px}
+  .pblock input,.pblock select,.pblock textarea{width:100%}
+  .prow{display:flex;gap:8px}
+  .prow .pblock{flex:1}
+  .irow{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+  .irow input{flex:1}
+  .irow button{padding:3px 8px}
+  .danger{color:var(--err)}
+  .danger:hover{border-color:var(--err)}
+  .empty{color:var(--dim);padding:24px;text-align:center;font-size:12px;line-height:1.6}
+  #banner{display:none;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.4);color:var(--skip);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px;line-height:1.5}
+  pre#yaml-pre{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:11.5px;overflow:auto;max-height:100%;white-space:pre}
+  #yaml-view{position:fixed;inset:0;background:rgba(4,6,10,.85);display:none;z-index:50;padding:30px}
+  #yaml-view .inner{background:var(--bg2);border:1px solid var(--line);border-radius:12px;height:100%;display:flex;flex-direction:column}
+  #yaml-view .hd{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+  #val-err{margin-top:10px;font-size:11px;color:var(--err);line-height:1.5;display:none}
+  .hint{font-size:11px;color:var(--dim);line-height:1.5;margin-top:8px}
 </style>
 </head>
 <body>
 <header>
-  <h1>orchestrator <span style="color:#888">v0.11</span> — GUI (M6)</h1>
-  <span id="status" class="badge">loading</span>
-  <button id="btn-validate">Validate</button>
-  <button id="btn-plan">Plan (DAG)</button>
-  <button id="btn-run" class="primary">Run --yes</button>
-  <button id="btn-export">Export YAML</button>
-  <input id="pipeline-name" placeholder="pipeline name" value="my_chain" style="width:160px"/>
+  <h1>оркестратор <span class="dim">· редактор</span></h1>
+  <select id="file-open" title="открыть существующий" style="min-width:170px"></select>
+  <input id="file-name" title="имя файла (.yaml)" style="width:150px"/>
+  <span class="badge" id="val-badge">…</span>
+  <button id="btn-undo" title="Ctrl+Z">↶ undo</button>
+  <button id="btn-redo" title="Ctrl+Y">↷ redo</button>
+  <button id="btn-yaml">YAML</button>
+  <button id="btn-save" class="primary">Сохранить</button>
+  <span id="save-status" class="badge"></span>
+  <a class="link" href="/" style="margin-left:auto">← консоль</a>
 </header>
 <div id="app">
-  <div id="plugins">
-    <h3 style="margin:4px 0">Плагины</h3>
-    <div id="plugin-list">загрузка...</div>
-    <hr style="border-color:#222"/>
-    <h3 style="margin:4px 0">Пайплайны</h3>
-    <div id="pipeline-list"></div>
-    <hr style="border-color:#222"/>
-    <h3 style="margin:4px 0">Прогоны</h3>
-    <div id="run-list"></div>
-  </div>
-  <div id="canvas"></div>
-  <div id="props">
-    <h3 style="margin:4px 0">Свойства</h3>
-    <div id="prop-content">выбери ноду</div>
-    <hr style="border-color:#222"/>
-    <h3 style="margin:4px 0">Live YAML</h3>
-    <pre id="yaml-preview"></pre>
-    <h3 style="margin:4px 0">Валидация</h3>
-    <pre id="validate-out"></pre>
-    <h3 style="margin:4px 0">JSON на линиях (контекст)</h3>
-    <pre id="context-out">—</pre>
-  </div>
+  <aside id="palette">
+    <h3>Плагины <span style="text-transform:none">(перетащи на холст)</span></h3>
+    <div id="plugin-list"></div>
+    <h3>Встроенные</h3>
+    <div class="plug gate" draggable="true" data-plugin="core/human_gate">
+      <b>core/human_gate</b>
+      <small>человек в петле: форма + действия</small>
+      <div class="io">in: form · out: поля формы</div>
+    </div>
+  </aside>
+  <div id="canvas-wrap"><div id="canvas">
+    <svg id="edges"></svg>
+  </div></div>
+  <aside id="props"></aside>
 </div>
-<script type="module" src="app.js"></script>
+<div id="yaml-view"><div class="inner">
+  <div class="hd"><b>YAML (сериализовано ядром)</b><button onclick="closeYaml()">закрыть</button></div>
+  <pre id="yaml-pre"></pre>
+</div></div>
+<script src="/editor/app.js"></script>
 </body>
 </html>

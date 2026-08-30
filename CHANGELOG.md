@@ -1,5 +1,27 @@
 # Changelog — честная 0.x
 
+## v0.25 (2026-08-31) — редактор пайплайнов
+
+- **/editor/ переписан с нуля** (прототип M5 был заморожен; ссылка в консоли
+  возвращена — теперь на работающий инструмент).
+- **Холст**: палитра (живой список /api/plugins + core/human_gate), DnD из
+  палитры, узлы по сетке 20px. Позиции — `pos:` в YAML (ядро игнорирует).
+- **Связи**: bind из списка источников (input.*, steps.*.output; гейт — из
+  формы по правилам материализации), кривые-рёбра, live-перерисовка.
+- **Шаг**: id (переименование переносит чужие bind), on_error stop/skip,
+  timeout, bind по входу; гейт: form (e: = editable), actions, on_reject.
+- **Undo/redo** (Ctrl+Z/Y, 100), Delete.
+- **YAML пишет ядро**: `POST /api/parse/pipeline`, `POST /api/serialize/
+  pipeline` — Go-эндпоинты; сгенерированный YAML обязан читаться лоадером и
+  проходить валидацию (эндпоинт самопроверяется). Сохранение — PUT
+  /api/pipelines/<file> (создаёт новый).
+- **Honest scope**: when/foreach/parallel_group/retry/secrets/network/
+  type-input — не управляются: открытие с баннером, сохранение 409
+  (данные не теряются).
+- Тесты +4 (parse, unsupported→409, round-trip c pos, новый гейт-пайплайн).
+  CI: node --check + live parse (включая when_demo → unsupported).
+
+
 ## v0.24 (2026-08-31) — человек в гейте из браузера
 
 - **GUI-срез 2: human_gate решается из консоли**, не только из терминала.

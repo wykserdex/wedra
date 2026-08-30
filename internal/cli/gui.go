@@ -43,7 +43,7 @@ func RunGUI(args []string) {
 	}
 	fmt.Printf("▶ GUI v%s — http://%s\n", ver, listen)
 	fmt.Println("  API: /api/health, /api/plugins, /api/pipelines, /api/runs, /api/run, /api/validate/pipeline")
-	fmt.Println("  Frontend: web/static (консоль: раны, live-журнал, DAG; /editor/ — прототип)")
+	fmt.Println("  Frontend: web/static (консоль: раны, live-журнал, DAG; /editor/ — редактор пайплайнов)")
 	fmt.Println("  Ctrl+C — остановить")
 
 	if open {

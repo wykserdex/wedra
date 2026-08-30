@@ -82,6 +82,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/run", s.handleRunStart)
 	mux.HandleFunc("/api/validate/pipeline", s.handleValidatePipeline)
 	mux.HandleFunc("/api/plan/pipeline", s.handlePlanPipeline)
+	// v0.25: редактор — парсинг/сериализация через ядро (JS не держит YAML)
+	mux.HandleFunc("/api/parse/pipeline", s.handleParsePipeline)
+	mux.HandleFunc("/api/serialize/pipeline", s.handleSerializePipeline)
 	// static frontend — если нет web/static, отдаём 404, не падаем
 	if _, err := os.Stat("web/static"); err == nil {
 		mux.Handle("/", http.FileServer(http.Dir("web/static")))

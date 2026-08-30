@@ -92,6 +92,18 @@ jobs:
           curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"action":"accept"'
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui-gate.log
+      - name: v0.25 editor live (parse/serialize round-trip)
+        run: |
+          node --check web/static/editor/app.js
+          ./orchestrator gui --listen 127.0.0.1:8919 >/tmp/gui-ed.log 2>&1 &
+          GUI_PID=$!
+          for i in $(seq 1 20); do curl -sf localhost:8919/api/health >/dev/null && break; sleep 0.5; done
+          curl -sf localhost:8919/editor/ | grep -q "редактор"
+          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep -q '"name":"gate_demo"'
+          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml | grep -q '"plugin":"core/human_gate"'
+          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep -q "when"
+          kill $GUI_PID 2>/dev/null || true
+          tail -n 3 /tmp/gui-ed.log
       - name: foreach + after_foreach live
         run: |
           ./orchestrator pipeline run examples/csv_foreach.yaml --yes
