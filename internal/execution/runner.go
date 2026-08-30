@@ -679,6 +679,11 @@ func buildInput(m *pipeline.Manifest, st *pipeline.Step, ctx *context.Ctx) (map[
 			}
 			return nil, fmt.Errorf("вход %q: путь %s не найден в контексте", name, from)
 		}
+		// v0.23: симметричный контракт — вход тоже проверяется (тип+формат),
+		// иначе сломанный upstream утекает дальше
+		if err := plugin.CheckValue(name, fmt.Sprintf("вход плагина %s", m.ID), port, v); err != nil {
+			return nil, err
+		}
 		in[name] = v
 	}
 	return in, nil

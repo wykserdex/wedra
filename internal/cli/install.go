@@ -163,8 +163,8 @@ func RunPipelineInstall(args []string) {
 	if pname == "" {
 		pname = name
 	}
-	outFile := filepath.Join("pipelines", pname+".yaml")
-	if err := os.MkdirAll("pipelines", 0o755); err != nil {
+	outFile := filepath.Join("examples", pname+".yaml")
+	if err := os.MkdirAll("examples", 0o755); err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
