@@ -118,6 +118,13 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
+	// Start отдельно от Wait: после Start() cmd.Process уже установлена,
+	// и гоорутина group-kill читает её без data race (проверено -race).
+	if serr := cmd.Start(); serr != nil {
+		res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", serr.Error()
+		res.ExitCode = 2
+		return res
+	}
 	go func() {
 		<-ctx.Done()
 		if cmd.Process != nil {
@@ -126,7 +133,7 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	}()
 
 	start := time.Now()
-	runErr := cmd.Run()
+	runErr := cmd.Wait()
 	res.Duration = time.Since(start)
 	res.Stderr = common.Truncate(stderr.String(), 4000)
 
