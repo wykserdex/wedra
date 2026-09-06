@@ -694,3 +694,154 @@ func TestEditorSerializeNewGatePipeline(t *testing.T) {
 		t.Fatalf("новому doc не присвоено 0.2:\n%s", yamlText)
 	}
 }
+
+// ── v0.5: secrets в редакторе ──────────────────────────────────────────────
+
+// secretFixturePlugin — манифест, запрашивающий env-ключ (кросс-чек v0.17:
+// pipeline.secrets ↔ permissions.secrets).
+const secretFixturePlugin = `id: secret-fixture
+version: 0.1.0
+platform_api: "^0.1"
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  item:
+    from: input.item
+    type: string
+    format: text
+output:
+  done: { type: boolean }
+permissions:
+  network: []
+  filesystem: none
+  secrets: [SECRET_FIXTURE_KEY]
+`
+
+// secretTestServer — flowTestServer + фикстурный плагин с секретом.
+func secretTestServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	srv, runs := flowTestServer(t)
+	plugins := filepath.Join(filepath.Dir(runs), "plugins")
+	if err := os.MkdirAll(filepath.Join(plugins, "secret-fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugins, "secret-fixture", "plugin.yaml"), []byte(secretFixturePlugin), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return srv, runs
+}
+
+func TestEditorSecretsParse(t *testing.T) {
+	// v0.5: pipeline.secrets под управлением — llm_same_provider редакторский,
+	// secrets в doc (а не в unsupported)
+	ts, _ := gateTestServer(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "examples", "llm_same_provider.yaml"))
+	if err != nil {
+		t.Fatalf("пример не читается: %v", err)
+	}
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	sers, _ := doc["secrets"].([]interface{})
+	if len(sers) != 1 || sers[0] != "GEMINI_API_KEY" {
+		t.Fatalf("doc.secrets = %v (ждём [GEMINI_API_KEY])", sers)
+	}
+	for _, u := range doc["unsupported"].([]interface{}) {
+		if u == "pipeline.secrets" {
+			t.Fatalf("pipeline.secrets в unsupported — v0.5 управляет секретами: %v", doc["unsupported"])
+		}
+	}
+}
+
+func TestEditorSecretsRoundTrip(t *testing.T) {
+	// v0.5: плагин просит SECRET_FIXTURE_KEY, пайплайн его объявляет —
+	// round-trip сохраняет secrets, ложных warnings нет
+	ts, _ := secretTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: secrets_test
+  input:
+    x: "hi"
+  secrets: [SECRET_FIXTURE_KEY]
+  steps:
+    - id: fx
+      plugin: secret-fixture
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	sers, _ := doc["secrets"].([]interface{})
+	if len(sers) != 1 || sers[0] != "SECRET_FIXTURE_KEY" {
+		t.Fatalf("doc.secrets = %v", sers)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	if !strings.Contains(yamlText, "secrets:") || !strings.Contains(yamlText, "SECRET_FIXTURE_KEY") {
+		t.Fatalf("yaml без secrets:\n%s", yamlText)
+	}
+	// кросс-чек: плагин запрашивает ключ, пайплайн объявил — warning не ложный
+	warns, _ := out["warnings"].([]interface{})
+	for _, w := range warns {
+		if ws, ok := w.(string); ok && strings.Contains(ws, "плагину нужен ключ") {
+			t.Fatalf("ложный warning о не объявленном ключе: %v", warns)
+		}
+	}
+	// re-parse: secrets вернулся
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", []byte(yamlText))
+	sers2, _ := doc2["secrets"].([]interface{})
+	if len(sers2) != 1 || sers2[0] != "SECRET_FIXTURE_KEY" {
+		t.Fatalf("secrets после round-trip = %v", sers2)
+	}
+}
+
+func TestEditorSecretsWarnings(t *testing.T) {
+	// v0.5: плагин просит ключ, пайплайн НЕ объявляет → warning (ядро:
+	// предупреждение, не ошибка — ok остаётся true, решит пользователь)
+	ts, _ := secretTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: secrets_missing
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: secret-fixture
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v (недообъявленный секрет — warning, не error) errors=%v", out["ok"], out["errors"])
+	}
+	warns, _ := out["warnings"].([]interface{})
+	found := false
+	for _, w := range warns {
+		if ws, ok := w.(string); ok && strings.Contains(ws, "SECRET_FIXTURE_KEY") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("нет warning о ключе SECRET_FIXTURE_KEY: %v", warns)
+	}
+}

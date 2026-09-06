@@ -1,5 +1,21 @@
 # Changelog — честная 0.x
 
+## v0.5 (2026-09-06) — secrets в редакторе (v1.0-трек, срез 1)
+
+- Редактор управляет pipeline.secrets: чипы env-ключей в панели «Пайплайн»
+  (добавить/убрать), live-подсказка в шаге — какой ключ просит плагин
+  (permissions.secrets манифеста) и объявлен ли он.
+- /api/plugins: +permissions манифеста (аддитивно; явные нижние ключи —
+  у struct-полей манифеста нет json-тегов, схема остального не тронута).
+- Round-trip: без секретов поле не прописывается (omitempty); пустые имена
+  отбрасываются. Кросс-чек ядра (v0.17) — warnings, не ошибки.
+- llm_same_provider / llm_text_chain: честное объявление GEMINI_API_KEY /
+  LLM_OAI_API_KEY — валидация без warnings о секретах.
+- Тесты +3 (178 всего). CI: parse llm_same_provider → secrets в doc;
+  serialize с secrets → secrets: в YAML.
+- Ручной список редактора сократился до network и type-объявлений input.
+
+
 ## v0.4a (2026-09-06) — crtsh/the_harvester в реестре
 
 - Записи crtsh + the_harvester в registry.yaml: commit = 003fb4f

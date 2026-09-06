@@ -60,6 +60,10 @@
   .inrow .src{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
   .inrow .src.set{color:var(--ok)}
   .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
+  .chips{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
+  .chip button{all:unset;cursor:pointer;color:var(--dim);padding:0 2px}
+  .chip button:hover{color:var(--err,#e5534b)}
   .node .foot{padding:6px 10px;border-top:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:10px;display:flex;gap:10px}
   /* props */
   .pblock{margin-bottom:14px}
