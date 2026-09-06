@@ -8,6 +8,9 @@
 // блоке «Пайплайн» + подсказка в шаге, какой ключ просит плагин).
 // v0.6: network (pipeline.network — политика allow/deny) в UI: чекбокс
 // «deny» + подсказка в шаге, какую сеть просит плагин (и не запрещено ли).
+// v0.8a: перетаскивание палитра→холст на mouse-событиях (ghost) + клик =
+// добавить на свободное место. Нативный HTML5 DnD не работает в sandboxed
+// iframe (превью) — mouse-события работают везде.
 // Честный скоуп: type-объявления input не управляются — такие пайплайны
 // открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
@@ -135,15 +138,58 @@ function renderPalette() {
   const el = $('#plugin-list');
   el.innerHTML = state.plugins.map(p => {
     const ins = Object.keys(p.input || {}).length, outs = Object.keys(p.output || {}).length;
-    return `<div class="plug" draggable="true" data-plugin="${esc(p.id)}">
+    return `<div class="plug" data-plugin="${esc(p.id)}">
       <b>${esc(p.id)}</b>
       <small>${esc(p.description || '')}</small>
       <div class="io">in: ${ins} · out: ${outs}</div>
     </div>`;
   }).join('') || '<div class="empty">плагинов нет</div>';
+  // v0.8a: mouse-based drag (нативный DnD мёртв в sandboxed iframe)
   el.querySelectorAll('.plug').forEach(el2 => {
-    el2.addEventListener('dragstart', e => e.dataTransfer.setData('plugin', el2.dataset.plugin));
+    el2.addEventListener('mousedown', e => startPaletteDrag(e, el2.dataset.plugin));
   });
+}
+
+// v0.8a: перетаскивание плагина на холст через mouse-события:
+// мousedown → ghost следует за курсором → mouseup над холстом = добавить;
+// клик без движения = добавить на свободное место. Работает в sandboxed
+// iframe (превью), WebView2 и обычном браузере.
+function startPaletteDrag(e, pluginId) {
+  if (e.button !== 0) return;
+  e.preventDefault(); // запрет выделения текста при волочении
+  const startX = e.clientX, startY = e.clientY;
+  const wrap = $('#canvas-wrap'), canvas = $('#canvas');
+  let moved = false;
+  const ghost = document.createElement('div');
+  ghost.className = 'plug-ghost';
+  ghost.textContent = pluginId;
+  document.body.appendChild(ghost);
+  const placeGhost = ev => { ghost.style.left = (ev.clientX + 12) + 'px'; ghost.style.top = (ev.clientY + 10) + 'px'; };
+  placeGhost(e);
+  const overCanvas = ev => {
+    const r = wrap.getBoundingClientRect();
+    return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+  };
+  const mm = ev => {
+    if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 4) moved = true;
+    placeGhost(ev);
+    wrap.classList.toggle('drop-over', moved && overCanvas(ev));
+  };
+  const mu = ev => {
+    document.removeEventListener('mousemove', mm);
+    document.removeEventListener('mouseup', mu);
+    ghost.remove();
+    wrap.classList.remove('drop-over');
+    if (overCanvas(ev)) {
+      const cRect = canvas.getBoundingClientRect();
+      addStep(pluginId, ev.clientX - cRect.left - 115, ev.clientY - cRect.top - 20);
+    } else if (!moved) {
+      const i = state.doc.steps.length;
+      addStep(pluginId, 40 + (i % 3) * 270, 40 + Math.floor(i / 3) * 140);
+    }
+  };
+  document.addEventListener('mousemove', mm);
+  document.addEventListener('mouseup', mu);
 }
 
 function renderNodes() {
@@ -402,7 +448,7 @@ function renderProps() {
         deny: шаг, чей плагин заявил сеть, — ошибка (валидатор и раннер: WEDRA_NETWORK=deny).</div></div>
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
-      <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
+      <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст (или кликни по нему — узел появится на свободном месте).
       type-объявления input — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
@@ -563,14 +609,8 @@ function renderAll() {
 // ── канвас: drop из палитры, drag узлов ───────────────────────────────────
 function initCanvas() {
   const wrap = $('#canvas-wrap'), canvas = $('#canvas');
-  wrap.addEventListener('dragover', e => e.preventDefault());
-  wrap.addEventListener('drop', e => {
-    e.preventDefault();
-    const plugin = e.dataTransfer.getData('plugin');
-    if (!plugin) return;
-    const cRect = canvas.getBoundingClientRect();
-    addStep(plugin, e.clientX - cRect.left - 115, e.clientY - cRect.top - 20);
-  });
+  // v0.8a: добавление из палитры — через mouse-события (startPaletteDrag);
+  // нативный dragover/drop не работает в sandboxed iframe (превью)
   canvas.addEventListener('mousedown', e => {
     if (e.target === canvas || e.target.id === 'edges') { state.sel = null; renderAll(); }
   });
