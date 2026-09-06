@@ -1,14 +1,17 @@
 package api
 
-// v0.25 (v0.26a: format_version): редактор — round-trip parse → doc → serialize → YAML обязан
-// читаться ядром и проходить валидацию; pos возвращается; unsupported
-// блокирует serialize.
+// v0.25 (v0.26a: format_version; v0.27: when; v0.28: foreach/parallel/
+// after_foreach): round-trip parse → doc → serialize → YAML обязан читаться
+// ядром и проходить валидацию; pos возвращается; unsupported блокирует
+// serialize; конфликты управляющего потока — честно в errors.
 
 import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -93,7 +96,8 @@ pipeline:
         op: ">"
         value: 10
       actions: [accept]
-      parallel_group: g1
+      retry:
+        attempts: 3
 `)
 	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
 	if code != 200 {
@@ -104,12 +108,15 @@ pipeline:
 	for _, u := range unsup {
 		text += u.(string) + " "
 	}
-	// v0.27: when теперь под управлением редактора — в unsupported не попадает
-	if strings.Contains(text, "a: when") {
-		t.Fatalf("unsupported = %q (when больше не unsupported)", text)
+	// v0.27/v0.28: when и parallel_group под управлением редактора —
+	// в unsupported не попадают
+	for _, gone := range []string{"a: when", "a: parallel_group"} {
+		if strings.Contains(text, gone) {
+			t.Fatalf("unsupported = %q (%s больше не unsupported)", text, gone)
+		}
 	}
-	if !strings.Contains(text, "a: parallel_group") || !strings.Contains(text, "input.n") {
-		t.Fatalf("unsupported = %q (ждём parallel_group, input.n)", text)
+	if !strings.Contains(text, "a: retry") || !strings.Contains(text, "input.n") {
+		t.Fatalf("unsupported = %q (ждём retry, input.n)", text)
 	}
 	// serialize такого — 409 (редактор не управляет полями → не терять их)
 	d, _ := json.Marshal(doc)
@@ -290,6 +297,259 @@ func TestEditorWhenTruthyAndCoerce(t *testing.T) {
 	if len(errs) > 0 {
 		t.Fatalf("валидация: %v", errs)
 	}
+}
+
+// ── v0.28: foreach / parallel_group / after_foreach ─────────────────────────
+
+// flowFixturePlugin — минимальный манифест (без бинаря: валидация манифест
+// читает, исполнять не нужно).
+const flowFixturePlugin = `id: test-fixture
+version: 0.1.0
+platform_api: "^0.1"
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  item:
+    from: input.item
+    type: string
+    format: text
+output:
+  done: { type: boolean }
+permissions:
+  network: []
+  filesystem: none
+  secrets: []
+`
+
+// flowTestServer — gateTestServer + фикстурный плагин (для валидации
+// step-foreach/parallel: в tempdir нет plugins/).
+func flowTestServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	dir := t.TempDir()
+	plugins := filepath.Join(dir, "plugins")
+	pipelines := filepath.Join(dir, "pipelines")
+	runs := filepath.Join(dir, "runs")
+	for _, d := range []string{plugins, pipelines, runs} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(plugins, "test-fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugins, "test-fixture", "plugin.yaml"), []byte(flowFixturePlugin), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(plugins, pipelines, runs)
+	srv.Engine.PluginsDir = plugins // реестровые имена (без plugins/) → tempdir
+	ts := httptest.NewServer(srv.Routes())
+	t.Cleanup(ts.Close)
+	return ts, runs
+}
+
+func TestEditorForeachParse(t *testing.T) {
+	// v0.28: реальные примеры — parse вытаскивает управляющий поток,
+	// unsupported пуст (все три файла редакторские)
+	ts, _ := gateTestServer(t)
+
+	raw := fileToBytes(t, "../../examples/foreach_step_demo.yaml")
+	_, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 0 {
+		t.Fatalf("foreach_step_demo: unsupported = %v", unsup)
+	}
+	fx := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if fx["foreach"] != "input.texts" || fx["foreach_item"] != "text" {
+		t.Fatalf("freqs = %v (ждём foreach input.texts, item text)", fx)
+	}
+
+	raw = fileToBytes(t, "../../examples/parallel_demo.yaml")
+	_, doc = postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	// input.data — объект: по честному скоупу редактора это type-объявление
+	// (модель input = name+default), но parallel_group должен быть в doc
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 1 ||
+		unsup[0].(string) != "input.data (type-объявление, не значение)" {
+		t.Fatalf("parallel_demo: unsupported = %v (ждём только input.data)", unsup)
+	}
+	w := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if w["parallel_group"] != "analyze" {
+		t.Fatalf("words.parallel_group = %v", w["parallel_group"])
+	}
+
+	raw = fileToBytes(t, "../../examples/csv_foreach_summary.yaml")
+	_, doc = postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 0 {
+		t.Fatalf("csv_foreach_summary: unsupported = %v", unsup)
+	}
+	if doc["foreach"] != "steps.load.rows" || doc["foreach_item"] != "row" || doc["item_type"] != "object" {
+		t.Fatalf("pipeline-foreach = %v/%v/%v", doc["foreach"], doc["foreach_item"], doc["item_type"])
+	}
+	last := doc["steps"].([]interface{})
+	sum := last[len(last)-1].(map[string]interface{})
+	if !sum["after_foreach"].(bool) {
+		t.Fatalf("summary.after_foreach = %v (ждём true)", sum["after_foreach"])
+	}
+}
+
+func TestEditorForeachPipelineRoundTrip(t *testing.T) {
+	// v0.28: pipeline-foreach + after_foreach на гейтах — полный цикл:
+	// parse → serialize → ядро читает+валидирует → re-parse (гейты — builtin,
+	// манифесты не нужны)
+	ts, _ := gateTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: foreach_test
+  input:
+    list: ["a", "b"]
+  foreach: input.list
+  foreach_item: row
+  item_type: string
+  steps:
+    - id: per
+      plugin: core/human_gate
+      form:
+        - field: input.row
+          editable: false
+      actions: [accept]
+
+    - id: sum
+      plugin: core/human_gate
+      after_foreach: true
+      form:
+        - field: input.row
+          editable: false
+      actions: [accept]
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	for _, want := range []string{"foreach: input.list", "foreach_item: row", "item_type: string", "after_foreach: true"} {
+		if !strings.Contains(yamlText, want) {
+			t.Fatalf("yaml без %q:\n%s", want, yamlText)
+		}
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ядро не читает свой же YAML: %v", err)
+	}
+	errs, _ := pipeline.Validate(pf, plugin.NewEngine())
+	if len(errs) > 0 {
+		t.Fatalf("валидация: %v", errs)
+	}
+	// re-parse: всё вернулось
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", []byte(yamlText))
+	if doc2["foreach"] != "input.list" || doc2["foreach_item"] != "row" || doc2["item_type"] != "string" {
+		t.Fatalf("pipeline-foreach после round-trip: %v", doc2)
+	}
+	sum2 := doc2["steps"].([]interface{})[1].(map[string]interface{})
+	if !sum2["after_foreach"].(bool) {
+		t.Fatalf("after_foreach после round-trip: %v", sum2)
+	}
+}
+
+func TestEditorStepForeachRoundTrip(t *testing.T) {
+	// v0.28: step-foreach + parallel_group на фикстурном плагине — полный
+	// цикл с валидацией (существует ли плагин, пути, конфликты)
+	ts, runs := flowTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: step_foreach_test
+  input:
+    texts: ["a", "b"]
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: test-fixture
+      foreach: input.texts
+      foreach_item: item
+      on_error: stop
+
+    - id: par
+      plugin: test-fixture
+      parallel_group: g1
+      on_error: stop
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 0 {
+		t.Fatalf("unsupported = %v", unsup)
+	}
+	fx := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if fx["foreach"] != "input.texts" || fx["foreach_item"] != "item" {
+		t.Fatalf("fx = %v", fx)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	for _, want := range []string{"foreach: input.texts", "foreach_item: item", "parallel_group: g1"} {
+		if !strings.Contains(yamlText, want) {
+			t.Fatalf("yaml без %q:\n%s", want, yamlText)
+		}
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ядро не читает: %v", err)
+	}
+	eng := plugin.NewEngine()
+	eng.PluginsDir = filepath.Join(filepath.Dir(runs), "plugins")
+	errs, _ := pipeline.Validate(pf, eng)
+	if len(errs) > 0 {
+		t.Fatalf("валидация: %v", errs)
+	}
+}
+
+func TestEditorForeachConflicts(t *testing.T) {
+	// v0.28: конфликты валидатора проходят через редактор честно:
+	// foreach + after_foreach и foreach + parallel_group → ok:false c ошибкой
+	ts, _ := flowTestServer(t)
+	mk := func(extra map[string]interface{}) {
+		t.Helper()
+		doc := map[string]interface{}{
+			"name": "conflict", "input": []interface{}{map[string]interface{}{"name": "texts", "default": "a"}},
+			"steps": []interface{}{map[string]interface{}{
+				"id": "fx", "plugin": "test-fixture", "pos": []interface{}{0.0, 0.0},
+				"on_error": "stop", "bind": map[string]interface{}{},
+				"form": []interface{}{}, "actions": []interface{}{}, "on_reject": "",
+				"foreach": "input.texts",
+			}},
+			"unsupported": []interface{}{},
+		}
+		step := doc["steps"].([]interface{})[0].(map[string]interface{})
+		for k, v := range extra {
+			step[k] = v
+		}
+		d, _ := json.Marshal(doc)
+		code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+		if code != 200 {
+			t.Fatalf("code=%d body=%v", code, out)
+		}
+		if out["ok"] != false {
+			t.Fatalf("конфликт %v не отловлен: ok=%v", extra, out)
+		}
+	}
+	mk(map[string]interface{}{"after_foreach": true})
+	mk(map[string]interface{}{"parallel_group": "g1"})
 }
 
 func TestEditorSerializeNewGatePipeline(t *testing.T) {

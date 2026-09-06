@@ -1,8 +1,10 @@
 // v0.25 — редактор пайплайнов: палитра → холст (сетка 20px), bind-связи,
 // undo/redo, валидация и сериализация через ядро (Go), сохранение PUT.
 // v0.27: when — условие шага (path/op/value, 10 операторов ядра).
-// Честный скоуп: foreach/parallel/after_foreach/retry/secrets/network не
-// управляются — такие пайплайны открываются с баннером и без сохранения.
+// v0.28: foreach/parallel_group/after_foreach на шаге + foreach-батч
+// пайплайна (foreach/foreach_item/item_type/item_format).
+// Честный скоуп: retry/secrets/network не управляются — такие пайплайны
+// открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const GRID = 20;
@@ -10,7 +12,8 @@ const snap = v => Math.round(v / GRID) * GRID;
 
 let state = {
   plugins: [],
-  doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [] },
+  doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [],
+    foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
   undo: [],
@@ -112,6 +115,7 @@ function addStep(plugin, x, y) {
   const st = {
     id: nextStepId(), plugin, pos: [snap(x), snap(y)],
     on_error: 'stop', timeout: '', bind: {}, when: null,
+    foreach: '', foreach_item: '', after_foreach: false, parallel_group: '',
   };
   if (plugin === 'core/human_gate') {
     st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop';
@@ -159,7 +163,7 @@ function renderNodes() {
     node.innerHTML = `
       <div class="nh"><span class="nid">${esc(st.id)}</span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
       <div class="body">${ins}<div style="margin-top:6px">${outs}</div></div>
-      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
+      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? '<span title="after_foreach">⤓ post</span>' : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
     canvas.appendChild(node);
     node.addEventListener('mousedown', e => startNodeDrag(e, st));
     node.addEventListener('click', e => { e.stopPropagation(); state.sel = st.id; renderAll(); });
@@ -232,11 +236,55 @@ function whenBlock(st) {
     <input data-whenv value="${esc(w.value ?? '')}" placeholder="10 / text" spellcheck="false"/></div>` : ''}</div>`;
 }
 
+// v0.28: управляющий поток шага (foreach/parallel_group/after_foreach).
+// human_gate: foreach и parallel_group запрещены ядром — вместо полей подсказка.
+function flowBlock(st) {
+  const gate = st.plugin === 'core/human_gate';
+  if (gate) {
+    return '<div class="hint">foreach / parallel_group: не применяются к human_gate (гейт сериализует терминал) — ядро это ошибками валидации.</div>';
+  }
+  const srcs = sourceOptions(st.id);
+  let fOpts = '<option value="">— без foreach —</option>' +
+    srcs.map(o => `<option value="${esc(o)}"${st.foreach === o ? ' selected' : ''}>${esc(o)}</option>`).join('');
+  if (st.foreach && !srcs.includes(st.foreach)) {
+    fOpts += `<option value="${esc(st.foreach)}" selected>${esc(st.foreach)} (вручную)</option>`;
+  }
+  return `
+  <div class="pblock"><label>foreach — массив: шаг по каждому элементу (input.&lt;foreach_item&gt; перезаписывается)</label>
+    <select data-sforeach>${fOpts}</select></div>
+  <div class="prow"><div class="pblock" style="flex:1"><label>foreach_item (по умолчанию item)</label>
+    <input data-sfitem value="${esc(st.foreach_item || '')}" placeholder="item" spellcheck="false"/></div>
+  <div class="pblock" style="flex:1"><label>parallel_group — смежные шаги с одним именем — параллельно</label>
+    <input data-spgrp value="${esc(st.parallel_group || '')}" placeholder="analyze" spellcheck="false"/></div></div>
+  <div class="pblock"><label><input type="checkbox" data-safter ${st.after_foreach ? 'checked' : ''}/> after_foreach — один раз после всего pipeline-foreach (агрегаты steps.X_all)</label></div>`;
+}
+
+function pipelineFlowBlock() {
+  const d = state.doc;
+  const srcs = sourceOptions(null);
+  let fOpts = '<option value="">— без батча —</option>' +
+    srcs.map(o => `<option value="${esc(o)}"${d.foreach === o ? ' selected' : ''}>${esc(o)}</option>`).join('');
+  if (d.foreach && !srcs.includes(d.foreach)) {
+    fOpts += `<option value="${esc(d.foreach)}" selected>${esc(d.foreach)} (вручную)</option>`;
+  }
+  return `
+  <div class="pblock"><label>foreach — весь пайплайн по каждому элементу массива</label>
+    <select data-pforeach>${fOpts}</select></div>
+  <div class="prow"><div class="pblock" style="flex:1"><label>foreach_item (item-переменная, по умолчанию item)</label>
+    <input data-pfitem value="${esc(d.foreach_item || '')}" placeholder="row" spellcheck="false"/></div>
+  <div class="pblock" style="flex:1"><label>item_type (object / string / number)</label>
+    <input data-ptype value="${esc(d.item_type || '')}" placeholder="object" spellcheck="false"/></div>
+  <div class="pblock" style="flex:1"><label>item_format</label>
+    <input data-pformat value="${esc(d.item_format || '')}" placeholder="(пусто)" spellcheck="false"/></div></div>
+  <div class="hint">Шаги с after_foreach выполняются один раз после всех элементов
+  (агрегаты steps.X_all). См. examples/csv_foreach_summary.yaml.</div>`;
+}
+
 function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.27 не управляет:
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.28 не управляет:
       <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
       правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
   }
@@ -272,6 +320,7 @@ function renderProps() {
       <div class="pblock"><label>плагин</label><input value="${esc(st.plugin)}" readonly style="color:var(--dim)"/></div>
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
       ${whenBlock(st)}
+      ${flowBlock(st)}
       ${ins}
       ${gateBlock}
       <button class="danger" data-del>удалить шаг</button>
@@ -284,8 +333,10 @@ function renderProps() {
       <div class="pblock"><label>имя</label><input data-pname value="${esc(state.doc.name)}" spellcheck="false"/></div>
       <div class="pblock"><label>вход (input.*)</label>${rows || '<div class="hint">нет входов</div>'}
         <button data-inadd>+ вход</button></div>
+      <h3>Батч (pipeline foreach)</h3>
+      ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
-      foreach/parallel/after_foreach/retry — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      retry/secrets/network — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -338,6 +389,14 @@ function wireProps(st) {
   if (wpath) wpath.onchange = () => { pushUndo(); if (st.when) st.when.path = wpath.value; renderAll(); };
   const wval = el.querySelector('[data-whenv]');
   if (wval) wval.onchange = () => { pushUndo(); if (st.when) st.when.value = wval.value; renderAll(); };
+  const sf = el.querySelector('[data-sforeach]');
+  if (sf) sf.onchange = () => { pushUndo(); st.foreach = sf.value; renderAll(); };
+  const sfi = el.querySelector('[data-sfitem]');
+  if (sfi) sfi.onchange = () => { pushUndo(); st.foreach_item = sfi.value.trim(); renderAll(); };
+  const spg = el.querySelector('[data-spgrp]');
+  if (spg) spg.onchange = () => { pushUndo(); st.parallel_group = spg.value.trim(); renderAll(); };
+  const sa = el.querySelector('[data-safter]');
+  if (sa) sa.onchange = () => { pushUndo(); st.after_foreach = sa.checked; renderAll(); };
   const gform = el.querySelector('[data-gform]');
   if (gform) gform.onchange = () => {
     pushUndo();
@@ -371,6 +430,14 @@ function wireProps(st) {
   el.querySelectorAll('[data-iname]').forEach(i => i.onchange = () => { pushUndo(); state.doc.input[i.dataset.iname].name = i.value.trim(); renderAll(); });
   el.querySelectorAll('[data-indef]').forEach(i => i.onchange = () => { pushUndo(); state.doc.input[i.dataset.indef].default = i.value; renderAll(); });
   el.querySelectorAll('[data-indel]').forEach(b => b.onclick = () => { pushUndo(); state.doc.input.splice(+b.dataset.indel, 1); renderAll(); });
+  const pf = el.querySelector('[data-pforeach]');
+  if (pf) pf.onchange = () => { pushUndo(); state.doc.foreach = pf.value; renderAll(); };
+  const pfi = el.querySelector('[data-pfitem]');
+  if (pfi) pfi.onchange = () => { pushUndo(); state.doc.foreach_item = pfi.value.trim(); renderAll(); };
+  const pt = el.querySelector('[data-ptype]');
+  if (pt) pt.onchange = () => { pushUndo(); state.doc.item_type = pt.value.trim(); renderAll(); };
+  const pfmt = el.querySelector('[data-pformat]');
+  if (pfmt) pfmt.onchange = () => { pushUndo(); state.doc.item_format = pfmt.value.trim(); renderAll(); };
   const inadd = el.querySelector('[data-inadd]');
   if (inadd) inadd.onclick = () => { pushUndo(); state.doc.input.push({ name: 'field' + (state.doc.input.length + 1), default: '' }); renderAll(); };
 }
@@ -524,7 +591,11 @@ async function openFile(file) {
         on_error: s.on_error || 'stop', timeout: s.timeout || '',
         bind: s.bind || {}, form: s.form || [], actions: s.actions || [], on_reject: s.on_reject || '',
         when: s.when || null,
+        foreach: s.foreach || '', foreach_item: s.foreach_item || '',
+        after_foreach: !!s.after_foreach, parallel_group: s.parallel_group || '',
       })),
+      foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
+      item_type: doc.item_type || '', item_format: doc.item_format || '',
     };
     state.unsupported = doc.unsupported || [];
     state.sel = null;

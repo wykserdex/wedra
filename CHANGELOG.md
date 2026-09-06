@@ -1,5 +1,23 @@
 # Changelog — честная 0.x
 
+## v0.28 (2026-09-06) — foreach / parallel / after_foreach в редакторе
+
+- Редактор управляет управляющим потоком (кроме retry):
+  - **шаг**: `foreach` (массив из input.*/steps.X.out) + `foreach_item`;
+    `parallel_group` (смежные шаги — параллельно, барьер); `after_foreach`
+    (один раз после pipeline-foreach, агрегаты steps.X_all).
+  - **пайплайн**: `foreach` / `foreach_item` / `item_type` / `item_format`.
+- human_gate: foreach/parallel_group UI не предлагает (ядро запрещает —
+  гейт сериализует терминал); конфликты (foreach+after_foreach,
+  foreach+parallel_group) видны валидацией, сохранение заблокировано.
+- foreach_step_demo / parallel_demo / csv_foreach_summary теперь
+  редакторские (у parallel_demo — баннер только из-за input-объекта
+  data: модель input редактора — name+default).
+- Тесты +4 (parse примеров, pipeline-foreach round-trip, step-foreach на
+  фикстурном плагине, конфликты → ok:false). Осталось в YAML: retry,
+  secrets, network, type-объявления input.
+
+
 ## v0.27 (2026-08-31) — when в редакторе (первый срез мускулов v1.0)
 
 - Редактор управляет **условием шага** `when` (path/op/value, 10 операторов
