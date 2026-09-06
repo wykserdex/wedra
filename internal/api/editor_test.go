@@ -1,6 +1,6 @@
 package api
 
-// v0.25 (v0.26a: format_version; v0.27: when; v0.28: foreach/parallel/
+// v0.25 (v0.26a: format_version; v0.27: when; v0.28: foreach/parallel; v0.29: retry;/
 // after_foreach): round-trip parse → doc → serialize → YAML обязан читаться
 // ядром и проходить валидацию; pos возвращается; unsupported блокирует
 // serialize; конфликты управляющего потока — честно в errors.
@@ -108,15 +108,20 @@ pipeline:
 	for _, u := range unsup {
 		text += u.(string) + " "
 	}
-	// v0.27/v0.28: when и parallel_group под управлением редактора —
-	// в unsupported не попадают
-	for _, gone := range []string{"a: when", "a: parallel_group"} {
+	// v0.27–v0.29: when/parallel_group/retry под управлением редактора —
+	// в unsupported не попадают; остался только input type-объявление
+	for _, gone := range []string{"a: when", "a: parallel_group", "a: retry"} {
 		if strings.Contains(text, gone) {
 			t.Fatalf("unsupported = %q (%s больше не unsupported)", text, gone)
 		}
 	}
-	if !strings.Contains(text, "a: retry") || !strings.Contains(text, "input.n") {
-		t.Fatalf("unsupported = %q (ждём retry, input.n)", text)
+	if !strings.Contains(text, "input.n") {
+		t.Fatalf("unsupported = %q (ждём input.n)", text)
+	}
+	// retry при этом — в doc (под управлением): attempts=3, без delay/backoff
+	ra, _ := doc["steps"].([]interface{})[0].(map[string]interface{})["retry"].(map[string]interface{})
+	if ra == nil || ra["attempts"] != float64(3) || ra["delay"] != "" || ra["backoff"] != "" {
+		t.Fatalf("doc.retry = %v (ждём {3, , })", ra)
 	}
 	// serialize такого — 409 (редактор не управляет полями → не терять их)
 	d, _ := json.Marshal(doc)
@@ -550,6 +555,110 @@ func TestEditorForeachConflicts(t *testing.T) {
 	}
 	mk(map[string]interface{}{"after_foreach": true})
 	mk(map[string]interface{}{"parallel_group": "g1"})
+}
+
+// ── v0.29: retry ───────────────────────────────────────────────────────────
+
+func TestEditorRetryParse(t *testing.T) {
+	// v0.29: llm_same_provider — теперь полностью редакторский (retry под
+	// управлением, type-объявлений в input нет)
+	ts, _ := gateTestServer(t)
+	raw := fileToBytes(t, "../../examples/llm_same_provider.yaml")
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 0 {
+		t.Fatalf("unsupported = %v (llm_same_provider теперь редакторский)", unsup)
+	}
+	draft := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if draft["on_error"] != "retry" {
+		t.Fatalf("draft.on_error = %v (ждём retry)", draft["on_error"])
+	}
+	r, _ := draft["retry"].(map[string]interface{})
+	if r == nil || r["attempts"] != float64(3) || r["delay"] != "2s" || r["backoff"] != "exponential" {
+		t.Fatalf("draft.retry = %v (ждём {3, 2s, exponential})", r)
+	}
+}
+
+func TestEditorRetryRoundTrip(t *testing.T) {
+	// v0.29: on_error: retry + retry-блок на фикстурном плагине — полный цикл
+	// с валидацией
+	ts, runs := flowTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: retry_test
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: test-fixture
+      on_error: retry
+      retry: { attempts: 3, delay: 5s, backoff: exponential }
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	fx := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if fx["on_error"] != "retry" {
+		t.Fatalf("on_error = %v", fx["on_error"])
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	for _, want := range []string{"on_error: retry", "attempts: 3", "delay: 5s", "backoff: exponential"} {
+		if !strings.Contains(yamlText, want) {
+			t.Fatalf("yaml без %q:\n%s", want, yamlText)
+		}
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ядро не читает: %v", err)
+	}
+	eng := plugin.NewEngine()
+	eng.PluginsDir = filepath.Join(filepath.Dir(runs), "plugins")
+	errs, _ := pipeline.Validate(pf, eng)
+	if len(errs) > 0 {
+		t.Fatalf("валидация: %v", errs)
+	}
+	// re-parse: retry вернулся
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", []byte(yamlText))
+	r2, _ := doc2["steps"].([]interface{})[0].(map[string]interface{})["retry"].(map[string]interface{})
+	if r2 == nil || r2["attempts"] != float64(3) || r2["delay"] != "5s" || r2["backoff"] != "exponential" {
+		t.Fatalf("retry после round-trip = %v", r2)
+	}
+}
+
+func TestEditorRetryValidation(t *testing.T) {
+	// v0.29: честность валидатора: on_error=retry + attempts < 1 → ok:false
+	ts, _ := flowTestServer(t)
+	doc := map[string]interface{}{
+		"name": "retry_bad", "input": []interface{}{map[string]interface{}{"name": "x", "default": "hi"}},
+		"steps": []interface{}{map[string]interface{}{
+			"id": "fx", "plugin": "test-fixture", "pos": []interface{}{0.0, 0.0},
+			"on_error": "retry", "bind": map[string]interface{}{"item": "input.x"},
+			"form": []interface{}{}, "actions": []interface{}{}, "on_reject": "",
+			"retry": map[string]interface{}{"attempts": 0, "delay": "1s", "backoff": "fixed"},
+		}},
+		"unsupported": []interface{}{},
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != false {
+		t.Fatalf("attempts=0 не отловлен: ok=%v", out)
+	}
 }
 
 func TestEditorSerializeNewGatePipeline(t *testing.T) {

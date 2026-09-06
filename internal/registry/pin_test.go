@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func git(t *testing.T, dir string, args ...string) string {
 	if err != nil {
 		t.Fatalf("git %v: %s: %s", args, err, out)
 	}
-	return string(out)
+	return strings.TrimSpace(string(out))
 }
 
 // pinRepo — локальный git-репо (file://): коммит A, тег v1 → A, коммит B,
@@ -31,6 +32,8 @@ func pinRepo(t *testing.T, moveTag bool) (string, string, string) {
 	git(t, dir, "init", "-q", "-b", "main")
 	git(t, dir, "config", "user.email", "pin@test")
 	git(t, dir, "config", "user.name", "pin")
+	// GitHub разрешает fetch по SHA; локальный bare-по умолчанию — нет
+	git(t, dir, "config", "uploadpack.allowAnySHA1InWant", "true")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("A\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -62,13 +65,27 @@ func TestPinCloneOK(t *testing.T) {
 	}
 }
 
-func TestPinCatchMovedTag(t *testing.T) {
-	// тег v1 переставили на B: клон HEAD=B != пин A → fail-closed
-	src, shaA, shaB := pinRepo(t, true)
+func TestPinIgnoreMovedTag(t *testing.T) {
+	// тег v1 переставили на B: пин A — детерминизм, ставим контент A,
+	// тег в дело не вмешивается
+	src, shaA, _ := pinRepo(t, true)
 	dst := t.TempDir()
-	err := CloneToPinned(src, "v1", shaA, filepath.Join(dst, "plug"))
+	if err := CloneToPinned(src, "v1", shaA, filepath.Join(dst, "plug")); err != nil {
+		t.Fatalf("пин A (тег сдвинут): %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dst, "plug", "f.txt"))
+	if err != nil || string(raw) != "A\n" {
+		t.Fatalf("контент = %q (want A — тег сдвинули на B, пин обязан выдать A)", raw)
+	}
+}
+
+func TestPinUnknownSHA(t *testing.T) {
+	// SHA, которого в репо нет (полная переписистория/захват) → fail-closed
+	src, _, _ := pinRepo(t, false)
+	dst := t.TempDir()
+	err := CloneToPinned(src, "v1", strings.Repeat("0", 40), filepath.Join(dst, "plug"))
 	if err == nil {
-		t.Fatalf("переставленный тег не пойман (HEAD=%s пин=%s)", shaB, shaA)
+		t.Fatalf("несуществующий SHA не пойман")
 	}
 }
 
