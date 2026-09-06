@@ -9,9 +9,10 @@ package api
 // игнорирует (yaml.v3 без KnownFields), редактор читает обратно.
 // v0.27: when — под управлением редактора (path/op/value, 10 операторов ядра).
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach/foreach_item/
-// item_type/item_format на пайплайне (управляющий поток целиком, кроме retry).
-// Всё, чего редактор не управляет (retry, secrets, network, type-объявления
-// в input) — выносится в unsupported: сохранение такого пайплайна из редактора
+// item_type/item_format на пайплайне (управляющий поток целиком).
+// v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
+// Всё, чего редактор не управляет (secrets, network, type-объявления в
+// input) — выносится в unsupported: сохранение такого пайплайна из редактора
 // запрещено (данные не теряются).
 
 import (
@@ -64,6 +65,16 @@ type editorStep struct {
 	ForeachItem   string `json:"foreach_item"`
 	AfterForeach  bool   `json:"after_foreach"`
 	ParallelGroup string `json:"parallel_group"`
+	// v0.29: retry (вместе с on_error: retry)
+	Retry *editorRetry `json:"retry,omitempty"`
+}
+
+// editorRetry — v0.29: политика повторов (ядро: PROTOCOL §5: retry повторяет
+// таймауты и доменные ошибки с retryable: true; исчерпанный retry = stop).
+type editorRetry struct {
+	Attempts int    `json:"attempts"`
+	Delay    string `json:"delay"`   // "5s", "100ms", … (time.ParseDuration)
+	Backoff  string `json:"backoff"` // fixed | exponential
 }
 
 type editorDoc struct {
@@ -170,9 +181,12 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		es.ForeachItem = st.ForeachItem
 		es.AfterForeach = st.AfterForeach
 		es.ParallelGroup = st.ParallelGroup
-		// поля, которых редактор v0.28 не управляет
 		if st.Retry != nil {
-			doc.Unsupported = append(doc.Unsupported, st.ID+": retry")
+			re := &editorRetry{Attempts: st.Retry.Attempts, Backoff: st.Retry.Backoff}
+			if st.Retry.Delay.Duration > 0 {
+				re.Delay = st.Retry.Delay.Duration.String()
+			}
+			es.Retry = re
 		}
 		doc.Steps = append(doc.Steps, es)
 	}
@@ -199,10 +213,17 @@ type outStep struct {
 	OnReject string            `yaml:"on_reject,omitempty"`
 	When     *outWhen          `yaml:"when,omitempty"`
 	// v0.28: управляющий поток шага
-	Foreach       string `yaml:"foreach,omitempty"`
-	ForeachItem   string `yaml:"foreach_item,omitempty"`
-	AfterForeach  bool   `yaml:"after_foreach,omitempty"`
-	ParallelGroup string `yaml:"parallel_group,omitempty"`
+	Foreach       string    `yaml:"foreach,omitempty"`
+	ForeachItem   string    `yaml:"foreach_item,omitempty"`
+	AfterForeach  bool      `yaml:"after_foreach,omitempty"`
+	ParallelGroup string    `yaml:"parallel_group,omitempty"`
+	Retry         *outRetry `yaml:"retry,omitempty"`
+}
+
+type outRetry struct {
+	Attempts int    `yaml:"attempts"`
+	Delay    string `yaml:"delay,omitempty"`
+	Backoff  string `yaml:"backoff,omitempty"`
 }
 
 type outWhen struct {
@@ -315,6 +336,18 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		step.ForeachItem = st.ForeachItem
 		step.AfterForeach = st.AfterForeach
 		step.ParallelGroup = st.ParallelGroup
+		if st.Retry != nil {
+			r := &pipeline.Retry{Attempts: st.Retry.Attempts, Backoff: st.Retry.Backoff}
+			if st.Retry.Delay != "" {
+				d, err := time.ParseDuration(st.Retry.Delay)
+				if err != nil {
+					http.Error(w, "retry "+st.ID+": delay: "+err.Error(), 400)
+					return
+				}
+				r.Delay = pipeline.Duration{Duration: d}
+			}
+			step.Retry = r
+		}
 		pf.Pipeline.Steps = append(pf.Pipeline.Steps, step)
 	}
 	// схема → YAML (через теневой вывод, чтобы pos прописался)
@@ -351,6 +384,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		os.ForeachItem = st.ForeachItem
 		os.AfterForeach = st.AfterForeach
 		os.ParallelGroup = st.ParallelGroup
+		if st.Retry != nil {
+			os.Retry = &outRetry{Attempts: st.Retry.Attempts, Delay: st.Retry.Delay.Duration.String(), Backoff: st.Retry.Backoff}
+		}
 		out.Pipeline.Steps = append(out.Pipeline.Steps, os)
 	}
 	raw, err := yaml.Marshal(&out)

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -55,12 +54,38 @@ func CloneTo(source, ref, dir string) error {
 	return CloneToPinned(source, ref, "", dir)
 }
 
-// CloneToPinned — CloneTo + supply-chain-пин (v0.28a): если commit задан,
-// HEAD клона обязан совпасть с ним. Тег в реестре переставляемы (attacker с
-// доступом к репо двигает тег на вредоносный коммит) — SHA, зафиксированный
-// в реестре, это ловит: клон сдвинутого тега не пройдёт проверку и установка
-// падает (fail-closed), а не молча ставит чужой код.
+// CloneToPinned — CloneTo + supply-chain-пин (v0.28a, уточнение v0.29):
+//   - commit == "" — классика: клон ref (тег/ветка);
+//   - commit != "" — детерминизм: тянем РОВНО этот SHA (git fetch <sha>),
+//     тег из реестра в дело не вмешивается. Тег переставили — всё равно
+//     ставим зафиксированный контент; SHA переписали (полный захват репо) —
+//     fetch не найдёт коммит и установка падает (fail-closed).
+//
+// SHA не может «указывать на себя» (он неизвестен до коммита), поэтому пин —
+// всегда SHA предшествующей проверенной ревизии, содержимое которой сверено.
 func CloneToPinned(source, ref, commit, dir string) error {
+	if commit == "" {
+		return cloneRef(source, ref, dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	steps := [][]string{
+		{"init", "-q", dir},
+		{"-C", dir, "remote", "add", "origin", source},
+		{"-C", dir, "fetch", "-q", "--depth", "1", "origin", commit},
+		{"-C", dir, "checkout", "-q", "-f", "FETCH_HEAD"},
+	}
+	for _, a := range steps {
+		out, err := exec.Command("git", a...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("supply-chain пин %s@%s: %s: %s", source, commit, err, string(out))
+		}
+	}
+	return nil
+}
+
+func cloneRef(source, ref, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -68,18 +93,6 @@ func CloneToPinned(source, ref, commit, dir string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone %s@%s: %s: %s", source, ref, err, string(out))
-	}
-	if commit == "" {
-		return nil
-	}
-	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git rev-parse в клоне: %s: %s", err, string(headOut))
-	}
-	head := strings.TrimSpace(string(headOut))
-	if !strings.HasPrefix(head, commit) && !strings.HasPrefix(commit, head) {
-		return fmt.Errorf("supply-chain: HEAD клона %s != зафиксированный commit %s — "+
-			"тег %q, видимо, переставили; обнови запись реестра (commit:) и пересверь", head, commit, ref)
 	}
 	return nil
 }
