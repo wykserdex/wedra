@@ -1,0 +1,82 @@
+# Контракт-тесты the_harvester (mock CLI, без сети и без theHarvester).
+tests:
+  - name: harvest → нормализованные массивы
+    env: { THEHARVESTER_BIN: "mock_theharvester.py" }
+    input: { domain: "example.com", sources: ["crtsh", "hackertarget"], limit: 10 }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        emails: ["a@example.com", "b@example.com"]
+        hosts: ["api.example.com:1.2.3.4"]
+        people: ["John Doe"]
+        vhosts: ["v1.example.com:1.2.3.4"]
+        asns: ["AS15169"]
+        interesting_urls: ["https://example.com/admin"]
+
+  - name: пусто (ничего не нашлось) → ok, все массивы пустые
+    env: { THEHARVESTER_BIN: "mock_theharvester.py", MOCK_EMPTY: "1" }
+    input: { domain: "nikogdenet.example" }
+    expect:
+      status: ok
+      output:
+        domain: nikogdenet.example
+        emails: []
+        hosts: []
+        people: []
+        vhosts: []
+        asns: []
+        interesting_urls: []
+
+  - name: пустой domain → доменная ошибка
+    env: { THEHARVESTER_BIN: "mock_theharvester.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain }
+
+  - name: sources не массив → платформенная ошибка
+    env: { THEHARVESTER_BIN: "mock_theharvester.py" }
+    input: { domain: "example.com", sources: "crtsh" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_sources }
+
+  - name: theHarvester не установлен (путь)
+    env: { THEHARVESTER_BIN: "/nonexistent/theharvester-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: the_harvester_not_installed, retryable: false }
+
+  - name: theHarvester не установлен (имя из PATH)
+    env: { THEHARVESTER_BIN: "definitely_not_a_harvester_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: the_harvester_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { THEHARVESTER_BIN: "mock_theharvester.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: theHarvester без репорта → доменная ошибка
+    env: { THEHARVESTER_BIN: "mock_theharvester.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { THEHARVESTER_BIN: "mock_theharvester.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

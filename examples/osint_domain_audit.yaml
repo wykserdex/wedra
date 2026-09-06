@@ -1,0 +1,45 @@
+format_version: "0.2"
+
+# OSINT-аудит домена (v0.4): domain → ПАРАЛЛЕЛЬНО: crt.sh (сертификаты CT)
+# + theHarvester (emails/имена/субдомены) → человек решает.
+#
+# Требования: crt.sh — встроен (без зависимостей); theHarvester ставится
+# из git (на PyPI — чужой squatted-пакет):
+#   pip install git+https://github.com/laramies/theHarvester.git@4.9.2
+# Без theHarvester шаг harvest падает в доменную ошибку — валидация
+# и lint пайплайна при этом зелёные. on_error: retry — сетевые таймауты
+# повторяются (механика v0.29).
+
+pipeline:
+  name: osint_domain_audit
+  input:
+    domain: "example.com"
+    sources: ["crtsh", "hackertarget"]
+    limit: 50
+
+  steps:
+    - id: certs
+      plugin: plugins/community/crtsh
+      parallel_group: osint
+      bind: { domain: input.domain }
+      on_error: retry
+      retry: { attempts: 2, delay: 2s, backoff: exponential }
+      timeout: 120s
+
+    - id: harvest
+      plugin: plugins/community/the_harvester
+      parallel_group: osint
+      bind: { domain: input.domain, sources: input.sources, limit: input.limit }
+      on_error: retry
+      retry: { attempts: 2, delay: 2s, backoff: exponential }
+      timeout: 900s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.certs.total, editable: false }
+        - { field: steps.certs.expired, editable: false }
+        - { field: steps.harvest.emails, editable: false }
+        - { field: steps.harvest.hosts, editable: false }
+      actions: [accept, reject]
+      on_reject: stop
