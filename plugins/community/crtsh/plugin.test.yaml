@@ -1,0 +1,51 @@
+# Контракт-тесты crtsh (mock HTTP-ответ, без сети).
+tests:
+  - name: реестр → агрегаты (имена, issuers, просроченные)
+    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 3
+        expired: 2
+        names:
+          - api.example.com
+          - example.com
+          - www.example.com
+          - blog.example.com
+        issuers:
+          - "O=Let's Encrypt, CN=R3"
+          - "O=DigiCert, CN=Secure Site CA G2"
+
+  - name: пустой реестр (домена нет) → ok, total 0
+    env: { CRTHS_MOCK_FILE: "mock_response_empty.json" }
+    input: { domain: "nikogdenet.example" }
+    expect:
+      status: ok
+      output:
+        total: 0
+        expired: 0
+        names: []
+        issuers: []
+
+  - name: пустой domain → доменная ошибка
+    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    input: { domain: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain }
+
+  - name: mock-файла нет → платформенная ошибка
+    env: { CRTHS_MOCK_FILE: "no_such_file.json" }
+    input: { domain: "example.com" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_response }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2

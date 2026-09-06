@@ -1,0 +1,49 @@
+id: the_harvester
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  theHarvester (laramies) — email, имена, субдомены и хосты по домену из
+  поисковиков/CT/соцсетей. Обёртка над CLI theHarvester (4.9.x): JSON-репорт
+  (-f). Устанавливается из git: pip install
+  git+https://github.com/laramies/theHarvester.git@4.9.2 (на PyPI — чужой
+  squatted-пакет 0.0.1).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; theHarvester ставится отдельно (git, см. description)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text
+  sources:
+    from: input.sources
+    type: array
+    optional: true      # bing, google, duckduckgo, github, hackertarget,
+                        # crtsh, waybackmachine, ...; без неё — все источники
+  limit:
+    from: input.limit
+    type: number
+    optional: true      # лимит результатов (default 500)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  domain:             { type: string }
+  emails:             { type: array }
+  hosts:              { type: array }
+  people:             { type: array }
+  vhosts:             { type: array }
+  asns:               { type: array }
+  interesting_urls:   { type: array }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []           # theHarvester берёт ключи (google/bing/censys) из файла
+                        # api-keys.json, не из env — env-ключей не читаем
