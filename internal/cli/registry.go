@@ -152,7 +152,7 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 	if err != nil {
 		return nil, err
 	}
-	if err := registry.CloneTo(entry.Source, entry.Version, tmp); err != nil {
+	if err := registry.CloneToPinned(entry.Source, entry.Version, entry.Commit, tmp); err != nil {
 		os.RemoveAll(tmp)
 		return nil, err
 	}
