@@ -41,6 +41,8 @@
   .plug .io{font-family:var(--mono);font-size:10px;color:var(--par);margin-top:3px}
   .plug.gate{border-color:rgba(188,140,255,.4)}
   /* canvas */
+  .plug-ghost{position:fixed;z-index:99;pointer-events:none;opacity:.9;padding:5px 10px;background:var(--bg3);border:1px solid var(--acc);border-radius:8px;font-family:var(--mono);font-size:11px;color:var(--par)}
+  #canvas-wrap.drop-over{outline:2px dashed var(--acc);outline-offset:-8px}
   #canvas-wrap{overflow:auto;position:relative;background:
     linear-gradient(var(--line) 1px, transparent 1px),
     linear-gradient(90deg, var(--line) 1px, transparent 1px);
