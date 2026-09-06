@@ -1,0 +1,40 @@
+id: holehe
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Holehe (megadose) — проверка email/username на утечки по 120+ сайтам.
+  Обёртка над CLI holehe (CSV-репорт -C): сайты, где адрес в ходу (exists),
+  сайты с rate limit, phone-номера из профилей. Holehe ставится отдельно:
+  pip install holehe.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет holehe — отдельно (pip install holehe)
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # email, username или телефон
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # таймаут на сайт, секунды (default 10)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  target:         { type: string }
+  leaks:          { type: array }
+  checked:        { type: number }
+  rate_limited:   { type: number }
+  phone_numbers:  { type: array }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []
