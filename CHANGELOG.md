@@ -1,5 +1,21 @@
 # Changelog — честная 0.x
 
+## v0.8 (2026-09-06) — desktop-exe: двойной клик = окно с GUI (v1.0-трек)
+
+- cmd/wedragui: desktop-приложение — встроенный сервер (v0.7) на случайном
+  порту 127.0.0.1 + окно «WEDRA» (WebView2, чистый Go, без CGO;
+  jchv/go-webview2, loader-DLL вшита).
+- Windows 10 1803+ (WebView2-рантайм встроен). Нет рантайма → честный
+  фолбэк: URL в консоль/лог + системный браузер.
+- Каталоги рядом с exe: plugins/, pipelines/, runs/; лог —
+  %APPDATA%/WEDRA/wedragui.log; выход — закрыть окно.
+- linux/darwin: GUI в системном браузере (dev-путь).
+- CI: cross-build wedragui (linux/darwin/windows amd64+arm64) + PE-чек +
+  live-прогон в чистом каталоге. Release: +wedragui-windows-{amd64,arm64}.exe.
+- Честно: runtime-проверка окна — на Windows (в песочнице нет); серверная
+  часть live-проверена на linux.
+
+
 ## v0.7 (2026-09-06) — GUI в бинарнике (v1.0-трек, release-срез)
 
 - go:embed web/static (package web): GUI (консоль + редактор) вшит в

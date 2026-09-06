@@ -17,6 +17,7 @@
 - pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
 - **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
   `when:`, `foreach:` на шаге, `parallel_group`
+- **v0.8 (app): desktop-exe (cmd/wedragui, WebView2, чистый Go); протокол без изменений**.
 - **v0.7 (app): GUI вшит в бинарник (go:embed) — release-артефакты автономны; протокол без изменений**.
 - **v0.6 (app): редактор управляет pipeline.network (политика allow/deny); протокол без изменений**.
 - **v0.5 (app): редактор управляет pipeline.secrets (env-ключи плагинов); протокол без изменений**.
