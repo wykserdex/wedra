@@ -1,0 +1,42 @@
+id: maigret
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Maigret (soxrave) — поиск username по 4000+ сайтам. Обёртка над CLI maigret:
+  запускает поиск ника, собирает JSON-репорт (-J simple), возвращает сайты с
+  найденным (Claimed) аккаунтом. Maigret ставится отдельно: pip install maigret.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет maigret — отдельно (pip install maigret)
+
+input:
+  username:
+    from: input.username
+    type: string
+    format: text
+  sites:
+    from: input.sites
+    type: array
+    optional: true      # без него — вся база (~4400 сайтов, долго)
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # таймаут на запрос, секунды (default 10)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  username: { type: string }
+  found:    { type: array }
+  checked:  { type: number }
+  claimed:  { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

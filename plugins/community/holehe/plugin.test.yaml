@@ -1,0 +1,60 @@
+# Контракт-тесты holehe (mock holehe CLI, без сети и без пакета holehe).
+tests:
+  - name: проверка → утечки + rate limit + телефоны
+    env: { HOLEHE_BIN: "mock_holehe.py" }
+    input: { target: "demo@example.com", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        target: "demo@example.com"
+        checked: 3
+        rate_limited: 1
+        leaks:
+          - { site: github, domain: "github.com", method: login }
+        phone_numbers: ["+79991234567"]
+
+  - name: пустой target → доменная ошибка
+    env: { HOLEHE_BIN: "mock_holehe.py" }
+    input: { target: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target }
+
+  - name: holehe не установлен (путь)
+    env: { HOLEHE_BIN: "/nonexistent/holehe-bin" }
+    input: { target: "x@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: holehe_not_installed, retryable: false }
+
+  - name: holehe не установлен (имя из PATH)
+    env: { HOLEHE_BIN: "definitely_not_a_holehe_bin_xyz" }
+    input: { target: "x@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: holehe_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { HOLEHE_BIN: "mock_holehe.py", MOCK_SLEEP: "3" }
+    input: { target: "x@example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: holehe без CSV → доменная ошибка
+    env: { HOLEHE_BIN: "mock_holehe.py", MOCK_NO_CSV: "1" }
+    input: { target: "x@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { HOLEHE_BIN: "mock_holehe.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

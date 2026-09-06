@@ -1,0 +1,41 @@
+format_version: "0.2"
+
+# OSINT-цепочка (v0.3): username → Maigret (4000+ сайтов) → email → Holehe
+# (120+ сайтов на утечки) → человек решает.
+#
+# Требует отдельные CLI:  pip install maigret holehe
+# Без них шаги падают в доменные ошибки (maigret_not_installed /
+# holehe_not_installed) — валидация и lint пайплайна при этом зелёные.
+# on_error: retry + retry-блок — повторы по сетевым таймаутам/ошибкам.
+
+pipeline:
+  name: osint_username_audit
+  input:
+    username: "torvalds"
+    email: "test.user.2024@example.com"
+    sites: ["github", "wikipedia"]
+
+  steps:
+    - id: usernames
+      plugin: plugins/community/maigret
+      bind: { username: input.username, sites: input.sites }
+      on_error: retry
+      retry: { attempts: 2, delay: 2s, backoff: exponential }
+      timeout: 300s
+
+    - id: leaks
+      plugin: plugins/community/holehe
+      bind: { target: input.email }
+      on_error: retry
+      retry: { attempts: 2, delay: 2s, backoff: exponential }
+      timeout: 300s
+
+    - id: review
+      plugin: core/human_gate
+      form:
+        - { field: steps.usernames.claimed, editable: false }
+        - { field: steps.usernames.checked, editable: false }
+        - { field: steps.leaks.checked, editable: false }
+        - { field: steps.leaks.rate_limited, editable: false }
+      actions: [accept, reject]
+      on_reject: stop
