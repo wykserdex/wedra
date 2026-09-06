@@ -1,5 +1,18 @@
 # Changelog — честная 0.x
 
+## v0.7 (2026-09-06) — GUI в бинарнике (v1.0-трек, release-срез)
+
+- go:embed web/static (package web): GUI (консоль + редактор) вшит в
+  бинарник — release-артефакты из GitHub Release автономны (без репо,
+  без web/static, 3 ОС × 2 арх).
+- Dev-режим: web/static из CWD (checkout) отдаётся с диска — горячая
+  правка JS без пересборки.
+- Убран устаревший фолбэк «GUI postponed in v0.12».
+- TestGUIEmbeddedStatic: frontend из embedded FS (маркеры контента, 404).
+- CI: новый шаг — standalone-бинарник в пустом каталоге (GUI + API).
+- Тесты 181→182. Протокол без изменений.
+
+
 ## v0.6 (2026-09-06) — network в редакторе (v1.0-трек, срез 2)
 
 - Редактор управляет pipeline.network: чекбокс «deny — запретить сеть» в

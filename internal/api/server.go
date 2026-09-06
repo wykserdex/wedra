@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
 	"wedra/internal/plugin"
+	"wedra/web"
 )
 
 // Version — версия бинарника. var (не const): release-воркфлоу переопределяет
@@ -123,13 +125,23 @@ func (s *Server) Routes() http.Handler {
 	// v0.25: редактор — парсинг/сериализация через ядро (JS не держит YAML)
 	mux.HandleFunc("/api/parse/pipeline", s.handleParsePipeline)
 	mux.HandleFunc("/api/serialize/pipeline", s.handleSerializePipeline)
-	// static frontend — если нет web/static, отдаём 404, не падаем
+	// static frontend — v0.7: GUI вшит в бинарник (go:embed, package web).
+	// Если web/static виден из CWD (dev-режим: запуск из checkout репо) —
+	// отдаём с диска (горячая правка JS без пересборки); иначе — из
+	// встроенного FS: release-бинарник работает без репо на любой ОС.
 	if _, err := os.Stat("web/static"); err == nil {
 		mux.Handle("/", http.FileServer(http.Dir("web/static")))
 	} else {
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("GUI postponed in v0.12 — use CLI. API at /api/health"))
-		})
+		static, err := fs.Sub(web.FS, "static")
+		if err != nil {
+			// недостижимо: fs.Sub по паттерну embedded-константы не падает;
+			// фолбэк — честная ошибка вместо «GUI postponed»
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "GUI assets unavailable: "+err.Error(), 500)
+			})
+		} else {
+			mux.Handle("/", http.FileServer(http.FS(static)))
+		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE") && !s.csrfGuard(w, r) {

@@ -125,6 +125,20 @@ jobs:
           echo "network editor: live checks ok"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-ed.log
+      - name: v0.7 standalone binary (embedded GUI, no repo)
+        run: |
+          mkdir -p /tmp/wedra-standalone
+          cp ./wedra /tmp/wedra-standalone/
+          cd /tmp/wedra-standalone
+          ./wedra gui --listen 127.0.0.1:8920 >/tmp/gui-embed.log 2>&1 &
+          GUI_PID=$!
+          for i in $(seq 1 20); do curl -sf localhost:8920/api/health >/dev/null && break; sleep 0.5; done
+          curl -sf localhost:8920/ | grep -q "WEDRA"
+          curl -sf localhost:8920/editor/ | grep -q "редактор"
+          curl -sf localhost:8920/editor/app.js | grep -q "pluginNetworkHint"
+          curl -sf localhost:8920/app.js | grep -q "api/health"
+          kill $GUI_PID 2>/dev/null || true
+          tail -n 3 /tmp/gui-embed.log
       - name: foreach + after_foreach live
         run: |
           ./wedra pipeline run examples/csv_foreach.yaml --yes
