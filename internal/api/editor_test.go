@@ -845,3 +845,194 @@ pipeline:
 		t.Fatalf("нет warning о ключе SECRET_FIXTURE_KEY: %v", warns)
 	}
 }
+
+// ── v0.6: network (платформа allow/deny) в редакторе ──────────────────────
+
+// netFixturePlugin — манифест, заявляющий сеть (declare-now).
+const netFixturePlugin = `id: net-fixture
+version: 0.1.0
+platform_api: "^0.1"
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  item:
+    from: input.item
+    type: string
+    format: text
+output:
+  done: { type: boolean }
+permissions:
+  network:
+    - { host: example.com, port: 443 }
+  filesystem: none
+  secrets: []
+`
+
+// netTestServer — flowTestServer + фикстурный плагин, заявляющий сеть.
+func netTestServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	srv, runs := flowTestServer(t)
+	plugins := filepath.Join(filepath.Dir(runs), "plugins")
+	if err := os.MkdirAll(filepath.Join(plugins, "net-fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugins, "net-fixture", "plugin.yaml"), []byte(netFixturePlugin), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return srv, runs
+}
+
+func TestEditorNetworkParse(t *testing.T) {
+	// v0.6: pipeline.network под управлением — text_stats (офлайн-пайплайн)
+	// отдаёт network: deny в doc, а не в unsupported
+	ts, _ := gateTestServer(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "examples", "text_stats.yaml"))
+	if err != nil {
+		t.Fatalf("пример не читается: %v", err)
+	}
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	if doc["network"] != "deny" {
+		t.Fatalf("doc.network = %v (ждём \"deny\")", doc["network"])
+	}
+	for _, u := range doc["unsupported"].([]interface{}) {
+		if u == "pipeline.network" {
+			t.Fatalf("pipeline.network в unsupported — v0.6 управляет сетью: %v", doc["unsupported"])
+		}
+	}
+}
+
+func TestEditorNetworkRoundTrip(t *testing.T) {
+	// v0.6: deny round-trip'ится; allow (пусто) — поле в YAML не прописывается
+	ts, _ := flowTestServer(t)
+	// 1) deny: test-fixture сеть НЕ заявляет → валидация ok
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: net_deny
+  network: deny
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: test-fixture
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	if doc["network"] != "deny" {
+		t.Fatalf("doc.network = %v", doc["network"])
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out["ok"], out["errors"])
+	}
+	yamlText, _ := out["yaml"].(string)
+	if !strings.Contains(yamlText, "network: deny") {
+		t.Fatalf("yaml без network: deny:\n%s", yamlText)
+	}
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", []byte(yamlText))
+	if doc2["network"] != "deny" {
+		t.Fatalf("network после round-trip = %v", doc2["network"])
+	}
+	// 2) allow (network пуст): поле в YAML не появляется (omitempty)
+	raw2 := []byte(`format_version: "0.2"
+pipeline:
+  name: net_allow
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: test-fixture
+      bind:
+        item: input.x
+`)
+	_, doc3 := postBytes(t, ts.URL+"/api/parse/pipeline", raw2)
+	if doc3["network"] != "" {
+		t.Fatalf("doc.network = %v (ждём пусто = allow)", doc3["network"])
+	}
+	d3, _ := json.Marshal(doc3)
+	_, out3 := postBytes(t, ts.URL+"/api/serialize/pipeline", d3)
+	if out3["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out3["ok"], out3["errors"])
+	}
+	y3, _ := out3["yaml"].(string)
+	if strings.Contains(y3, "network:") {
+		t.Fatalf("allow: field network: прописан в YAML:\n%s", y3)
+	}
+}
+
+func TestEditorNetworkDenyConflict(t *testing.T) {
+	// v0.6: кросс-чек ядра — плагин заявил сеть + network: deny = ОШИБКА
+	// (declare-now: честный сетевой плагин не спрятается за «пайплайн не просил»)
+	ts, _ := netTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: net_conflict
+  network: deny
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: net-fixture
+      bind:
+        item: input.x
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] == true {
+		t.Fatalf("ок=TRUE при плагине с сетью + deny — кросс-чек сломан")
+	}
+	joined := ""
+	for _, e := range out["errors"].([]interface{}) {
+		joined += e.(string) + " "
+	}
+	if !strings.Contains(joined, "network: deny") {
+		t.Fatalf("ошибка без network: deny: %s", joined)
+	}
+	// без deny: то же самое пайплайн валиден, warning про заявленную сеть
+	raw2 := []byte(`format_version: "0.2"
+pipeline:
+  name: net_ok
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: net-fixture
+      bind:
+        item: input.x
+`)
+	_, doc2 := postBytes(t, ts.URL+"/api/parse/pipeline", raw2)
+	d2, _ := json.Marshal(doc2)
+	code, out2 := postBytes(t, ts.URL+"/api/serialize/pipeline", d2)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out2)
+	}
+	if out2["ok"] != true {
+		t.Fatalf("ok=%v errors=%v", out2["ok"], out2["errors"])
+	}
+	warns := ""
+	for _, w := range out2["warnings"].([]interface{}) {
+		warns += w.(string) + " "
+	}
+	if !strings.Contains(warns, "example.com:443") {
+		t.Fatalf("нет warning про заявленную сеть example.com:443: %s", warns)
+	}
+}

@@ -17,6 +17,7 @@
 - pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
 - **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
   `when:`, `foreach:` на шаге, `parallel_group`
+- **v0.6 (app): редактор управляет pipeline.network (политика allow/deny); протокол без изменений**.
 - **v0.5 (app): редактор управляет pipeline.secrets (env-ключи плагинов); протокол без изменений**.
 - **v0.4a (registry): записи crtsh/the_harvester с SHA-пинами на v0.4 · v0.4: community-плагины crtsh (встроенный stdlib-HTTP) + the_harvester (обёртка CLI); протокол без изменений**.
 - **v0.3a (registry): записи maigret/holehe с SHA-пинами на v0.3 (формат реестра не меняется) · v0.3: community-плагины maigret/holehe (обёртки внешних OSINT-CLI, declare-now сеть); протокол без изменений**.

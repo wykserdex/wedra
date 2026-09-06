@@ -6,8 +6,10 @@
 // v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
 // v0.5: secrets (pipeline.secrets — env-ключи плагинов) в UI (чипы в
 // блоке «Пайплайн» + подсказка в шаге, какой ключ просит плагин).
-// Честный скоуп: network и type-объявления input не управляются — такие
-// пайплайны открываются с баннером и без сохранения.
+// v0.6: network (pipeline.network — политика allow/deny) в UI: чекбокс
+// «deny» + подсказка в шаге, какую сеть просит плагин (и не запрещено ли).
+// Честный скоуп: type-объявления input не управляются — такие пайплайны
+// открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const GRID = 20;
@@ -16,7 +18,7 @@ const snap = v => Math.round(v / GRID) * GRID;
 let state = {
   plugins: [],
   doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [],
-    secrets: [],
+    secrets: [], network: '',
     foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
@@ -298,6 +300,18 @@ function retryBlock(st) {
     <select data-srbackoff><option value="fixed"${(r && r.backoff === 'fixed') || (!r) ? ' selected' : ''}>fixed</option><option value="exponential"${r && r.backoff === 'exponential' ? ' selected' : ''}>exponential</option></select></div></div>` : ''}`;
 }
 
+// v0.6: подсказка в шаге — какую сеть просит плагин (манифест) и не
+// запрещена ли она политикой пайплайна.
+function pluginNetworkHint(st) {
+  const info = pluginInfo(st.plugin);
+  const net = (info && info.permissions && info.permissions.network) || [];
+  if (!net.length) return '';
+  const hosts = net.map(n => (n.any_host ? '*' : (n.host + ':' + n.port))).join(', ');
+  if (state.doc.network === 'deny')
+    return `<div class="hint">сеть плагина: <span style="color:var(--err,#e5534b)">${esc(hosts)} — пайплайн запрещает сеть (network: deny, ошибка валидации)</span></div>`;
+  return `<div class="hint">сеть плагина: ${esc(hosts)} (declare-now, аудит — журнал)</div>`;
+}
+
 // v0.5: подсказка в шаге — какие env-ключи просит плагин (манифест) и
 // объявлены ли они в pipeline secrets.
 function pluginSecretsHint(st) {
@@ -328,7 +342,7 @@ function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.5 не управляет:
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.6 не управляет:
       <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
       правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
   }
@@ -363,6 +377,7 @@ function renderProps() {
       </div>
       <div class="pblock"><label>плагин</label><input value="${esc(st.plugin)}" readonly style="color:var(--dim)"/></div>
       ${pluginSecretsHint(st)}
+      ${pluginNetworkHint(st)}
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
       ${whenBlock(st)}
       ${flowBlock(st)}
@@ -381,10 +396,14 @@ function renderProps() {
         <button data-inadd>+ вход</button></div>
       <div class="pblock"><label>secrets — env-ключи для плагинов (v0.5)</label>
         ${secretsBlock()}</div>
+      <div class="pblock"><label>network — сетевая политика (v0.6)</label>
+        <label style="cursor:pointer"><input type="checkbox" data-ndeny ${state.doc.network === 'deny' ? 'checked' : ''}/> deny — запретить сеть</label>
+        <div class="hint">Выкл (allow): плагин сам декларирует сеть в манифесте (declare-now, аудит — журнал).
+        deny: шаг, чей плагин заявил сеть, — ошибка (валидатор и раннер: WEDRA_NETWORK=deny).</div></div>
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
-      network и type-объявления input — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      type-объявления input — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -530,6 +549,9 @@ function wireProps(st) {
     state.doc.secrets.splice(+b.dataset.sdel, 1);
     renderAll();
   });
+  // v0.6: network — политика allow/deny
+  const ndeny = el.querySelector('[data-ndeny]');
+  if (ndeny) ndeny.onchange = () => { pushUndo(); state.doc.network = ndeny.checked ? 'deny' : ''; renderAll(); };
 }
 
 function renderAll() {
@@ -687,7 +709,7 @@ async function openFile(file) {
       })),
       foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
       item_type: doc.item_type || '', item_format: doc.item_format || '',
-      secrets: doc.secrets || [],
+      secrets: doc.secrets || [], network: doc.network || '',
     };
     state.unsupported = doc.unsupported || [];
     state.sel = null;

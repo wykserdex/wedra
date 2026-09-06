@@ -13,8 +13,10 @@ package api
 // v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
 // v0.5: secrets (pipeline.secrets — env-ключи плагинов) под управлением
 // редактора; кросс-чек «плагин ↔ пайплайн» — валидатор ядра (warnings).
-// Осталось вне редактора: network и type-объявления в input — такие
-// пайплайны выносятся в unsupported: сохранение из редактора запрещено
+// v0.6: network (pipeline.network — политика allow/deny) под управлением
+// редактора; кросс-чек «плагин заявил сеть + deny» — ошибка валидатора.
+// Осталось вне редактора: type-объявления в input — такие пайплайны
+// выносятся в unsupported: сохранение из редактора запрещено
 // (данные не теряются).
 
 import (
@@ -86,7 +88,11 @@ type editorDoc struct {
 	Steps         []editorStep  `json:"steps"`
 	// v0.5: env-ключи, которые ядро передаст плагинам (кросс-чек с
 	// permissions.secrets манифестов — валидатор, warnings)
-	Secrets     []string `json:"secrets"`
+	Secrets []string `json:"secrets"`
+	// v0.6: сетевая политика — "" (allow, дефолт: плагин видит
+	// WEDRA_NETWORK=allow и сам декларирует сеть в манифесте) или "deny"
+	// (шаг с заявленной сетью — ошибка валидатора и раннера)
+	Network     string   `json:"network"`
 	Unsupported []string `json:"unsupported"`
 	// v0.28: управляющий поток пайплайна (батч по массиву)
 	Foreach     string `json:"foreach"`
@@ -201,9 +207,8 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 	} else {
 		doc.Secrets = []string{}
 	}
-	if pf.Pipeline.Network != "" {
-		doc.Unsupported = append(doc.Unsupported, "pipeline.network")
-	}
+	// v0.6: network под управлением редактора (was: unsupported)
+	doc.Network = pf.Pipeline.Network
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(doc)
 }
@@ -247,6 +252,7 @@ type outFile struct {
 		Input       map[string]any `yaml:"input,omitempty"`
 		Steps       []outStep      `yaml:"steps"`
 		Secrets     []string       `yaml:"secrets,omitempty"` // v0.5
+		Network     string         `yaml:"network,omitempty"` // v0.6
 		Foreach     string         `yaml:"foreach,omitempty"`
 		ForeachItem string         `yaml:"foreach_item,omitempty"`
 		ItemType    string         `yaml:"item_type,omitempty"`
@@ -299,6 +305,10 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		if key := strings.TrimSpace(k); key != "" {
 			pf.Pipeline.Secrets = append(pf.Pipeline.Secrets, key)
 		}
+	}
+	// v0.6: network — только две политики (раннер: != "deny" = allow)
+	if strings.TrimSpace(doc.Network) == "deny" {
+		pf.Pipeline.Network = "deny"
 	}
 	for _, st := range doc.Steps {
 		step := pipeline.Step{
@@ -379,6 +389,7 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	if len(pf.Pipeline.Secrets) > 0 {
 		out.Pipeline.Secrets = pf.Pipeline.Secrets
 	}
+	out.Pipeline.Network = pf.Pipeline.Network // omitempty: allow = поля нет
 	for _, st := range pf.Pipeline.Steps {
 		os := outStep{ID: st.ID, Plugin: st.Plugin, Pos: docStepPos(doc, st.ID), OnError: st.OnError}
 		if st.Timeout.Duration > 0 {
