@@ -1,5 +1,14 @@
 # Changelog — честная 0.x
 
+## v0.4a (2026-09-06) — crtsh/the_harvester в реестре
+
+- Записи crtsh + the_harvester в registry.yaml: commit = 003fb4f
+  (SHA v0.4 — контент зафиксирован).
+- 33 старые записи: версия v0.4a, контент и пины без изменений.
+- Отдельный буквенный релиз: SHA-пин нового контента неизвестен до
+  коммита (дисциплина supply-chain, v0.28a/v0.29/v0.3).
+
+
 ## v0.4 (2026-09-06) — OSINT-аудит домена: crt.sh + theHarvester
 
 - `plugins/community/crtsh`: встроенный (stdlib-HTTP, без зависимостей) —
