@@ -3,7 +3,8 @@
 // v0.27: when — условие шага (path/op/value, 10 операторов ядра).
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach-батч
 // пайплайна (foreach/foreach_item/item_type/item_format).
-// Честный скоуп: retry/secrets/network не управляются — такие пайплайны
+// v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
+// Честный скоуп: secrets/network не управляются — такие пайплайны
 // открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
@@ -115,7 +116,7 @@ function addStep(plugin, x, y) {
   const st = {
     id: nextStepId(), plugin, pos: [snap(x), snap(y)],
     on_error: 'stop', timeout: '', bind: {}, when: null,
-    foreach: '', foreach_item: '', after_foreach: false, parallel_group: '',
+    foreach: '', foreach_item: '', after_foreach: false, parallel_group: '', retry: null,
   };
   if (plugin === 'core/human_gate') {
     st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop';
@@ -280,11 +281,25 @@ function pipelineFlowBlock() {
   (агрегаты steps.X_all). См. examples/csv_foreach_summary.yaml.</div>`;
 }
 
+// v0.29: retry — повтор таймаутов и retryable-ошибок; исчерпан = stop.
+function retryBlock(st) {
+  const r = st.retry;
+  const on = r || st.on_error === 'retry';
+  return `
+  <div class="pblock"><label><input type="checkbox" data-sretry ${on ? 'checked' : ''}/> retry — повторять таймауты и retryable-ошибки (исчерпан = stop)</label></div>
+  ${on ? `<div class="prow"><div class="pblock" style="flex:1"><label>attempts (≥1)</label>
+    <input data-srattempts type="number" min="1" value="${esc(r ? r.attempts : 3)}" spellcheck="false"/></div>
+  <div class="pblock" style="flex:1"><label>delay (2s, 500ms, 1m…)</label>
+    <input data-srdelay value="${esc(r ? (r.delay || '') : '')}" placeholder="2s" spellcheck="false"/></div>
+  <div class="pblock" style="flex:1"><label>backoff</label>
+    <select data-srbackoff><option value="fixed"${(r && r.backoff === 'fixed') || (!r) ? ' selected' : ''}>fixed</option><option value="exponential"${r && r.backoff === 'exponential' ? ' selected' : ''}>exponential</option></select></div></div>` : ''}`;
+}
+
 function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.28 не управляет:
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.29 не управляет:
       <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
       правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
   }
@@ -315,12 +330,13 @@ function renderProps() {
       <div class="prow">
         <div class="pblock"><label>id</label><input data-sid value="${esc(st.id)}" spellcheck="false"/></div>
         <div class="pblock"><label>on_error</label>
-          <select data-serr><option value="stop"${st.on_error === 'stop' ? ' selected' : ''}>stop</option><option value="skip"${st.on_error === 'skip' ? ' selected' : ''}>skip</option></select></div>
+          <select data-serr><option value="stop"${st.on_error === 'stop' ? ' selected' : ''}>stop</option><option value="skip"${st.on_error === 'skip' ? ' selected' : ''}>skip</option><option value="retry"${st.on_error === 'retry' ? ' selected' : ''}>retry (блок ниже)</option></select></div>
       </div>
       <div class="pblock"><label>плагин</label><input value="${esc(st.plugin)}" readonly style="color:var(--dim)"/></div>
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
       ${whenBlock(st)}
       ${flowBlock(st)}
+      ${retryBlock(st)}
       ${ins}
       ${gateBlock}
       <button class="danger" data-del>удалить шаг</button>
@@ -336,7 +352,7 @@ function renderProps() {
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
-      retry/secrets/network — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      secrets/network — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -368,7 +384,30 @@ function wireProps(st) {
     renderAll();
   };
   const serr = el.querySelector('[data-serr]');
-  if (serr) serr.onchange = () => { pushUndo(); st.on_error = serr.value; renderAll(); };
+  if (serr) serr.onchange = () => {
+    pushUndo();
+    st.on_error = serr.value;
+    // v0.29: on_error=retry без блока — заполняем дефолты (3/1s/fixed)
+    if (serr.value === 'retry' && !st.retry) st.retry = { attempts: 3, delay: '1s', backoff: 'fixed' };
+    renderAll();
+  };
+  const sret = el.querySelector('[data-sretry]');
+  if (sret) sret.onchange = () => {
+    pushUndo();
+    if (sret.checked) {
+      st.retry = st.retry || { attempts: 3, delay: '1s', backoff: 'fixed' };
+    } else {
+      st.retry = null;
+      if (st.on_error === 'retry') st.on_error = 'stop';
+    }
+    renderAll();
+  };
+  const sra = el.querySelector('[data-srattempts]');
+  if (sra) sra.onchange = () => { pushUndo(); if (st.retry) st.retry.attempts = Math.max(1, parseInt(sra.value, 10) || 1); renderAll(); };
+  const srd = el.querySelector('[data-srdelay]');
+  if (srd) srd.onchange = () => { pushUndo(); if (st.retry) st.retry.delay = srd.value.trim(); renderAll(); };
+  const srb = el.querySelector('[data-srbackoff]');
+  if (srb) srb.onchange = () => { pushUndo(); if (st.retry) st.retry.backoff = srb.value; renderAll(); };
   const sto = el.querySelector('[data-stimeout]');
   if (sto) sto.onchange = () => { pushUndo(); st.timeout = sto.value.trim(); renderAll(); };
   const wop = el.querySelector('[data-whenop]');
@@ -593,6 +632,7 @@ async function openFile(file) {
         when: s.when || null,
         foreach: s.foreach || '', foreach_item: s.foreach_item || '',
         after_foreach: !!s.after_foreach, parallel_group: s.parallel_group || '',
+        retry: s.retry || null,
       })),
       foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
       item_type: doc.item_type || '', item_format: doc.item_format || '',
