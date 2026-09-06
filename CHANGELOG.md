@@ -1,5 +1,22 @@
 # Changelog — честная 0.x
 
+## v0.3 (2026-09-06) — OSINT-плагины: Maigret + Holehe
+
+- `plugins/community/maigret`: обёртка CLI maigret (soxrave) — username по
+  4000+ сайтам; found/checked/claimed; sites-фильтр; wall_timeout.
+- `plugins/community/holehe`: обёртка CLI holehe (megadose) — email по 120+
+  сайтам; leaks/rate_limited/phone_numbers; CSV-парсинг (JSON у holehe нет).
+- `examples/osint_username_audit.yaml`: maigret → holehe → human_gate,
+  on_error: retry (exponential).
+- Оба: stdlib-only, declare-now сеть (any_host 80/443), env-override бинарника
+  (MAIGRET_BIN/HOLEHE_BIN) → контракт-тесты на mock-CLI без сети (+16 кейсов).
+- Live: maigret нашёл 3 Claimed (github/gist/wikipedia) по публичному нику;
+  holehe — 122 сайта, rate-limited честно помечен.
+- Реестр: maigret/holehe — с v0.3a (SHA-пин нового контента неизвестен до
+  коммита — supply-chain дисциплина). До v0.3a — подключение по пути.
+- Go-тесты 175 (без изменений); контракт-тесты плагинов 115.
+
+
 ## v0.29 (2026-09-06) — retry в редакторе
 
 - Редактор управляет политикой повторов: `on_error: retry` (новый вариант

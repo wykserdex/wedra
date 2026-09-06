@@ -1,0 +1,77 @@
+# Контракт-тесты maigret (mock maigret CLI, без сети и без пакета maigret).
+tests:
+  - name: поиск → сайты с Claimed аккаунтом
+    env: { MAIGRET_BIN: "mock_maigret.py" }
+    input: { username: "demo_user", sites: ["github"], timeout: 5 }
+    expect:
+      status: ok
+      output:
+        username: demo_user
+        checked: 3
+        claimed: 1
+        found:
+          - { site: GitHub, url: "https://github.com/demo_user", username: "demo_user" }
+
+  - name: ник не найден (пустой репорт) → ok, claimed 0
+    env: { MAIGRET_BIN: "mock_maigret_empty.py" }
+    input: { username: "nikto_ne_nayden_xyz" }
+    expect:
+      status: ok
+      output:
+        username: nikto_ne_nayden_xyz
+        checked: 0
+        claimed: 0
+        found: []
+
+  - name: пустой username → доменная ошибка
+    env: { MAIGRET_BIN: "mock_maigret.py" }
+    input: { username: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_username }
+
+  - name: sites не массив → платформенная ошибка
+    env: { MAIGRET_BIN: "mock_maigret.py" }
+    input: { username: "x", sites: "github" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_sites }
+
+  - name: maigret не установлен (путь)
+    env: { MAIGRET_BIN: "/nonexistent/maigret-bin" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: maigret_not_installed, retryable: false }
+
+  - name: maigret не установлен (имя из PATH)
+    env: { MAIGRET_BIN: "definitely_not_a_maigret_bin_xyz" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: maigret_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { MAIGRET_BIN: "mock_maigret.py", MOCK_SLEEP: "3" }
+    input: { username: "x", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: maigret без репорта → доменная ошибка
+    env: { MAIGRET_BIN: "mock_maigret.py", MOCK_NO_REPORT: "1" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { MAIGRET_BIN: "mock_maigret.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2
