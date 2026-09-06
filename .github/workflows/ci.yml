@@ -139,7 +139,7 @@ jobs:
           curl -sf localhost:8920/app.js | grep -q "api/health"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-embed.log
-      - name: v0.8 desktop exe (wedragui): cross-builds + PE check
+      - name: v0.8 desktop exe (wedragui) — cross-builds + PE check
         run: |
           go build -o /tmp/wedragui-linux ./cmd/wedragui
           GOOS=windows GOARCH=amd64 go build -o /tmp/wedragui-win-amd64.exe ./cmd/wedragui
