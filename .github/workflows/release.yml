@@ -30,6 +30,10 @@ jobs:
               GOOS=$os GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/tool-${os}-${arch}${ext}" ./cmd/tool
             done
           done
+          # v0.8: desktop-exe (Windows: окно WebView2, чистый Go)
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH=$arch go build -ldflags="$LDFLAGS" -o "dist/wedragui-windows-${arch}.exe" ./cmd/wedragui
+          done
           ls -la dist/
       - name: release
         uses: softprops/action-gh-release@v2

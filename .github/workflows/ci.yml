@@ -139,6 +139,25 @@ jobs:
           curl -sf localhost:8920/app.js | grep -q "api/health"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-embed.log
+      - name: v0.8 desktop exe (wedragui): cross-builds + PE check
+        run: |
+          go build -o /tmp/wedragui-linux ./cmd/wedragui
+          GOOS=windows GOARCH=amd64 go build -o /tmp/wedragui-win-amd64.exe ./cmd/wedragui
+          GOOS=windows GOARCH=arm64 go build -o /tmp/wedragui-win-arm64.exe ./cmd/wedragui
+          GOOS=darwin GOARCH=amd64 go build -o /tmp/wedragui-darwin ./cmd/wedragui
+          head -c2 /tmp/wedragui-win-amd64.exe | grep -q MZ
+      - name: v0.8 desktop live (embedded GUI, clean dir)
+        run: |
+          mkdir -p /tmp/wedragui-live && cd /tmp/wedragui-live
+          /tmp/wedragui-linux --port 8921 >/tmp/wedragui.log 2>&1 &
+          WG_PID=$!
+          for i in $(seq 1 20); do curl -sf localhost:8921/api/health >/dev/null && break; sleep 0.5; done
+          curl -sf localhost:8921/ | grep -q "WEDRA"
+          curl -sf localhost:8921/editor/ | grep -q "редактор"
+          grep -q "WEDRA desktop" /tmp/wedragui.log
+          kill -TERM $WG_PID
+          sleep 1
+          pgrep -x wedragui-linux >/dev/null && exit 1 || true
       - name: foreach + after_foreach live
         run: |
           ./wedra pipeline run examples/csv_foreach.yaml --yes
