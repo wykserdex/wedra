@@ -1,5 +1,21 @@
 # Changelog — честная 0.x
 
+## v0.6 (2026-09-06) — network в редакторе (v1.0-трек, срез 2)
+
+- Редактор управляет pipeline.network: чекбокс «deny — запретить сеть» в
+  панели «Пайплайн», подсказка в шаге — какую сеть просит плагин
+  (permissions.network манифеста) и не запрещена ли политикой.
+- Кросс-чек ядра (v0.17): плагин заявил сеть + deny = ошибка; без deny —
+  warning «плагин заявил сеть» (declare-now, аудит — журнал).
+- /api/plugins: permissions.network в нижних ключах ({host, port,
+  any_host, note}) для UI.
+- Round-trip: allow = поля нет (omitempty), deny = network: deny.
+- text_stats: network: deny (полностью офлайн-пайплайн).
+- Тесты +3 (181 всего). CI: parse text_stats → network в doc; serialize с
+  deny → network: deny в YAML; /api/plugins → any_host в нижнем ключе.
+- Ручной список редактора: остался только type-объявления в input.
+
+
 ## v0.5 (2026-09-06) — secrets в редакторе (v1.0-трек, срез 1)
 
 - Редактор управляет pipeline.secrets: чипы env-ключей в панели «Пайплайн»
