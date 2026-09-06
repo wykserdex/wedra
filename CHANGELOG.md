@@ -1,5 +1,15 @@
 # Changelog — честная 0.x
 
+## v0.3a (2026-09-06) — maigret/holehe в реестре
+
+- Записи maigret + holehe в registry.yaml: source = wedra, path =
+  plugins/community/*, commit = 61b5c30 (SHA v0.3 — контент зафиксирован,
+  тег не в дело — семантика v0.29).
+- 31 старая запись: версия v0.3a, контент и пины без изменений.
+- Отдельный буквенный релиз: SHA-пин нового контента неизвестен до коммита —
+  в v0.3 в реестр новые записи物理но не попали бы с честным пином.
+
+
 ## v0.3 (2026-09-06) — OSINT-плагины: Maigret + Holehe
 
 - `plugins/community/maigret`: обёртка CLI maigret (soxrave) — username по

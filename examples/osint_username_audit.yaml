@@ -4,6 +4,7 @@ format_version: "0.2"
 # (120+ сайтов на утечки) → человек решает.
 #
 # Требует отдельные CLI:  pip install maigret holehe
+# v0.3a: плагины в реестре (SHA-пины) — пример теперь на bare-именах.
 # Без них шаги падают в доменные ошибки (maigret_not_installed /
 # holehe_not_installed) — валидация и lint пайплайна при этом зелёные.
 # on_error: retry + retry-блок — повторы по сетевым таймаутам/ошибкам.
