@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -49,7 +50,17 @@ func InstalledVersion(dir string) (string, bool) {
 }
 
 // CloneTo — git clone depth-1 source@ref → dir (dir создаётся).
+// v0.28a: pinned-вариант с проверкой commit — см. CloneToPinned.
 func CloneTo(source, ref, dir string) error {
+	return CloneToPinned(source, ref, "", dir)
+}
+
+// CloneToPinned — CloneTo + supply-chain-пин (v0.28a): если commit задан,
+// HEAD клона обязан совпасть с ним. Тег в реестре переставляемы (attacker с
+// доступом к репо двигает тег на вредоносный коммит) — SHA, зафиксированный
+// в реестре, это ловит: клон сдвинутого тега не пройдёт проверку и установка
+// падает (fail-closed), а не молча ставит чужой код.
+func CloneToPinned(source, ref, commit, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -57,6 +68,18 @@ func CloneTo(source, ref, dir string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone %s@%s: %s: %s", source, ref, err, string(out))
+	}
+	if commit == "" {
+		return nil
+	}
+	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git rev-parse в клоне: %s: %s", err, string(headOut))
+	}
+	head := strings.TrimSpace(string(headOut))
+	if !strings.HasPrefix(head, commit) && !strings.HasPrefix(commit, head) {
+		return fmt.Errorf("supply-chain: HEAD клона %s != зафиксированный commit %s — "+
+			"тег %q, видимо, переставили; обнови запись реестра (commit:) и пересверь", head, commit, ref)
 	}
 	return nil
 }

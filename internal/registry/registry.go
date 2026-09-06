@@ -21,6 +21,7 @@ type Entry struct {
 	Source      string `yaml:"source"`      // git-URL (или локальный путь) репозитория
 	Path        string `yaml:"path"`        // подпуть внутри репо (плагин — каталог, пресет — файл); дефолт "."
 	Version     string `yaml:"version"`     // тег или ветка; дефолт "main"
+	Commit      string `yaml:"commit"`      // v0.28a: полный SHA пина (теги переставляемы — SHA нет)
 	Description string `yaml:"description"` // опционально
 }
 
