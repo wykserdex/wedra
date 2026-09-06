@@ -8,9 +8,11 @@ package api
 // Позиции узлов хранятся в YAML как `pos: [x, y]` — лоадер ядра это поле
 // игнорирует (yaml.v3 без KnownFields), редактор читает обратно.
 // v0.27: when — под управлением редактора (path/op/value, 10 операторов ядра).
-// Всё, чего редактор не управляет (foreach, parallel_group, after_foreach,
-// retry, secrets, network, type-объявления в input) — выносится в unsupported:
-// сохранение такого пайплайна из редактора запрещено (данные не теряются).
+// v0.28: foreach/parallel_group/after_foreach на шаге + foreach/foreach_item/
+// item_type/item_format на пайплайне (управляющий поток целиком, кроме retry).
+// Всё, чего редактор не управляет (retry, secrets, network, type-объявления
+// в input) — выносится в unsupported: сохранение такого пайплайна из редактора
+// запрещено (данные не теряются).
 
 import (
 	"encoding/json"
@@ -57,6 +59,11 @@ type editorStep struct {
 	Actions  []string          `json:"actions"`
 	OnReject string            `json:"on_reject"`
 	When     *editorWhen       `json:"when,omitempty"`
+	// v0.28: управляющий поток шага
+	Foreach       string `json:"foreach"`
+	ForeachItem   string `json:"foreach_item"`
+	AfterForeach  bool   `json:"after_foreach"`
+	ParallelGroup string `json:"parallel_group"`
 }
 
 type editorDoc struct {
@@ -65,6 +72,11 @@ type editorDoc struct {
 	Input         []editorInput `json:"input"`
 	Steps         []editorStep  `json:"steps"`
 	Unsupported   []string      `json:"unsupported"`
+	// v0.28: управляющий поток пайплайна (батч по массиву)
+	Foreach     string `json:"foreach"`
+	ForeachItem string `json:"foreach_item"`
+	ItemType    string `json:"item_type"`
+	ItemFormat  string `json:"item_format"`
 }
 
 // editorPosFile — теневой разбор только под позиции (ядро pos не знает).
@@ -105,6 +117,10 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		Input:         []editorInput{},
 		Steps:         []editorStep{},
 		Unsupported:   []string{},
+		Foreach:       pf.Pipeline.Foreach,
+		ForeachItem:   pf.Pipeline.ForeachItem,
+		ItemType:      pf.Pipeline.ItemType,
+		ItemFormat:    pf.Pipeline.ItemFormat,
 	}
 	names := make([]string, 0, len(pf.Pipeline.Input))
 	for n := range pf.Pipeline.Input {
@@ -150,23 +166,15 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		if st.When.IsSet() {
 			es.When = &editorWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 		}
-		// поля, которых редактор v0.27 не управляет
-		if st.Foreach != "" {
-			doc.Unsupported = append(doc.Unsupported, st.ID+": foreach")
-		}
-		if st.ParallelGroup != "" {
-			doc.Unsupported = append(doc.Unsupported, st.ID+": parallel_group")
-		}
-		if st.AfterForeach {
-			doc.Unsupported = append(doc.Unsupported, st.ID+": after_foreach")
-		}
+		es.Foreach = st.Foreach
+		es.ForeachItem = st.ForeachItem
+		es.AfterForeach = st.AfterForeach
+		es.ParallelGroup = st.ParallelGroup
+		// поля, которых редактор v0.28 не управляет
 		if st.Retry != nil {
 			doc.Unsupported = append(doc.Unsupported, st.ID+": retry")
 		}
 		doc.Steps = append(doc.Steps, es)
-	}
-	if pf.Pipeline.Foreach != "" {
-		doc.Unsupported = append(doc.Unsupported, "pipeline.foreach")
 	}
 	if pf.Pipeline.Secrets != nil {
 		doc.Unsupported = append(doc.Unsupported, "pipeline.secrets")
@@ -190,6 +198,11 @@ type outStep struct {
 	Actions  []string          `yaml:"actions,omitempty"`
 	OnReject string            `yaml:"on_reject,omitempty"`
 	When     *outWhen          `yaml:"when,omitempty"`
+	// v0.28: управляющий поток шага
+	Foreach       string `yaml:"foreach,omitempty"`
+	ForeachItem   string `yaml:"foreach_item,omitempty"`
+	AfterForeach  bool   `yaml:"after_foreach,omitempty"`
+	ParallelGroup string `yaml:"parallel_group,omitempty"`
 }
 
 type outWhen struct {
@@ -201,9 +214,13 @@ type outWhen struct {
 type outFile struct {
 	FormatVersion string `yaml:"format_version"`
 	Pipeline      struct {
-		Name  string         `yaml:"name"`
-		Input map[string]any `yaml:"input,omitempty"`
-		Steps []outStep      `yaml:"steps"`
+		Name        string         `yaml:"name"`
+		Input       map[string]any `yaml:"input,omitempty"`
+		Steps       []outStep      `yaml:"steps"`
+		Foreach     string         `yaml:"foreach,omitempty"`
+		ForeachItem string         `yaml:"foreach_item,omitempty"`
+		ItemType    string         `yaml:"item_type,omitempty"`
+		ItemFormat  string         `yaml:"item_format,omitempty"`
 	} `yaml:"pipeline"`
 }
 
@@ -235,7 +252,11 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	}
 	pf := pipeline.PipelineFile{
 		FormatVersion: fv,
-		Pipeline:      pipeline.Pipeline{Name: doc.Name, Input: map[string]interface{}{}, Steps: []pipeline.Step{}},
+		Pipeline: pipeline.Pipeline{
+			Name: doc.Name, Input: map[string]interface{}{}, Steps: []pipeline.Step{},
+			Foreach: doc.Foreach, ForeachItem: doc.ForeachItem,
+			ItemType: doc.ItemType, ItemFormat: doc.ItemFormat,
+		},
 	}
 	for _, in := range doc.Input {
 		if in.Name == "" {
@@ -290,11 +311,19 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 			}
 			step.When = w
 		}
+		step.Foreach = st.Foreach
+		step.ForeachItem = st.ForeachItem
+		step.AfterForeach = st.AfterForeach
+		step.ParallelGroup = st.ParallelGroup
 		pf.Pipeline.Steps = append(pf.Pipeline.Steps, step)
 	}
 	// схема → YAML (через теневой вывод, чтобы pos прописался)
 	out := outFile{FormatVersion: pf.FormatVersion}
 	out.Pipeline.Name = pf.Pipeline.Name
+	out.Pipeline.Foreach = pf.Pipeline.Foreach
+	out.Pipeline.ForeachItem = pf.Pipeline.ForeachItem
+	out.Pipeline.ItemType = pf.Pipeline.ItemType
+	out.Pipeline.ItemFormat = pf.Pipeline.ItemFormat
 	out.Pipeline.Input = map[string]any{}
 	for k, v := range pf.Pipeline.Input {
 		out.Pipeline.Input[k] = v
@@ -318,6 +347,10 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		if st.When.IsSet() {
 			os.When = &outWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 		}
+		os.Foreach = st.Foreach
+		os.ForeachItem = st.ForeachItem
+		os.AfterForeach = st.AfterForeach
+		os.ParallelGroup = st.ParallelGroup
 		out.Pipeline.Steps = append(out.Pipeline.Steps, os)
 	}
 	raw, err := yaml.Marshal(&out)
