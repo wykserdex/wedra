@@ -125,7 +125,7 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 	if err != nil {
 		return "", "", err
 	}
-	if err := registry.CloneTo(entry.Source, version, tmp); err != nil {
+	if err := registry.CloneToPinned(entry.Source, version, entry.Commit, tmp); err != nil {
 		os.RemoveAll(tmp)
 		return "", "", err
 	}

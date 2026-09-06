@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,43 @@ func (s *Server) gateFor(id string) *gate.ChannelUI {
 	return s.gates[id]
 }
 
+// csreHostLoopback — loopback-хост (127.0.0.1/localhost/::1) с любым портом.
+func csrfHostLoopback(host string) bool {
+	h := host
+	if i := strings.LastIndex(h, ":"); i > 0 {
+		h = h[:i]
+	}
+	return h == "127.0.0.1" || h == "localhost" || h == "::1"
+}
+
+// csrfGuard — v0.28a: защита POST/PUT/DELETE от cross-site форм (<form>
+// с чужого сайта запускает пайплайны с --yes):
+//   - Sec-Fetch-Site: cross-site → 403 (заголовок считает браузер —
+//     надёжен даже через прокси превью);
+//   - Origin (если есть) → обязан совпадать с видимым host (через прокси —
+//     с X-Forwarded-Host). Применяется строго к публичным биндам; на
+//     loopback доверяем Sec-Fetch-Site (локальный curl без Origin — как раньше).
+func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		http.Error(w, "cross-site request запрещён (CSRF)", 403)
+		return false
+	}
+	if !csrfHostLoopback(r.Host) {
+		host := r.Host
+		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+			host = strings.TrimSpace(strings.Split(fh, ",")[0])
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			u, err := url.Parse(origin)
+			if err != nil || u.Host != host {
+				http.Error(w, "Origin не совпадает (CSRF)", 403)
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
@@ -93,7 +131,12 @@ func (s *Server) Routes() http.Handler {
 			w.Write([]byte("GUI postponed in v0.12 — use CLI. API at /api/health"))
 		})
 	}
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE") && !s.csrfGuard(w, r) {
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +241,15 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasSuffix(name, ".yaml") {
 		name += ".yaml"
 	}
-	path := filepath.Join(s.PipelinesDir, name)
+	// v0.28a: path traversal — Join глотает ..; без проверки читал/писал
+	// любой .yaml вне PipelinesDir (GET ..%2fregistry.yaml, PUT ..%2f..%2f..)
+	base := filepath.Clean(s.PipelinesDir)
+	path := filepath.Join(base, name)
+	if rel, err := filepath.Rel(base, path); err != nil || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		http.Error(w, "file: только имя из PipelinesDir (traversal запрещён)", 400)
+		return
+	}
 	if r.Method == "GET" {
 		raw, err := os.ReadFile(path)
 		if err != nil {

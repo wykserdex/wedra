@@ -8,9 +8,9 @@
 > **Имя (v0.26):** продукт — **WEDRA** (как и репозиторий). Бинарник — `wedra`
 > (до v0.26 — `orchestrator`), модуль — `wedra`, ассеты релизов — `wedra_<os>_<arch>`.
 > В старых доках/инструкциях — старое имя; команды: `orchestrator …` → `wedra …`.
-> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.28**.
+> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.28a**.
 
-**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10.
+**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10. Провенанс: волны squash-нулись в первый коммит репо, source в registry.yaml — сам репо wedra (после переезда), поэтому из git это не читается — ограничение видимости, не сокрытие.
 
 > «каждый кусок можно независимо написать, протестировать и заменить» · «контракт честный»
 
@@ -52,27 +52,27 @@ API-поверхность для `cmd/*` и будущего M6, там жив�
 ```bash
 go build -o wedra ./cmd/wedra
 ./wedra version   # v0.26
-go test ./...            # 112 тестов
+go test ./...            # 167 тестов
 
 # плагины
-./`wedra plugin validate plugins/csv_loader
-./`wedra plugin test plugins/csv_loader   # 7 PASS
-./`wedra plugin test plugins/email_triage # 10 PASS
+./wedra plugin validate plugins/csv_loader
+./wedra plugin test plugins/csv_loader   # 7 PASS
+./wedra plugin test plugins/email_triage # 10 PASS
 
 # пайплайны
-./`wedra pipeline validate examples/email_check.yaml
-./`wedra pipeline lint examples/csv_foreach.yaml
-./`wedra pipeline plan examples/csv_foreach.yaml
+./wedra pipeline validate examples/email_check.yaml
+./wedra pipeline lint examples/csv_foreach.yaml
+./wedra pipeline plan examples/csv_foreach.yaml
 
 # v0.12: foreach по результату шага (было только input.*)
-./`wedra pipeline run examples/csv_foreach.yaml --yes
+./wedra pipeline run examples/csv_foreach.yaml --yes
 # фаза 1: load rows → фаза 2: foreach row → check → review, ok=2
 
 # v0.12: --resume
-./`wedra runs list
-./`wedra runs show <run_id>
-./`wedra pipeline run examples/email_triage_chain.yaml --yes --resume=<run_id>
-./`wedra runs resume <run_id> examples/email_triage_chain.yaml --yes
+./wedra runs list
+./wedra runs show <run_id>
+./wedra pipeline run examples/email_triage_chain.yaml --yes --resume=<run_id>
+./wedra runs resume <run_id> examples/email_triage_chain.yaml --yes
 
 # совместимость tool
 ./tool run examples/csv_foreach.yaml --yes
@@ -86,15 +86,15 @@ go test ./...            # 112 тестов
 
 ```bash
 # пресет из реестра + АВТОУСТАНОВКА его плагинов в plugins/
-./`wedra pipeline install email_check
-./`wedra pipeline run examples/email_check.yaml --yes
+./wedra pipeline install email_check
+./wedra pipeline run examples/email_check.yaml --yes
 
 # плагин из реестра (или с пином версии)
-./`wedra plugin install text_analyzer
-./`wedra plugin install my_summarizer@v0.16
+./wedra plugin install text_analyzer
+./wedra plugin install my_summarizer@v0.16
 
 # свой реестр (оффлайн: каталог с registry.yaml) — без сети
-./`wedra pipeline install my_preset --registry=./my_registry
+./wedra pipeline install my_preset --registry=./my_registry
 ```
 
 Ссылки на плагины в пайплайне (v0.16, назад-совместимо):
@@ -146,7 +146,6 @@ pipeline:
   гейтах; step-foreach + parallel на фикстурном плагине; конфликты →
   ok:false).
 
-## 
 
 Первый срез «мускулов v1.0»: редактор управляет **условием шага** (`when`) —
 раньше такой пайплайн открывался с баннером и без сохранения.
@@ -166,7 +165,6 @@ pipeline:
 - when_demo.yaml теперь **полностью редакторский** (без type-объявлений) —
   CI проверяет round-trip: parse → when в doc → serialize ok.
 
-## 
 
 Продукт переименован в **WEDRA** — совпало с репозиторием, баннером и
 `WEDRA_NETWORK` (так переменная сети называлась ещё с v0.17 — имя выдержало
@@ -182,7 +180,6 @@ pipeline:
   CHANGELOG и archive — история, не переписываем (там старое имя — честно).
   Текст демо-примеров не тронут (это входные данные, не бренд).
 
-## 
 
 Мёртвый прототип M5 (/editor/) переписан с нуля и поднят в первый класс
 (ссылка в консоли снова есть — теперь на работающий инструмент).
@@ -216,7 +213,6 @@ foreach/parallel-примеров, pipeline-foreach round-trip, step-foreach н�
 CI: live-шаг «v0.25 editor» (node --check + parse трёх examples; v0.27:
 when; v0.28: foreach/parallel_group/after_foreach в parse-доках).
 
-## 
 
 GUI-срез 2: human_gate больше не «только из терминала». Запустил ран из
 консоли без --yes — он блокируется на гейт-шаге, в деталке появляется
@@ -251,7 +247,6 @@ GUI-срез 2: human_gate больше не «только из термина�
 race-контур Send/Close; API: полный цикл wait→decision→ok, reject→aborted,
 --yes без pending, busy-409). CI: новый live-шаг «v0.24 browser gate».
 
-## 
 
 Реальный баг-репорт (проверен живьём) — все пункты закрыты:
 
@@ -290,7 +285,6 @@ race-контур Send/Close; API: полный цикл wait→decision→ok, r
 Тесты: +3 фикстуры (num_only, chatter, spawner), +15 тестов (unit контракта,
 гейт с фейк-вводом, журнал, spawn: лимит + group kill).
 
-## 
 
 `wedra gui` больше не «отложен, косметика» — это рабочая консоль
 (web/static, без внешних зависимостей, офлайн):
@@ -315,7 +309,6 @@ race-контур Send/Close; API: полный цикл wait→decision→ok, r
 Старый scaffold-редактор (drag-and-drop) сохранён в `/editor/` как прототип.
 Человеческий гейт из браузера (submit правок в живой ран) — следующий срез.
 
-## 
 
 Реструктуризация по согласованному дереву — `git mv`, ноль логики:
 
@@ -488,6 +481,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 - [x] v0.26a: редактор сохраняет `format_version` исходного файла (было хардкод `0.1`); новое doc → `0.2`
 - [x] v0.27: **when в редакторе** — 10 операторов, path из источников, value с коэрсией; when_demo полностью редакторский
 - [x] v0.28: **foreach/parallel_group/after_foreach в редакторе** (шаг + pipeline-батч); из ручного списка осталось retry/secrets/network
+- [x] v0.28a: security-фиксы аудита — path traversal (400), CSRF (403), commit-пин в реестре (fail-closed), README-артефакты починены
 - [ ] v1.0: GUI full (редактор + when/foreach в UI, import) + маркетплейс v1 (гейт из браузера — v0.24, редактор — v0.25)
 
 ## Тесты
@@ -496,7 +490,7 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA), v0.26a (format_version в редакторе), v0.27 (when в редакторе), v0.28 (foreach/parallel в редакторе)
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA), v0.26a (format_version в редакторе), v0.27 (when в редакторе), v0.28 (foreach/parallel в редакторе), v0.28a (security-фиксы по аудиту)
 - Дальше: when/foreach/parallel в UI редактора → v1.0 — GUI full + маркетплейс (имя WEDRA — решено, v0.26)
 - **Схема букв (с v0.23, договорённости):** цифра = функциональный срез;
   буква = фикс-релиз внутри среза без новых фич (v0.24a, v0.24b…).
