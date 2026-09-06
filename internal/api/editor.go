@@ -11,9 +11,11 @@ package api
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach/foreach_item/
 // item_type/item_format на пайплайне (управляющий поток целиком).
 // v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
-// Всё, чего редактор не управляет (secrets, network, type-объявления в
-// input) — выносится в unsupported: сохранение такого пайплайна из редактора
-// запрещено (данные не теряются).
+// v0.5: secrets (pipeline.secrets — env-ключи плагинов) под управлением
+// редактора; кросс-чек «плагин ↔ пайплайн» — валидатор ядра (warnings).
+// Осталось вне редактора: network и type-объявления в input — такие
+// пайплайны выносятся в unsupported: сохранение из редактора запрещено
+// (данные не теряются).
 
 import (
 	"encoding/json"
@@ -82,7 +84,10 @@ type editorDoc struct {
 	FormatVersion string        `json:"format_version"` // v0.26a: сохраняется из исходника (пусто = новое → 0.2)
 	Input         []editorInput `json:"input"`
 	Steps         []editorStep  `json:"steps"`
-	Unsupported   []string      `json:"unsupported"`
+	// v0.5: env-ключи, которые ядро передаст плагинам (кросс-чек с
+	// permissions.secrets манифестов — валидатор, warnings)
+	Secrets     []string `json:"secrets"`
+	Unsupported []string `json:"unsupported"`
 	// v0.28: управляющий поток пайплайна (батч по массиву)
 	Foreach     string `json:"foreach"`
 	ForeachItem string `json:"foreach_item"`
@@ -190,8 +195,11 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		}
 		doc.Steps = append(doc.Steps, es)
 	}
+	// v0.5: secrets под управлением редактора (was: unsupported)
 	if pf.Pipeline.Secrets != nil {
-		doc.Unsupported = append(doc.Unsupported, "pipeline.secrets")
+		doc.Secrets = pf.Pipeline.Secrets
+	} else {
+		doc.Secrets = []string{}
 	}
 	if pf.Pipeline.Network != "" {
 		doc.Unsupported = append(doc.Unsupported, "pipeline.network")
@@ -238,6 +246,7 @@ type outFile struct {
 		Name        string         `yaml:"name"`
 		Input       map[string]any `yaml:"input,omitempty"`
 		Steps       []outStep      `yaml:"steps"`
+		Secrets     []string       `yaml:"secrets,omitempty"` // v0.5
 		Foreach     string         `yaml:"foreach,omitempty"`
 		ForeachItem string         `yaml:"foreach_item,omitempty"`
 		ItemType    string         `yaml:"item_type,omitempty"`
@@ -284,6 +293,12 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		pf.Pipeline.Input[in.Name] = in.Default
+	}
+	// v0.5: secrets из doc (пустые строки UI не валиден — отбрасываем)
+	for _, k := range doc.Secrets {
+		if key := strings.TrimSpace(k); key != "" {
+			pf.Pipeline.Secrets = append(pf.Pipeline.Secrets, key)
+		}
 	}
 	for _, st := range doc.Steps {
 		step := pipeline.Step{
@@ -360,6 +375,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	out.Pipeline.Input = map[string]any{}
 	for k, v := range pf.Pipeline.Input {
 		out.Pipeline.Input[k] = v
+	}
+	if len(pf.Pipeline.Secrets) > 0 {
+		out.Pipeline.Secrets = pf.Pipeline.Secrets
 	}
 	for _, st := range pf.Pipeline.Steps {
 		os := outStep{ID: st.ID, Plugin: st.Plugin, Pos: docStepPos(doc, st.ID), OnError: st.OnError}
