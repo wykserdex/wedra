@@ -149,6 +149,19 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": ver, "protocol": "0.2"})
 }
 
+// networkJSON — permissions.network в нижних ключах для UI (v0.5: struct
+// NetworkPermission без json-тегов, иначе Host/Port/AnyHost с капсом).
+func networkJSON(list []pipeline.NetworkPermission) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(list))
+	for _, np := range list {
+		out = append(out, map[string]interface{}{
+			"host": np.Host, "port": np.Port,
+			"any_host": np.AnyHost, "note": np.Note,
+		})
+	}
+	return out
+}
+
 func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 	dirs := []string{}
 	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community")} {
@@ -183,7 +196,7 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 			// v0.5: редактор показывает, какие env-ключи просит плагин
 			// (явные нижние ключи: у struct-полей манифеста нет json-тегов)
 			"permissions": map[string]interface{}{
-				"network":    m.Permissions.Network,
+				"network":    networkJSON(m.Permissions.Network),
 				"filesystem": m.Permissions.Filesystem,
 				"secrets":    m.Permissions.Secrets,
 			},
