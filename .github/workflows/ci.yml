@@ -112,10 +112,13 @@ jobs:
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep -q '"after_foreach":true'
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep -q '"foreach":"steps.load.rows"'
           echo "flow editor: live checks ok"
+          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep -q '"secrets":\["GEMINI_API_KEY"\]'
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep -q '"retry":{"attempts":3,"delay":"2s","backoff":"exponential"}'
           curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep -q '"on_error":"retry"'
           curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"retry_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"retry","bind":{},"form":[],"actions":["accept"],"on_reject":"","retry":{"attempts":0,"delay":"1s","backoff":"fixed"},"unsupported":[]}]}' | grep -q '"ok":false'
           echo "retry editor: live checks ok"
+          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"secrets_ci","input":[],"secrets":["CI_KEY_XYZ"],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","bind":{},"form":[],"actions":["accept"],"on_reject":"","unsupported":[]}]}' | grep -q "secrets:"
+          echo "secrets editor: live checks ok"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-ed.log
       - name: foreach + after_foreach live

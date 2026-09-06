@@ -180,6 +180,13 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 		list = append(list, map[string]interface{}{
 			"id": m.ID, "version": m.Version, "description": m.Description, "author": m.Author,
 			"dir": d, "runtime": m.Runtime.Type, "input": m.Input, "output": m.Output,
+			// v0.5: редактор показывает, какие env-ключи просит плагин
+			// (явные нижние ключи: у struct-полей манифеста нет json-тегов)
+			"permissions": map[string]interface{}{
+				"network":    m.Permissions.Network,
+				"filesystem": m.Permissions.Filesystem,
+				"secrets":    m.Permissions.Secrets,
+			},
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -4,8 +4,10 @@
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach-батч
 // пайплайна (foreach/foreach_item/item_type/item_format).
 // v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
-// Честный скоуп: secrets/network не управляются — такие пайплайны
-// открываются с баннером и без сохранения.
+// v0.5: secrets (pipeline.secrets — env-ключи плагинов) в UI (чипы в
+// блоке «Пайплайн» + подсказка в шаге, какой ключ просит плагин).
+// Честный скоуп: network и type-объявления input не управляются — такие
+// пайплайны открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const GRID = 20;
@@ -14,6 +16,7 @@ const snap = v => Math.round(v / GRID) * GRID;
 let state = {
   plugins: [],
   doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [],
+    secrets: [],
     foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
@@ -295,11 +298,37 @@ function retryBlock(st) {
     <select data-srbackoff><option value="fixed"${(r && r.backoff === 'fixed') || (!r) ? ' selected' : ''}>fixed</option><option value="exponential"${r && r.backoff === 'exponential' ? ' selected' : ''}>exponential</option></select></div></div>` : ''}`;
 }
 
+// v0.5: подсказка в шаге — какие env-ключи просит плагин (манифест) и
+// объявлены ли они в pipeline secrets.
+function pluginSecretsHint(st) {
+  const info = pluginInfo(st.plugin);
+  const needs = (info && info.permissions && info.permissions.secrets) || [];
+  if (!needs.length) return '';
+  const have = new Set(state.doc.secrets || []);
+  const missing = needs.filter(k => !have.has(k));
+  const txt = missing.length
+    ? `<span style="color:var(--err,#e5534b)">нужны ключи ${needs.map(esc).join(', ')} — не все объявлены в secrets пайплайна (блок «Пайплайн»)</span>`
+    : `просит ключи ${needs.map(esc).join(', ')} — объявлены в secrets пайплайна ✓`;
+  return `<div class="hint">secrets плагина: ${txt}</div>`;
+}
+
+// v0.5: secrets — чипы env-ключей + добавление. Ключ читается ядром из env
+// и передаётся плагину; кросс-чек с permissions.secrets — валидатор (warnings).
+function secretsBlock() {
+  const keys = state.doc.secrets || [];
+  const chips = keys.map((k, i) =>
+    `<span class="chip">${esc(k)}<button data-sdel="${i}" title="убрать">×</button></span>`).join(' ');
+  return `<div class="chips">${chips || '<span class="hint">нет ключей</span>'}
+    <input data-skey placeholder="ENV_KEY" spellcheck="false" style="width:160px"/>
+    <button data-sadd>+ ключ</button></div>
+    <div class="hint">Ключи читаются из окружения при запуске (secrets: [KEY] в YAML).</div>`;
+}
+
 function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.29 не управляет:
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.5 не управляет:
       <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
       правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
   }
@@ -333,6 +362,7 @@ function renderProps() {
           <select data-serr><option value="stop"${st.on_error === 'stop' ? ' selected' : ''}>stop</option><option value="skip"${st.on_error === 'skip' ? ' selected' : ''}>skip</option><option value="retry"${st.on_error === 'retry' ? ' selected' : ''}>retry (блок ниже)</option></select></div>
       </div>
       <div class="pblock"><label>плагин</label><input value="${esc(st.plugin)}" readonly style="color:var(--dim)"/></div>
+      ${pluginSecretsHint(st)}
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
       ${whenBlock(st)}
       ${flowBlock(st)}
@@ -349,10 +379,12 @@ function renderProps() {
       <div class="pblock"><label>имя</label><input data-pname value="${esc(state.doc.name)}" spellcheck="false"/></div>
       <div class="pblock"><label>вход (input.*)</label>${rows || '<div class="hint">нет входов</div>'}
         <button data-inadd>+ вход</button></div>
+      <div class="pblock"><label>secrets — env-ключи для плагинов (v0.5)</label>
+        ${secretsBlock()}</div>
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст, чтобы добавить.
-      secrets/network — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      network и type-объявления input — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -479,6 +511,25 @@ function wireProps(st) {
   if (pfmt) pfmt.onchange = () => { pushUndo(); state.doc.item_format = pfmt.value.trim(); renderAll(); };
   const inadd = el.querySelector('[data-inadd]');
   if (inadd) inadd.onclick = () => { pushUndo(); state.doc.input.push({ name: 'field' + (state.doc.input.length + 1), default: '' }); renderAll(); };
+  // v0.5: secrets — добавление/удаление env-ключей
+  const skey = el.querySelector('[data-skey]');
+  const sadd = el.querySelector('[data-sadd]');
+  const addSecret = () => {
+    const v = (skey && skey.value || '').trim();
+    if (!v) return;
+    if ((state.doc.secrets || []).includes(v)) { renderAll(); return; }
+    pushUndo();
+    state.doc.secrets = state.doc.secrets || [];
+    state.doc.secrets.push(v);
+    renderAll();
+  };
+  if (sadd) sadd.onclick = addSecret;
+  if (skey) skey.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); addSecret(); } };
+  el.querySelectorAll('[data-sdel]').forEach(b => b.onclick = () => {
+    pushUndo();
+    state.doc.secrets.splice(+b.dataset.sdel, 1);
+    renderAll();
+  });
 }
 
 function renderAll() {
@@ -636,6 +687,7 @@ async function openFile(file) {
       })),
       foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
       item_type: doc.item_type || '', item_format: doc.item_format || '',
+      secrets: doc.secrets || [],
     };
     state.unsupported = doc.unsupported || [];
     state.sel = null;

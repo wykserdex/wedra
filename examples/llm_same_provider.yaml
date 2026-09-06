@@ -13,6 +13,7 @@ pipeline:
     topic: "арбузы: витамины и сезон"
     draft_system: "Ты — копирайтер. Один абзац, 3 предложения."
     refine_system: "Ты — редактор. Убери воду, оставь факты."
+  secrets: [GEMINI_API_KEY]    # v0.5: env-ключи плагинов (llm_gemini)
 
   steps:
     - id: draft
