@@ -17,6 +17,7 @@
 - pipeline-`foreach` по `steps.<id>.<field>` (pre-фаза, app v0.12)
 - **v0.20 (app): управляющий поток на уровне шага (PROTOCOL §12)** —
   `when:`, `foreach:` на шаге, `parallel_group`
+- **v0.4 (app): community-плагины crtsh (встроенный stdlib-HTTP) + the_harvester (обёртка CLI); протокол без изменений**.
 - **v0.3a (registry): записи maigret/holehe с SHA-пинами на v0.3 (формат реестра не меняется) · v0.3: community-плагины maigret/holehe (обёртки внешних OSINT-CLI, declare-now сеть); протокол без изменений**.
 - **v0.29 (app): редактор управляет `retry` (on_error: retry + attempts/delay/backoff); протокол без изменений**.
 - **v0.28a: реестр (registry v0.1): аддитивное поле `commit` (SHA-пин; install fail-closed при рассинхроне с тегом). Протокол пайплайнов без изменений**.

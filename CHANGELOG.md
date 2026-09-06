@@ -1,5 +1,24 @@
 # Changelog — честная 0.x
 
+## v0.4 (2026-09-06) — OSINT-аудит домена: crt.sh + theHarvester
+
+- `plugins/community/crtsh`: встроенный (stdlib-HTTP, без зависимостей) —
+  сертификаты CT по домену; выход {total, names, issuers, expired};
+  name_value режется по \n и , (реальный формат API); сеть declare-now
+  на crt.sh:443.
+- `plugins/community/the_harvester`: обёртка CLI theHarvester 4.9.2
+  (установка из git — на PyPI squatted-пакет 0.0.1, master требует
+  Python >=3.14); emails/hosts/people/vhosts/asns/interesting_urls;
+  sources-фильтр, limit, wall_timeout.
+- `examples/osint_domain_audit.yaml`: crtsh + theHarvester в
+  parallel_group → human_gate.
+- Live в песочнице: crt.sh 77 серт./61 expired; theHarvester 500 хостов;
+  502 от crt.sh в ране → retry exponential вытянул — механика v0.29
+  проверена живым сценарием.
+- sn0int отложен: hlua-badtouch не компилируется (нет prebuilt-бинарников).
+- Контракт-тесты +14 (124 всего по 23 плагинам).
+
+
 ## v0.3a (2026-09-06) — maigret/holehe в реестре
 
 - Записи maigret + holehe в registry.yaml: source = wedra, path =

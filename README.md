@@ -1,6 +1,6 @@
 ![WEDRA](banner.png)
 
-# WEDRA v0.3 — OSINT-плагины: Maigret (ник по 4000+ сайтам) + Holehe (email по 120+)
+# WEDRA v0.4 — OSINT-аудит домена: crt.sh (сертификаты) + theHarvester (emails/субдомены)
 
 
 Локальный оркестратор цепочек с человеком в петле.
@@ -8,7 +8,7 @@
 > **Имя (v0.26):** продукт — **WEDRA** (как и репозиторий). Бинарник — `wedra`
 > (до v0.26 — `orchestrator`), модуль — `wedra`, ассеты релизов — `wedra_<os>_<arch>`.
 > В старых доках/инструкциях — старое имя; команды: `orchestrator …` → `wedra …`.
-> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.3a**.
+> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.4**.
 
 **Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10. Провенанс: волны squash-нулись в первый коммит репо, source в registry.yaml — сам репо wedra (после переезда), поэтому из git это не читается — ограничение видимости, не сокрытие.
 
@@ -17,7 +17,7 @@
 ```
 wedra/
 ├── VERSION              # 0.21 (читает бинарник, CWD в приоритете)
-├── registry.yaml        # реестр: 21 плагин + 12 пресетов, формат заморожен (commit-пины)
+├── registry.yaml        # реестр: 21 плагин + 12 пресетов, формат заморожен (commit-пины; crtsh/the_harvester — с v0.4a)
 ├── cmd/
 │   ├── wedra/           # точка входа (CLI + REST API)
 │   └── tool/            # compat-шим M5 (run/validate/plugin/runs)
@@ -34,8 +34,8 @@ wedra/
 │   ├── cli/             # pipeline|plugin|runs|version + install
 │   ├── api/             # REST API (M6, отложен)
 │   └── core/            # shim-фасад + интеграционные тесты (см. «Судьба core/»)
-├── plugins/             # official/ 5, community/ 16 (OSINT: maigret, holehe)
-├── examples/            # 18 пайплайнов (демо v0.20: when/foreach/parallel; v0.3: osint)
+├── plugins/             # official/ 5, community/ 18 (OSINT: maigret, holehe, crtsh, the_harvester)
+├── examples/            # 19 пайплайнов (демо v0.20: when/foreach/parallel; v0.3/v0.4: osint)
 ├── docs/                # plugin-dev, quickstart, resume, architecture
 ├── archive/             # устаревшие доки (M5, LANDING, POSTS)
 ├── web/static/          # GUI scaffold (M6, отложен)
@@ -124,7 +124,38 @@ pipeline:
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
 
-## Что нового в v0.3 (OSINT-плагины: Maigret + Holehe)
+## Что нового в v0.4 (OSINT-аудит домена: crt.sh + theHarvester)
+
+Вторая волна OSINT-плагинов — теперь и доменные цепочки штатные.
+
+- **`crtsh`** (plugins/community/crtsh): **встроенный, без зависимостей** —
+  чистый stdlib-HTTP к crt.sh (Certificate Transparency): wildcard-запрос
+  `%domain`, выход агрегатами `{total, names[], issuers[], expired}`
+  (сырьё — тысячи записей — в выход не тащим). Сеть declare-now на
+  конкретный хост: `{host: crt.sh, port: 443}`.
+- **`the_harvester`** (plugins/community/the_harvester): обёртка над CLI
+  theHarvester 4.9.2 (laramies) — emails/имена/субдомены/ASNs по домену из
+  поисковиков, CT и соцсетей (`-b crtsh,hackertarget,google,...`).
+  Выход — нормализованные массивы: emails/hosts/people/vhosts/asns/
+  interesting_urls (отсутствует в репорте → []).
+  **Установка из git**: `pip install git+https://github.com/laramies/theHarvester.git@4.9.2`
+  — на PyPI `theharvester` 0.0.1 чужой squatted-пакет (мастер-ветка
+  требует Python ≥3.14, 4.9.2 — совместима с 3.13).
+- **Пример** `examples/osint_domain_audit.yaml`: domain → **ПАРАЛЛЕЛЬНО**
+  (parallel_group) crtsh + theHarvester → human_gate (total/expired/
+  emails/hosts). on_error: retry — механика v0.29.
+- **Live-проверено в песочнице** (реальные запуски): crt.sh example.com →
+  77 сертификатов, 61 просрочен, имена CN+SAN с корректным разрезом по
+  `\n` (баг пойман на живых данных); theHarvester → 500 хостов из CT;
+  **crt.sh отдал 502 прямо в ране → retry (exponential) вытянул второй
+  attempt — механика v0.29 отработала на живом сценарии впервые**.
+- **sn0int — отложен честно**: в песочнице не собирается (устаревшая
+  зависимость hlua-badtouch несовместима с актуальным lua-ml, prebuilt-
+  бинарников в releases нет) — обещать непроверенный вывод не будем.
+- Контракт-тесты +14 (crtsh: 5 — mock HTTP-ответ; the_harvester: 9 —
+  mock CLI) — 124 кейса по 23 плагинам, CI без сети.
+
+## 
 
 Первые «внешние» плагины-обёртки: цепочки вида «нашёл ник → проверил email
 → человек решил» становятся штатным сценарием.
@@ -536,15 +567,16 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 - [x] v0.29: **retry в редакторе** (on_error: retry + attempts/delay/backoff); из ручного списка осталось secrets/network/type-input
 - [x] v0.3: **OSINT-плагины** — maigret (ник по 4000+ сайтам) + holehe (email по 120+) + пример osint_username_audit; в реестре — с v0.3a (SHA-пины)
 - [x] v0.3a: **maigret/holehe в реестре** (SHA-пины на v0.3) — install-путь для OSINT-цепочки
+- [x] v0.4: **OSINT-аудит домена** — crtsh (встроенный, stdlib-HTTP) + the_harvester (CLI 4.9.2 из git) + пример с parallel_group; live: retry на живом 502 crt.sh
 - [ ] v1.0: GUI full (редактор + when/foreach в UI, import) + маркетплейс v1 (гейт из браузера — v0.24, редактор — v0.25)
 
 ## Тесты
 
-`go test ./...` — 175 тестов PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install- и trust-сценарии покрыты e2e. Контракт-тесты плагинов (`tool plugin test`) — 110 кейсов по всем 21 плагину (CI: каждый релиз).
+`go test ./...` — 175 тестов PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install- и trust-сценарии покрыты e2e. Контракт-тесты плагинов (`tool plugin test`) — 124 кейса по всем 23 плагинам (CI: каждый релиз).
 
 ## Версионирование
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA), v0.26a (format_version в редакторе), v0.27 (when в редакторе), v0.28 (foreach/parallel в редакторе), v0.28a (security-фиксы по аудиту), v0.29 (retry в редакторе), v0.3 (OSINT-плагины maigret + holehe), v0.3a (maigret/holehe в реестре, SHA-пины)
+- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA), v0.26a (format_version в редакторе), v0.27 (when в редакторе), v0.28 (foreach/parallel в редакторе), v0.28a (security-фиксы по аудиту), v0.29 (retry в редакторе), v0.3 (OSINT-плагины maigret + holehe), v0.3a (maigret/holehe в реестре, SHA-пины), v0.4 (OSINT-аудит домена: crtsh + the_harvester)
 - Дальше: when/foreach/parallel в UI редактора → v1.0 — GUI full + маркетплейс (имя WEDRA — решено, v0.26)
 - **Схема букв (с v0.23, договорённости):** цифра = функциональный срез;
   буква = фикс-релиз внутри среза без новых фич (v0.24a, v0.24b…).

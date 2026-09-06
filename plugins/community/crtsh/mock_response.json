@@ -1,0 +1,29 @@
+[
+  {
+    "issuer_ca_id": 1,
+    "issuer_name": "O=Let's Encrypt, CN=R3",
+    "common_name": "api.example.com",
+    "name_value": "api.example.com\n*.example.com",
+    "not_before": "2026-01-01T00:00:00",
+    "not_after": "2027-01-01T00:00:00",
+    "serial_number": "aa01"
+  },
+  {
+    "issuer_ca_id": 2,
+    "issuer_name": "O=DigiCert, CN=Secure Site CA G2",
+    "common_name": "example.com",
+    "name_value": "example.com, www.example.com",
+    "not_before": "2024-01-01T00:00:00",
+    "not_after": "2025-01-01T00:00:00",
+    "serial_number": "bb02"
+  },
+  {
+    "issuer_ca_id": 1,
+    "issuer_name": "O=Let's Encrypt, CN=R3",
+    "common_name": "blog.example.com",
+    "name_value": "blog.example.com",
+    "not_before": "2026-06-01T00:00:00",
+    "not_after": "2026-09-01T00:00:00",
+    "serial_number": "cc03"
+  }
+]
