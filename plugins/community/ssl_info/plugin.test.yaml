@@ -1,0 +1,20 @@
+tests:
+  - name: mock-режим → разбор ок
+    env: { MOCK: "1" }
+    input: { host: "example.com" }
+    expect:
+      status: ok
+      output:
+        subject_cn: { equals: "mock.example.com" }
+        expired: { equals: false }
+        days_left: { equals: 1000 }
+  - name: несуществующий хост → ошибка
+    input: { host: "nonexistent.invalid" }
+    expect:
+      status: error
+      error: { code: dns_fail }
+  - name: плохой порт → ошибка
+    input: { host: "example.com", port: 0 }
+    expect:
+      status: error
+      error: { code: bad_port }

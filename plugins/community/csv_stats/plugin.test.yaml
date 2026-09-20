@@ -1,0 +1,37 @@
+tests:
+  - name: базовая статистика
+    input:
+      csv_text: "name,score\nanna,10\nbob,20\ncid,30\n"
+      column: "score"
+    expect:
+      status: ok
+      output:
+        count: { equals: 3 }
+        mean: { equals: 20 }
+        min: { equals: 10 }
+        max: { equals: 30 }
+        sum: { equals: 60 }
+        skipped: { equals: 0 }
+  - name: мусорные ячейки пропускаются
+    input:
+      csv_text: "name,score\nanna,10\nbob,n/a\ncid,30\n"
+      column: "score"
+    expect:
+      status: ok
+      output:
+        count: { equals: 2 }
+        skipped: { equals: 1 }
+  - name: нет колонки → ошибка
+    input:
+      csv_text: "name,score\nanna,10\n"
+      column: "age"
+    expect:
+      status: error
+      error: { code: no_column }
+  - name: нет чисел → ошибка
+    input:
+      csv_text: "name,score\nanna,x\nbob,y\n"
+      column: "score"
+    expect:
+      status: error
+      error: { code: no_numeric }

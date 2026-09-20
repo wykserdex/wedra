@@ -1,0 +1,33 @@
+id: http_probe
+version: 0.1.0
+platform_api: "^0.1"
+description: "HTTP GET-проба URL: статус, финальный URL, content-type, размер, время"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: text
+  timeout_s:
+    from: input.timeout_s
+    type: number
+    optional: true
+
+output:
+  status: { type: number }
+  final_url: { type: string, format: text }
+  content_type: { type: string, format: text }
+  bytes: { type: number }
+  elapsed_ms: { type: number }
+  ok: { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

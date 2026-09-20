@@ -1,0 +1,27 @@
+id: jwt_decode
+version: 0.1.0
+platform_api: "^0.1"
+description: "Разбор JWT без верификации: header/payload, alg, протух ли по exp"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  token:
+    from: input.token
+    type: string
+
+output:
+  header: { type: object }
+  payload: { type: object }
+  alg: { type: string, format: text }
+  expired: { type: boolean }
+  signature_present: { type: boolean }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

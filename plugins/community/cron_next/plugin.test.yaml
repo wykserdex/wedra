@@ -1,0 +1,29 @@
+tests:
+  - name: по понедельникам в 9:00
+    input: { expr: "0 9 * * 1", from: "2026-01-01T00:00:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-01-05T09:00:00" }
+  - name: каждые 15 минут
+    input: { expr: "*/15 * * * *", from: "2026-01-01T00:07:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-01-01T00:15:00" }
+  - name: имена месяцев и дней
+    input: { expr: "30 12 25 dec *", from: "2026-01-01T00:00:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-12-25T12:30:00" }
+  - name: 4 поля → ошибка
+    input: { expr: "0 9 * *" }
+    expect:
+      status: error
+      error: { code: bad_expr }
+  - name: плохой from → ошибка
+    input: { expr: "* * * * *", from: "вчера" }
+    expect:
+      status: error
+      error: { code: bad_from }
