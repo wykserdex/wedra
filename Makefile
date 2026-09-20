@@ -1,0 +1,44 @@
+# Локальный прогон CI (полный CI — .github/workflows/ci.yml).
+# Использование: make test / make plugins / make all
+
+.PHONY: all vet fmt test conformance build plugins pipelines registry clean
+
+all: vet fmt test build plugins pipelines registry
+
+vet:
+	go vet ./...
+
+fmt:
+	test -z "$$(gofmt -l ./internal ./cmd/tool)"
+
+test:
+	go test ./... -count=1 -run Test
+
+conformance:
+	go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1
+
+build:
+	go build -o tool ./cmd/tool
+	go build -o wedra ./cmd/wedra
+
+plugins: build
+	for d in plugins/official/* plugins/community/*; do \
+		if [ -f "$$d/plugin.yaml" ]; then \
+			echo "== $$d =="; \
+			./tool plugin validate "$$d"; \
+			./tool plugin test "$$d"; \
+		fi; \
+	done
+
+pipelines: build
+	for f in examples/*.yaml; do \
+		./wedra pipeline validate "$$f"; \
+		./wedra pipeline lint "$$f"; \
+		./wedra pipeline plan "$$f"; \
+	done
+
+registry: build
+	./wedra registry validate --registry=registry.yaml --local-source=.
+
+clean:
+	rm -f tool wedra tool.exe wedra.exe

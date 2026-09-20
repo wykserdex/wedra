@@ -78,6 +78,9 @@ def main():
             cmd = [os.path.abspath(bin_env)]
     else:
         cmd = [sys.executable, "-m", "maigret"]
+    if len(cmd) == 1 and cmd[0].lower().endswith(".py"):
+        # v0.29: .py-мок запускаем через интерпретатор (см. holehe).
+        cmd = [sys.executable] + cmd
     cmd += [username]
     for s in sites or []:
         cmd += ["--site", s]

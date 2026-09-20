@@ -1,6 +1,9 @@
 package core
 
-import "wedra/internal/pipeline"
+import (
+	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
+)
 
 type Duration = pipeline.Duration
 type PipelineFile = pipeline.PipelineFile
@@ -15,6 +18,14 @@ type NetworkPermission = pipeline.NetworkPermission
 type Manifest = pipeline.Manifest
 
 const PlatformAPI = pipeline.PlatformAPI
+
+// v0.29: Engine один — plugin.Engine. core.Engine был построчной копией
+// (Manifest и так алиас pipeline.Manifest, поле RegistrySrc никто не ставил).
+// Оставлен алиас ради совместимости вызовов core.NewEngine().
+type Engine = plugin.Engine
+
+var NewEngine = plugin.NewEngine
+var IsBuiltin = plugin.IsBuiltin
 
 func PortSource(portName string, port Port, st *Step) string {
 	return pipeline.PortSource(portName, port, st)

@@ -175,11 +175,18 @@ func normalizeEntries(in map[string]Entry) map[string]Entry {
 
 // IsLocalRef — локальный путь: содержит "/" (кроме core/*), начинается с "." или "/".
 // Голое имя (и имя@версия) — это имя из реестра.
+// v0.29: Windows-абсолюты (C:\..., C:/..., \\server\...) — тоже локальные.
 func IsLocalRef(ref string) bool {
 	if strings.HasPrefix(ref, "core/") {
 		return true
 	}
 	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") {
+		return true
+	}
+	if filepath.IsAbs(ref) {
+		return true
+	}
+	if len(ref) >= 2 && ref[1] == ':' {
 		return true
 	}
 	return strings.Contains(ref, "/")
