@@ -8,6 +8,12 @@ import json
 import os
 import sys
 
+try:
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 def ok(output):
     print(json.dumps({"status": "ok", "output": output}, ensure_ascii=False))
@@ -37,8 +43,10 @@ def main():
 
     # защита от выхода за пределы workspace: запрещаем абсолютные пути
     # и любой относительный путь, который после нормализации всё ещё
-    # начинается с "..' (т.е. поднимается выше текущей директории)
-    if os.path.isabs(path):
+    # начинается с "..' (т.е. поднимается выше текущей директории).
+    # v0.29: startswith("/") и ("\\") явно — на Windows "/etc" НЕ isabs,
+    # и без этого абсолютный путь проскакивал мимо гарда.
+    if os.path.isabs(path) or path.startswith(("/", "\\")):
         return fail("path_escape", "абсолютные пути запрещены (filesystem: workspace)")
     norm = os.path.normpath(path)
     if norm == ".." or norm.startswith(".." + os.sep):

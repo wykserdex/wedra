@@ -74,6 +74,10 @@ def main():
         bin_env = os.path.abspath(bin_env)
 
     cmd = [bin_env, target, "-C", "--no-color", "-T", str(int(timeout))]
+    if bin_env.lower().endswith(".py"):
+        # v0.29: .py-мок запускаем через интерпретатор — прямой exec
+        # непереносим (shebang+CRLF на Linux, ассоциации на Windows).
+        cmd = [sys.executable] + cmd
 
     with tempfile.TemporaryDirectory() as td:
         try:

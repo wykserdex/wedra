@@ -23,7 +23,7 @@ jobs:
       - name: go test
         run: go test ./... -count=1 -run Test -v -race
       - name: conformance tests
-        run: go test ./internal/core -run TestConformance -v -count=1
+        run: go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1
       - name: build tool
         run: go build -o tool ./cmd/tool
       - name: build wedra

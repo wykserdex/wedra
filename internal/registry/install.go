@@ -72,6 +72,9 @@ func CloneToPinned(source, ref, commit, dir string) error {
 	}
 	steps := [][]string{
 		{"init", "-q", dir},
+		// v0.29: фиксируем LF в клоне — иначе глобальный autocrlf машины
+		// выдаст CRLF и пины/тесты станут зависеть от окружения.
+		{"-C", dir, "config", "core.autocrlf", "false"},
 		{"-C", dir, "remote", "add", "origin", source},
 		{"-C", dir, "fetch", "-q", "--depth", "1", "origin", commit},
 		{"-C", dir, "checkout", "-q", "-f", "FETCH_HEAD"},
@@ -89,7 +92,8 @@ func cloneRef(source, ref, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	cmd := exec.Command("git", "clone", "--depth", "1", "--branch", ref, "--quiet", source, dir)
+	cmd := exec.Command("git", "-c", "core.autocrlf=false",
+		"clone", "--depth", "1", "--branch", ref, "--quiet", source, dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone %s@%s: %s: %s", source, ref, err, string(out))

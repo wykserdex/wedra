@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -73,13 +72,8 @@ func TestExecTimeoutKillsProcessGroup(t *testing.T) {
 	// до 5 секунд ждём смерти дочернего (group kill должен быть мгновенным)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		// os.Kill(pid, 0) — проверка существования без сигнала
-		err := syscall.Kill(pid, 0)
-		if err == syscall.ESRCH {
+		if !pidAlive(pid) {
 			return // умер — отлично
-		}
-		if err != nil && err != syscall.EPERM {
-			return // тоже не жив
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

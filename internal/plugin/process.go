@@ -101,8 +101,15 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 
 	cmd.Dir = m.Dir
 	cmd.Stdin = bytes.NewReader(input)
-	if len(extraEnv) > 0 {
-		cmd.Env = mergeEnv(os.Environ(), extraEnv)
+	baseEnv := os.Environ()
+	if m.Runtime.Type == "python" {
+		// v0.29: PYTHONUTF8 — stdin/stdout плагина всегда UTF-8.
+		// На Windows с локалью cp1251 без этого кириллица бьётся
+		// на границе ядро<->плагин (extraEnv может переопределить).
+		baseEnv = append(baseEnv, "PYTHONUTF8=1")
+	}
+	if len(extraEnv) > 0 || m.Runtime.Type == "python" {
+		cmd.Env = mergeEnv(baseEnv, extraEnv)
 	}
 	// v0.23: свой process group — таймаут убивает группу, а не только прямой
 	// процесс (python-плагин с дочерними больше не оставляет сирот).
