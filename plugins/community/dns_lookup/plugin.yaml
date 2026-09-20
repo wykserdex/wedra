@@ -1,0 +1,28 @@
+id: dns_lookup
+version: 0.1.0
+platform_api: "^0.1"
+description: "DNS-резолв хоста в IP (A/AAAA через getaddrinfo), фильтр семейства"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  host:
+    from: input.host
+    type: string
+  family:
+    from: input.family
+    type: string
+    optional: true
+
+output:
+  addresses: { type: array }
+  count: { type: number }
+
+permissions:
+  network: [ { note: "DNS lookup", any_host: true, port: 53 } ]
+  filesystem: none
+  secrets: []

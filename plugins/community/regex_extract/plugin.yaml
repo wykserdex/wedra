@@ -1,0 +1,32 @@
+id: regex_extract
+version: 0.1.0
+platform_api: "^0.1"
+description: "Извлечение совпадений regex из текста с лимитом max_n"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  pattern:
+    from: input.pattern
+    type: string
+  text:
+    from: input.text
+    type: string
+    format: text
+  max_n:
+    from: input.max_n
+    type: number
+    optional: true
+
+output:
+  matches: { type: array }
+  count: { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

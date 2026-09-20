@@ -1,0 +1,29 @@
+id: domain_parser
+version: 0.1.0
+platform_api: "^0.1"
+description: "Разбор URL/хоста: схема, хост, порт, путь, punycode→unicode, детект IP-литерала"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text
+
+output:
+  scheme: { type: string, format: text }
+  host: { type: string, format: text }
+  ascii_host: { type: string, format: text }
+  port: { type: number }
+  path: { type: string, format: text }
+  is_ip: { type: boolean }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

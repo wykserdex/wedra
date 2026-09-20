@@ -1,0 +1,19 @@
+tests:
+  - name: Берлин → Париж (~878 км)
+    input: { lat1: 52.52, lon1: 13.405, lat2: 48.8566, lon2: 2.3522 }
+    expect:
+      status: ok
+      output:
+        km: { equals: 877.465 }
+        meters: { equals: 877465.0 }
+  - name: та же точка → 0
+    input: { lat1: 0, lon1: 0, lat2: 0, lon2: 0 }
+    expect:
+      status: ok
+      output:
+        km: { equals: 0 }
+  - name: широта вне ±90 → ошибка
+    input: { lat1: 91, lon1: 0, lat2: 0, lon2: 0 }
+    expect:
+      status: error
+      error: { code: bad_coords }

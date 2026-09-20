@@ -1,0 +1,25 @@
+id: password_strength
+version: 0.1.0
+platform_api: "^0.1"
+description: "Оценка стойкости пароля 0-4: длина, классы символов, энтропия, стоп-лист"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  password:
+    from: input.password
+    type: string
+
+output:
+  score: { type: number }
+  entropy_bits: { type: number }
+  feedback: { type: array }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []
