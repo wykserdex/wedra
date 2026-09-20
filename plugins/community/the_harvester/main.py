@@ -90,6 +90,9 @@ def main():
         tmpfile = os.path.join(td, "th_report")
         cmd = [bin_env, "-d", domain, "-l", str(limit),
                "-f", tmpfile, "-q"]
+        if bin_env.lower().endswith(".py"):
+            # v0.29: .py-мок запускаем через интерпретатор (см. holehe).
+            cmd = [sys.executable] + cmd
         if sources:
             cmd += ["-b", ",".join(sources)]
 

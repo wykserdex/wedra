@@ -3,7 +3,10 @@
 pid дочернего — в файл $SPID_FILE."""
 import os
 import subprocess
+import sys
 
-child = subprocess.Popen(["sleep", "30"])
+# v0.29: sys.executable вместо "sleep" — фикстура переносима (Windows/Unix).
+child = subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(30)"])
 with open(os.environ["SPID_FILE"], "w") as f:
     f.write(str(child.pid))

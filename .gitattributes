@@ -1,0 +1,23 @@
+# v0.29: всегда LF. CRLF ломал gofmt, shebang mock-скриптов на Linux
+# и часть Go-тестов — поэтому концы строк зафиксированы здесь,
+# а не настройками git на машинах контрибьюторов.
+* text=auto eol=lf
+*.go text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+# Бинарники не трогать
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.exe binary
+*.zip binary
+*.db binary

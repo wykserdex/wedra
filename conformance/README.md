@@ -27,4 +27,5 @@
 - несовместимую версию (platform_api)
 - graceful shutdown
 
-Запуск: `go test ./internal/core -run TestConformance` или `tool plugin test <fixture>`
+Запуск: `go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1`
+или одна фикстура: `tool plugin test internal/core/testdata/plugins/<name>`
