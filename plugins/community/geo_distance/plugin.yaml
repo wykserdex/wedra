@@ -1,0 +1,34 @@
+id: geo_distance
+version: 0.1.0
+platform_api: "^0.1"
+description: "Расстояние между двумя точками по гаверсинусу: км/метры/мили"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  lat1:
+    from: input.lat1
+    type: number
+  lon1:
+    from: input.lon1
+    type: number
+  lat2:
+    from: input.lat2
+    type: number
+  lon2:
+    from: input.lon2
+    type: number
+
+output:
+  km: { type: number }
+  meters: { type: number }
+  miles: { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

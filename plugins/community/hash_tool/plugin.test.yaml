@@ -1,0 +1,35 @@
+tests:
+  - name: sha256("abc")
+    input: { mode: "compute", value: "abc", algo: "sha256" }
+    expect:
+      status: ok
+      output:
+        digest: { equals: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }
+  - name: identify sha256
+    input: { mode: "identify", value: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }
+    expect:
+      status: ok
+      output:
+        guesses: { equals: [{ algo: "sha256", bits: 256 }] }
+  - name: identify bcrypt
+    input: { mode: "identify", value: "$2b$12$KIXxQG8b2a2u8vQx0eY8O9vQx0eY8O9vQx0eY8O9vQx0eY8O9vQx0" }
+    expect:
+      status: ok
+      output:
+        guesses: { equals: [{ algo: "bcrypt", bits: 184 }] }
+  - name: мусор → пустые guesses, не ошибка
+    input: { mode: "identify", value: "hello" }
+    expect:
+      status: ok
+      output:
+        guesses: { equals: [] }
+  - name: плохой режим → ошибка
+    input: { mode: "crack", value: "abc" }
+    expect:
+      status: error
+      error: { code: bad_mode }
+  - name: плохой algo → ошибка
+    input: { mode: "compute", value: "abc", algo: "rot13" }
+    expect:
+      status: error
+      error: { code: bad_algo }

@@ -1,0 +1,55 @@
+format_version: "0.2"
+
+# Демо новых community-плагинов (волна 3): разбор цели, IP, email,
+# хэш хоста и расстояние — всё офлайн, прогоняется без сети.
+
+pipeline:
+  name: quick_intel
+  input:
+    target: "https://example.com:8443/a/b?x=1"
+    ip: "8.8.8.8"
+    text: "пиши на Info@Example.com или admin@test.org"
+    mode: "compute"
+    algo: "sha256"
+    lat1: 52.52
+    lon1: 13.405
+    lat2: 48.8566
+    lon2: 2.3522
+
+  steps:
+    - id: parse
+      plugin: plugins/community/domain_parser
+      bind: { target: input.target }
+      on_error: stop
+      timeout: 10s
+
+    - id: ipinfo
+      plugin: plugins/community/ip_intel
+      bind: { ip: input.ip }
+      on_error: stop
+      timeout: 10s
+
+    - id: mails
+      plugin: plugins/community/email_extractor
+      bind: { text: input.text }
+      on_error: stop
+      timeout: 10s
+
+    - id: hosthash
+      plugin: plugins/community/hash_tool
+      bind:
+        mode: input.mode
+        algo: input.algo
+        value: steps.parse.host
+      on_error: stop
+      timeout: 10s
+
+    - id: geo
+      plugin: plugins/community/geo_distance
+      bind:
+        lat1: input.lat1
+        lon1: input.lon1
+        lat2: input.lat2
+        lon2: input.lon2
+      on_error: stop
+      timeout: 10s

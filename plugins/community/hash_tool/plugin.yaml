@@ -1,0 +1,32 @@
+id: hash_tool
+version: 0.1.0
+platform_api: "^0.1"
+description: "Хэши: определение типа по виду (md5/sha*/bcrypt/argon2/uuid) и вычисление digest"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  mode:
+    from: input.mode
+    type: string
+  value:
+    from: input.value
+    type: string
+    format: text
+  algo:
+    from: input.algo
+    type: string
+    optional: true
+
+output:
+  guesses: { type: array }
+  digest: { type: string, format: text }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

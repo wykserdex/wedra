@@ -1,0 +1,37 @@
+tests:
+  - name: публичный IPv4
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        normalized: { equals: "8.8.8.8" }
+        version: { equals: 4 }
+        is_private: { equals: false }
+        is_loopback: { equals: false }
+        int_value: { equals: "134744072" }
+  - name: приватный IPv4
+    input: { ip: "192.168.1.10" }
+    expect:
+      status: ok
+      output:
+        version: { equals: 4 }
+        is_private: { equals: true }
+  - name: IPv6 loopback
+    input: { ip: "::1" }
+    expect:
+      status: ok
+      output:
+        version: { equals: 6 }
+        is_loopback: { equals: true }
+        normalized: { equals: "::1" }
+  - name: мусор → доменная ошибка
+    input: { ip: "999.1.1.1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_ip, retryable: false }
+  - name: пустое поле → доменная ошибка
+    input: { ip: "" }
+    expect:
+      status: error
+      error: { code: empty_input }

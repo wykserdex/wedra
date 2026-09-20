@@ -1,0 +1,32 @@
+id: port_probe
+version: 0.1.0
+platform_api: "^0.1"
+description: "TCP-проба host:port: открыт/закрыт, задержка, опциональный баннер"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  host:
+    from: input.host
+    type: string
+  port:
+    from: input.port
+    type: number
+  timeout_s:
+    from: input.timeout_s
+    type: number
+    optional: true
+
+output:
+  open: { type: boolean }
+  latency_ms: { type: number }
+  banner: { type: string, format: text }
+
+permissions:
+  network: [ { note: "пользовательский host:port", any_host: true } ]
+  filesystem: none
+  secrets: []

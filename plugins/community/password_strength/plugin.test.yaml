@@ -1,0 +1,26 @@
+tests:
+  - name: стоп-лист → 0
+    input: { password: "123456" }
+    expect:
+      status: ok
+      output:
+        score: { equals: 0 }
+  - name: сильный пароль → 4
+    input: { password: "Tr7$kQ2!mZx9#pL4v" }
+    expect:
+      status: ok
+      output:
+        score: { equals: 4 }
+        entropy_bits: { type: number }
+        feedback: { present: true }
+  - name: слабый короткий → низкий скор
+    input: { password: "abc" }
+    expect:
+      status: ok
+      output:
+        score: { equals: 0 }
+  - name: пусто → ошибка
+    input: { password: "" }
+    expect:
+      status: error
+      error: { code: empty_input }

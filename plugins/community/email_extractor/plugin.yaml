@@ -1,0 +1,30 @@
+id: email_extractor
+version: 0.1.0
+platform_api: "^0.1"
+description: "Извлечение email-адресов из текста: дедуп, лимит, уникальные домены"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  text:
+    from: input.text
+    type: string
+    format: text
+  max_n:
+    from: input.max_n
+    type: number
+    optional: true
+
+output:
+  emails: { type: array }
+  count: { type: number }
+  domains: { type: array }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

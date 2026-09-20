@@ -1,0 +1,20 @@
+tests:
+  - name: mock-режим → 200
+    env: { MOCK: "1" }
+    input: { url: "https://example.com/" }
+    expect:
+      status: ok
+      output:
+        status: { equals: 200 }
+        ok: { equals: true }
+        bytes: { equals: 1256 }
+  - name: кривой URL → ошибка без сети
+    input: { url: "notaurl" }
+    expect:
+      status: error
+      error: { code: bad_url }
+  - name: закрытый локальный порт → сетевая ошибка, retryable
+    input: { url: "http://127.0.0.1:9/" }
+    expect:
+      status: error
+      error: { code: network, retryable: true }

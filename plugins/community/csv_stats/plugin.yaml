@@ -1,0 +1,32 @@
+id: csv_stats
+version: 0.1.0
+platform_api: "^0.1"
+description: "Статистики числовой колонки CSV из текста: count/mean/min/max/sum"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  csv_text:
+    from: input.csv_text
+    type: string
+    format: text
+  column:
+    from: input.column
+    type: string
+
+output:
+  count: { type: number }
+  mean: { type: number }
+  min: { type: number }
+  max: { type: number }
+  sum: { type: number }
+  skipped: { type: number }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

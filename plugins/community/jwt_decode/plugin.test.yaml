@@ -1,0 +1,27 @@
+tests:
+  - name: валидный токен (срок в будущем)
+    input: { token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiZXhwIjo0MTAyNDQ0ODAwfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" }
+    expect:
+      status: ok
+      output:
+        alg: { equals: "HS256" }
+        expired: { equals: false }
+        signature_present: { equals: true }
+        payload: { present: true }
+  - name: протухший токен → expired true, не ошибка
+    input: { token: "eyJhbGciOiJub25lIn0.eyJleHAiOjF9." }
+    expect:
+      status: ok
+      output:
+        expired: { equals: true }
+        alg: { equals: "none" }
+  - name: не три части → ошибка
+    input: { token: "abc.def" }
+    expect:
+      status: error
+      error: { code: bad_token }
+  - name: битый base64 → ошибка
+    input: { token: "%%%.%%%.%%%" }
+    expect:
+      status: error
+      error: { code: bad_token }

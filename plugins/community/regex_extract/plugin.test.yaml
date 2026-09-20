@@ -1,0 +1,24 @@
+tests:
+  - name: хештеги с группой
+    input: { pattern: "#(\\w+)", text: "люблю #кот и #собака", max_n: 10 }
+    expect:
+      status: ok
+      output:
+        matches: { equals: ["кот", "собака"] }
+        count: { equals: 2 }
+  - name: лимит срабатывает
+    input: { pattern: "\\d+", text: "1 2 3 4", max_n: 2 }
+    expect:
+      status: ok
+      output:
+        matches: { equals: ["1", "2"] }
+  - name: кривой паттерн → ошибка
+    input: { pattern: "([", text: "любой" }
+    expect:
+      status: error
+      error: { code: bad_pattern }
+  - name: нет совпадений → ошибка
+    input: { pattern: "zzz", text: "абв" }
+    expect:
+      status: error
+      error: { code: no_match }

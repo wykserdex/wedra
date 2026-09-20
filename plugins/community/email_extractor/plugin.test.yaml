@@ -1,0 +1,25 @@
+tests:
+  - name: два адреса + дубликат
+    input: { text: "пиши на Info@Example.com или info@example.com, копия admin@test.org" }
+    expect:
+      status: ok
+      output:
+        emails: { equals: ["info@example.com", "admin@test.org"] }
+        count: { equals: 2 }
+        domains: { equals: ["example.com", "test.org"] }
+  - name: лимит max_n
+    input: { text: "a@x.io b@y.io c@z.io", max_n: 2 }
+    expect:
+      status: ok
+      output:
+        count: { equals: 2 }
+  - name: нет адресов → ошибка
+    input: { text: "просто текст без контактов" }
+    expect:
+      status: error
+      error: { code: no_match }
+  - name: плохой max_n → ошибка
+    input: { text: "a@x.io", max_n: 0 }
+    expect:
+      status: error
+      error: { code: bad_max_n }

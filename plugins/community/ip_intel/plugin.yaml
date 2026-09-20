@@ -1,0 +1,30 @@
+id: ip_intel
+version: 0.1.0
+platform_api: "^0.1"
+description: "Разбор IP-адреса: версия, приватный/loopback/multicast/reserved, нормализация, int-представление"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  ip:
+    from: input.ip
+    type: string
+    format: text
+
+output:
+  normalized: { type: string, format: text }
+  version: { type: number }
+  is_private: { type: boolean }
+  is_loopback: { type: boolean }
+  is_multicast: { type: boolean }
+  is_reserved: { type: boolean }
+  int_value: { type: string, format: text }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

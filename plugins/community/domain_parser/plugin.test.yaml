@@ -1,0 +1,37 @@
+tests:
+  - name: полный URL с портом и путём
+    input: { target: "https://example.com:8443/a/b?x=1" }
+    expect:
+      status: ok
+      output:
+        scheme: { equals: "https" }
+        host: { equals: "example.com" }
+        port: { equals: 8443 }
+        path: { equals: "/a/b" }
+        is_ip: { equals: false }
+  - name: голый хост без схемы
+    input: { target: "example.com" }
+    expect:
+      status: ok
+      output:
+        host: { equals: "example.com" }
+        port: { equals: 0 }
+  - name: punycode → unicode
+    input: { target: "http://xn--80akhbyknj4f.xn--p1ai/" }
+    expect:
+      status: ok
+      output:
+        host: { equals: "испытание.рф" }
+        ascii_host: { equals: "xn--80akhbyknj4f.xn--p1ai" }
+  - name: IP-литерал
+    input: { target: "http://127.0.0.1:8080/" }
+    expect:
+      status: ok
+      output:
+        is_ip: { equals: true }
+        port: { equals: 8080 }
+  - name: пусто → ошибка
+    input: { target: "" }
+    expect:
+      status: error
+      error: { code: empty_input }

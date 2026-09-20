@@ -1,0 +1,32 @@
+id: ssl_info
+version: 0.1.0
+platform_api: "^0.1"
+description: "TLS-сертификат хоста: CN, издатель, сроки, протух ли, самоподписан ли"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  host:
+    from: input.host
+    type: string
+  port:
+    from: input.port
+    type: number
+    optional: true
+
+output:
+  subject_cn: { type: string, format: text }
+  issuer_cn: { type: string, format: text }
+  not_after: { type: string, format: text }
+  days_left: { type: number }
+  expired: { type: boolean }
+  self_signed: { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443 } ]
+  filesystem: none
+  secrets: []

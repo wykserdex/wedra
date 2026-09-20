@@ -1,0 +1,25 @@
+tests:
+  - name: localhost резолвится без сети
+    input: { host: "localhost" }
+    expect:
+      status: ok
+      output:
+        addresses: { present: true }
+        count: { type: number }
+  - name: фильтр IPv4
+    input: { host: "localhost", family: "4" }
+    expect:
+      status: ok
+      output:
+        addresses: { equals: [{ ip: "127.0.0.1", family: "4" }] }
+        count: { equals: 1 }
+  - name: несуществующий хост → ошибка
+    input: { host: "nonexistent.invalid" }
+    expect:
+      status: error
+      error: { code: dns_fail }
+  - name: плохое family → ошибка
+    input: { host: "localhost", family: "5" }
+    expect:
+      status: error
+      error: { code: bad_family }

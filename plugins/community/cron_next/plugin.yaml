@@ -1,0 +1,27 @@
+id: cron_next
+version: 0.1.0
+platform_api: "^0.1"
+description: "Ближайшее срабатывание 5-польного cron от заданного момента (UTC)"
+author: "community"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+
+input:
+  expr:
+    from: input.expr
+    type: string
+  from:
+    from: input.from
+    type: string
+    optional: true
+
+output:
+  next: { type: string, format: text }
+
+permissions:
+  network: []
+  filesystem: none
+  secrets: []

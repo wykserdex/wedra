@@ -1,0 +1,20 @@
+tests:
+  - name: mock-режим → открытый порт
+    env: { MOCK: "1" }
+    input: { host: "example.com", port: 25 }
+    expect:
+      status: ok
+      output:
+        open: { equals: true }
+        banner: { equals: "220 mock ESMTP" }
+        latency_ms: { equals: 3 }
+  - name: закрытый локальный порт → ошибка без сети наружу
+    input: { host: "127.0.0.1", port: 1 }
+    expect:
+      status: error
+      error: { code: conn_refused, retryable: false }
+  - name: порт вне диапазона → ошибка
+    input: { host: "127.0.0.1", port: 99999 }
+    expect:
+      status: error
+      error: { code: bad_port }
