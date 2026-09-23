@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"wedra/internal/context"
+	"wedra/internal/runctx"
 )
 
 // Journal — append-only журнал прогона: var/runs/<run_id>/journal.jsonl
@@ -69,7 +69,7 @@ func (j *Journal) Event(kind string, kv map[string]interface{}) {
 
 // Snapshot — context.json. v0.23: атомарно (temp+rename) — краш в середине
 // больше не даёт битый файл, из-за которого resume отвалился бы.
-func (j *Journal) Snapshot(ctx *context.Ctx) {
+func (j *Journal) Snapshot(ctx *runctx.Ctx) {
 	b, err := json.MarshalIndent(ctx.Data, "", "  ")
 	if err != nil {
 		return

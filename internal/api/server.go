@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -40,16 +41,54 @@ type Server struct {
 	// Заполняется лениво (когда ран доходит до gate-шага), чистится при выходе.
 	gatesMu sync.Mutex
 	gates   map[string]*gate.ChannelUI
+
+	// v0.9: отмена активных ранов: runID → cancel (POST /api/runs/<id>/cancel).
+	cancelsMu sync.Mutex
+	cancels   map[string]context.CancelFunc
+
+	// v0.9: секрет сессии человека (EnableSession). Пусто — сессия не
+	// требуется (тесты, встраивание). Только в памяти и в cookie.
+	SessionSecret string
 }
 
 func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
+	eng := plugin.NewEngine()
+	// v0.9: один резолв плагинов для validate/plan/list и run (раньше
+	// validate жил с дефолтным "plugins", а run — с PluginsDir)
+	eng.PluginsDir = pluginsDir
 	return &Server{
 		PluginsDir:   pluginsDir,
 		PipelinesDir: pipelinesDir,
 		RunsDir:      runsDir,
-		Engine:       plugin.NewEngine(),
+		Engine:       eng,
 		gates:        map[string]*gate.ChannelUI{},
+		cancels:      map[string]context.CancelFunc{},
 	}
+}
+
+// runEngine — свежий движок для рана (без кэша манифестов прошлых ранов).
+func (s *Server) runEngine() *core.Engine {
+	eng := core.NewEngine()
+	eng.PluginsDir = s.PluginsDir
+	return eng
+}
+
+func (s *Server) setCancel(id string, c context.CancelFunc) {
+	s.cancelsMu.Lock()
+	defer s.cancelsMu.Unlock()
+	s.cancels[id] = c
+}
+
+func (s *Server) clearCancel(id string) {
+	s.cancelsMu.Lock()
+	defer s.cancelsMu.Unlock()
+	delete(s.cancels, id)
+}
+
+func (s *Server) cancelFor(id string) context.CancelFunc {
+	s.cancelsMu.Lock()
+	defer s.cancelsMu.Unlock()
+	return s.cancels[id]
 }
 
 func (s *Server) setGate(id string, ui *gate.ChannelUI) {
@@ -144,6 +183,9 @@ func (s *Server) Routes() http.Handler {
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.sessionHandshake(w, r) {
+			return
+		}
 		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE") && !s.csrfGuard(w, r) {
 			return
 		}
@@ -293,6 +335,9 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "PUT" {
+		if !s.requireSession(w, r) {
+			return
+		}
 		// v0.12 fix: раньше читал старый файл и писал его же обратно — молчаливая порча данных
 		// теперь читаем r.Body и валидируем перед сохранением
 		data, err := io.ReadAll(r.Body)
@@ -342,6 +387,8 @@ func runSummary(dir string) map[string]interface{} {
 			}
 		case "run_failed":
 			status = "failed"
+		case "run_cancelled":
+			status = "cancelled"
 		}
 	}
 	return map[string]interface{}{
@@ -412,6 +459,11 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		s.handleRunGate(w, r, rest)
 		return
 	}
+	// v0.9: /api/runs/<id>/cancel — отмена активного рана (нужна сессия)
+	if rest, ok := strings.CutSuffix(id, "/cancel"); ok {
+		s.handleRunCancel(w, r, rest)
+		return
+	}
 	// v0.22: /api/runs/<id>/journal?since=N — live-хвост для GUI
 	if rest, ok := strings.CutSuffix(id, "/journal"); ok {
 		dir := filepath.Join(s.RunsDir, rest)
@@ -468,6 +520,9 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST {file, yes}", 405)
 		return
 	}
+	if !s.requireSession(w, r) {
+		return
+	}
 	var req struct {
 		File string `json:"file"`
 		Yes  bool   `json:"yes"`
@@ -480,42 +535,57 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file: только имя из "+s.PipelinesDir, 400)
 		return
 	}
-	if !s.runMu.TryLock() {
-		w.WriteHeader(409)
-		json.NewEncoder(w).Encode(map[string]string{"error": "уже идёт ран — дождись завершения"})
-		return
-	}
 	path := filepath.Join(s.PipelinesDir, req.File)
 	pf, err := pipeline.LoadPipelineFile(path)
 	if err != nil {
-		s.runMu.Unlock()
 		http.Error(w, "pipeline: "+err.Error(), 400)
 		return
 	}
+	// v0.9: валидация и secrets — синхронно, ДО 202. Раньше 202 выдавался
+	// сразу, а отказ валидации печатался только в stdout сервера: клиент
+	// (агент) получал run_id несуществующего рана и не видел причину.
+	eng := s.runEngine()
+	issues := pipeline.ValidateIssues(pf, eng)
+	errs, _ := pipeline.SplitIssues(issues)
+	if len(errs) > 0 {
+		writeJSON(w, 400, map[string]interface{}{"ok": false, "issues": issues})
+		return
+	}
+	var missing []string
+	for _, k := range pf.Pipeline.Secrets {
+		if os.Getenv(k) == "" {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) > 0 {
+		writeJSON(w, 400, map[string]interface{}{
+			"ok": false, "code": "secrets_missing", "missing": missing,
+			"error": "secrets: не заданы переменные окружения: " + strings.Join(missing, ", "),
+		})
+		return
+	}
+	if !s.runMu.TryLock() {
+		writeJSON(w, 409, map[string]string{"error": "уже идёт ран — дождись завершения", "code": "E_RUN_BUSY"})
+		return
+	}
 	runID := time.Now().Format("20060102-150405") + "-" + execution.Sanitize(pf.Pipeline.Name)
+	runCtx, cancel := context.WithCancel(context.Background())
+	s.setCancel(runID, cancel)
 	s.running = true
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(202)
-	json.NewEncoder(w).Encode(map[string]interface{}{"status": "started", "file": req.File, "run": runID})
+	writeJSON(w, 202, map[string]interface{}{"status": "started", "file": req.File, "run": runID, "issues": issues})
 
 	go func() {
 		defer s.runMu.Unlock()
 		defer s.clearGate(runID)
-		eng := core.NewEngine()
-		eng.PluginsDir = s.PluginsDir
-		errs, warns := core.Validate(pf, eng)
-		for _, wmsg := range warns {
-			fmt.Printf("[gui] warning: %s\n", wmsg)
-		}
-		if len(errs) > 0 {
-			fmt.Printf("[gui] запуск %s отклонён валидацией: %v\n", req.File, errs)
-			return
-		}
-		opts := core.RunOptions{Yes: req.Yes, Quiet: true, RunsDir: s.RunsDir, RunID: runID}
-		if !req.Yes {
+		defer s.clearCancel(runID)
+		defer cancel()
+		opts := core.RunOptions{Yes: req.Yes, Quiet: true, RunsDir: s.RunsDir, RunID: runID, Ctx: runCtx}
+		if !req.Yes || pipelineNeedsHuman(pf) {
 			opts.GateUI = func(st *pipeline.Step) gate.GateUI {
 				ui := gate.NewChannelUI()
 				s.setGate(runID, ui)
+				// отмена рана закрывает ожидающий гейт (иначе висит вечно)
+				go func() { <-runCtx.Done(); ui.Close() }()
 				return ui
 			}
 		}
@@ -526,6 +596,42 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("[gui] %s: ok=%d aborted=%d\n", req.File, stats.OK, stats.Aborted)
 		}
 	}()
+}
+
+// pipelineNeedsHuman — есть гейт, который --yes не одобрит (approval: human /
+// gates: human_only): такому рану нужен браузерный GateUI даже при yes=true.
+func pipelineNeedsHuman(pf *pipeline.PipelineFile) bool {
+	for i := range pf.Pipeline.Steps {
+		st := &pf.Pipeline.Steps[i]
+		if pipeline.IsBuiltin(st.Plugin) && pf.Pipeline.RequiresHuman(st) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeJSON(w http.ResponseWriter, code int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+
+// handleRunCancel — v0.9: POST /api/runs/<id>/cancel.
+func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != "POST" {
+		http.Error(w, "POST", 405)
+		return
+	}
+	if !s.requireSession(w, r) {
+		return
+	}
+	cancel := s.cancelFor(id)
+	if cancel == nil {
+		writeJSON(w, 409, map[string]string{"error": "ран не активен (завершён или не найден)", "code": "E_RUN_DONE"})
+		return
+	}
+	cancel()
+	writeJSON(w, 202, map[string]string{"status": "cancelling", "run": id})
 }
 
 // handleRunGate — v0.24: GET/POST /api/runs/<id>/gate.
@@ -562,6 +668,9 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 			json.NewEncoder(w).Encode(map[string]interface{}{"pending": false})
 		}
 	case "POST":
+		if !s.requireSession(w, r) {
+			return
+		}
 		var req struct {
 			Action string                 `json:"action"`
 			Edits  map[string]interface{} `json:"edits"`
@@ -585,7 +694,9 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 			json.NewEncoder(w).Encode(map[string]string{"error": "ран завершён (" + st + ") — решения не принимает"})
 			return
 		}
-		if !ui.SendDecision(gate.Decision{Action: req.Action, Edits: req.Edits}) {
+		// source/session проставляет сервер: клиент их не задаёт (json:"-")
+		d := gate.Decision{Action: req.Action, Edits: req.Edits, Source: gate.SourceGUI, Session: s.sessionHash()}
+		if !ui.SendDecision(d) {
 			w.WriteHeader(409)
 			json.NewEncoder(w).Encode(map[string]string{"error": "гейт уже решён"})
 			return
@@ -617,9 +728,10 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 		}
 		pf = *pfPtr
 	}
-	errs, warns := pipeline.Validate(&pf, s.Engine)
+	issues := pipeline.ValidateIssues(&pf, s.Engine)
+	errs, warns := pipeline.SplitIssues(issues)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"errors": errs, "warnings": warns, "ok": len(errs) == 0})
+	json.NewEncoder(w).Encode(map[string]interface{}{"errors": errs, "warnings": warns, "ok": len(errs) == 0, "issues": issues})
 }
 
 func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
@@ -639,7 +751,8 @@ func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "parse: "+err.Error(), 400)
 		return
 	}
-	errs, warns := pipeline.Validate(pf, s.Engine)
+	issues := pipeline.ValidateIssues(pf, s.Engine)
+	errs, warns := pipeline.SplitIssues(issues)
 	// строим DAG
 	nodes := []map[string]interface{}{}
 	edges := []map[string]string{}
@@ -714,6 +827,7 @@ func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
 		"foreach":  pf.Pipeline.Foreach,
 		"errors":   errs,
 		"warnings": warns,
+		"issues":   issues,
 		"ok":       len(errs) == 0,
 		"dag": map[string]interface{}{
 			"nodes": nodes,

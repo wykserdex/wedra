@@ -8,7 +8,7 @@ import (
 
 func runGate(st *Step, ctx *Ctx, j *Journal, opts RunOptions) string {
 	svc := gate.NewService()
-	return svc.Run(st, ctx, j, gate.GateOptions{Yes: opts.Yes, Quiet: opts.Quiet})
+	return svc.Run(st, ctx, j, gate.GateOptions{Yes: opts.Yes, Quiet: opts.Quiet, Policy: gate.Policy{AllowAutoApprove: !opts.NoAutoApprove}})
 }
 
 func kindOf(v interface{}) string {

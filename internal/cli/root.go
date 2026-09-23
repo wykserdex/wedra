@@ -32,11 +32,15 @@ func Run() {
 		if raw, err := os.ReadFile("VERSION"); err == nil {
 			ver = strings.TrimSpace(string(raw))
 		}
-		fmt.Printf("wedra v%s — WEDRA (CLI focus, M6 meat), protocol v0.2\n", ver)
+		fmt.Printf("wedra v%s, protocol v0.2\n", ver)
 	case "registry":
 		RunRegistryValidate(os.Args[2:])
 	case "validate":
 		handlePipeline(append([]string{"validate"}, os.Args[2:]...))
+	case "mcp":
+		RunMCP(os.Args[2:])
+	case "approve":
+		RunApprove(os.Args[2:])
 	default:
 		fmt.Printf("неизвестная команда %q\n", cmd)
 		printHelp()
@@ -49,35 +53,36 @@ func printHelp() {
 	if raw, err := os.ReadFile("VERSION"); err == nil {
 		ver = strings.TrimSpace(string(raw))
 	}
-	fmt.Printf(`WEDRA — оркестратор цепочек с человеком в петле (v%s, CLI focus)
-  (бывш. orchestrator — v0.26: продукт получил имя, совпадающее с репозиторием)
+	fmt.Printf(`WEDRA — контрактный исполнитель цепочек с человеком в петле (v%s)
 
 Команды (мясо, не косметика):
-  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json]
+  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve]
   wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
-  wedra pipeline validate <file.yaml>
-  orchestrator pipeline plan <file.yaml>
-  orchestrator pipeline lint <file.yaml>          # validate + file_ref error
-  orchestrator plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
-  orchestrator plugin validate <dir>
-  orchestrator plugin test <dir>
-  orchestrator plugin create <dir> [--author --description --example]
-  orchestrator plugin inspect <dir>
-  orchestrator plugin search <query>              # поиск по official/community
-  orchestrator plugin list                        # список всех плагинов
-  orchestrator registry validate [--registry=<url|path>] [--local-source=<dir>]
+  wedra pipeline validate <file.yaml> [--json]      # --json: {ok, issues[]} с кодами (ERRORS.md)
+  wedra pipeline plan <file.yaml>
+  wedra pipeline lint <file.yaml>          # validate + file_ref error
+  wedra plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
+  wedra plugin validate <dir>
+  wedra plugin test <dir> [--conformance] [--json]
+  wedra plugin create <dir> [--author --description --example]
+  wedra plugin inspect <dir>
+  wedra plugin search <query>              # поиск по official/community
+  wedra plugin list                        # список всех плагинов
+  wedra registry validate [--registry=<url|path>] [--local-source=<dir>]
                                                  # v0.17: trust-гейт реестра (манифест, id, конформность)
-  orchestrator runs list [var/runs]               # список прогонов (fs + json)
-  orchestrator runs show <run_id> [var/runs]      # журнал + context + artifacts
-  orchestrator runs resume <run_id> <pipeline.yaml> [--yes]
-  orchestrator gui [--port 8080] [--open]         # отложено, косметика
+  wedra runs list [var/runs]               # список прогонов (fs + json)
+  wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
+  wedra runs resume <run_id> <pipeline.yaml> [--yes]
+  wedra gui [--port 8765] [--open] [--no-session]  # консоль; мутации — по ссылке ?k= из терминала
+  wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
+  wedra approve <run_id> <step_id>                # только интерактивный TTY
 
 Совместимость:
-  orchestrator run <file.yaml> == pipeline run
-  orchestrator validate <file.yaml> == pipeline validate
+  wedra run <file.yaml> == pipeline run
+  wedra validate <file.yaml> == pipeline validate
 
-Версия: v%s (CLI focus, честная 0.x), протокол v0.2
-См. protocol/v0.2/PROTOCOL.md, docs/plugin-dev.md, CHANGELOG.md
+Версия: v%s (честная 0.x), протокол v0.2
+См. protocol/v0.2/PROTOCOL.md, protocol/v0.2/ERRORS.md, docs/mcp.md, CHANGELOG.md
 `, ver, ver)
 }
 
@@ -92,8 +97,10 @@ func handlePipeline(args []string) {
 		RunPipelineRun(args[1:])
 	case "install":
 		RunPipelineInstall(args[1:])
-	case "validate", "lint":
+	case "validate":
 		RunPipelineValidate(args[1:])
+	case "lint":
+		RunPipelineValidate(append(args[1:], "--lint"))
 	case "plan":
 		RunPipelinePlan(args[1:])
 	default:

@@ -61,35 +61,47 @@ jobs:
         run: |
           ./wedra gui --listen 127.0.0.1:8917 >/tmp/gui.log 2>&1 &
           GUI_PID=$!
-          for i in $(seq 1 20); do curl -sf localhost:8917/api/health >/dev/null && break; sleep 0.5; done
-          curl -sf localhost:8917/api/health | grep -q '"status":"ok"'
-          curl -sf localhost:8917/api/runs | grep -q 'status'
-          curl -sf -X POST localhost:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep -q started
+          for i in $(seq 1 20); do curl -sf 127.0.0.1:8917/api/health >/dev/null && break; sleep 0.5; done
+          curl -sf 127.0.0.1:8917/api/health | grep -q '"status":"ok"'
+          curl -sf 127.0.0.1:8917/api/runs | grep -q 'status'
+          # v0.9: без сессии человека мутации → 401
+          curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep -q 401
+          LINK=$(grep -o 'http://[^ ]*?k=[0-9a-f]*' /tmp/gui.log | head -1)
+          test -n "$LINK"
+          curl -sf -o /dev/null -c /tmp/cj17 "$LINK"   # ?k= → HttpOnly cookie
+          curl -sf -b /tmp/cj17 -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep -q started
           sleep 4
-          curl -sf localhost:8917/api/runs | grep -q when_demo
+          curl -sf 127.0.0.1:8917/api/runs | grep -q when_demo
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui.log
       - name: v0.24 browser gate live (wait → decision via API)
         run: |
           ./wedra gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
           GUI_PID=$!
-          for i in $(seq 1 20); do curl -sf localhost:8918/api/health >/dev/null && break; sleep 0.5; done
-          RUN_ID=$(curl -sf -X POST localhost:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
+          for i in $(seq 1 20); do curl -sf 127.0.0.1:8918/api/health >/dev/null && break; sleep 0.5; done
+          LINK=$(grep -o 'http://[^ ]*?k=[0-9a-f]*' /tmp/gui-gate.log | head -1)
+          test -n "$LINK"
+          curl -sf -o /dev/null -c /tmp/cj18 "$LINK"   # ?k= → HttpOnly cookie
+          RUN_ID=$(curl -sf -b /tmp/cj18 -X POST 127.0.0.1:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
           echo "run: $RUN_ID"
           for i in $(seq 1 40); do
-            curl -sf "localhost:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true' && break
+            curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true' && break
             sleep 0.5
           done
-          curl -sf "localhost:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true'
-          curl -sf -X POST "localhost:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep -q queued
+          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep -q '"pending":true'
+          # агент без cookie не может одобрить
+          curl -s -o /dev/null -w '%{http_code}' -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep -q 401
+          curl -sf -b /tmp/cj18 -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep -q queued
           # повторный submit — 409
-          curl -s -o /dev/null -w '%{http_code}' -X POST "localhost:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"reject"}' | grep -q 409
+          curl -s -b /tmp/cj18 -o /dev/null -w '%{http_code}' -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"reject"}' | grep -q 409
           for i in $(seq 1 40); do
-            curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"' && break
+            curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"' && break
             sleep 0.5
           done
-          curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"'
-          curl -sf "localhost:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"action":"accept"'
+          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"gate_decision"'
+          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"action":"accept"'
+          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep -q '"source":"gui"'
+          ! grep -rq "$(echo "$LINK" | sed 's/.*k=//')" var/runs examples 2>/dev/null  # секрет не в журналах
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui-gate.log
       - name: v0.25 editor live (parse/serialize round-trip)
@@ -158,6 +170,19 @@ jobs:
           kill -TERM $WG_PID
           sleep 1
           pgrep -x wedragui-linux >/dev/null && exit 1 || true
+      - name: v0.9 agent track (validate --json, conformance, MCP)
+        run: |
+          ./wedra pipeline validate examples/email_triage_chain.yaml --json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"], d'
+          printf 'format_version: "0.2"\npipeline:\n  name: bad\n  input: {text: x}\n  steps:\n    - {id: a, plugin: plugins/community/text_analyzer, bind: {text: input.nope}}\n' > /tmp/bad.yaml
+          ! ./wedra pipeline validate /tmp/bad.yaml --json > /tmp/bad.json
+          grep -q E_PORT_SOURCE /tmp/bad.json
+          ./wedra plugin test internal/core/testdata/plugins --conformance
+          # contract_input роняет элемент, не ран (exit 1 = были aborted — ожидаемо)
+          (./wedra pipeline run examples/email_triage_chain.yaml --yes || true) | grep -q 'ok=3 aborted=1'
+          printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' \
+            | ./wedra mcp --plugins "$PWD/plugins" --workdir "$PWD" --no-gui 2>/dev/null > /tmp/mcp.out
+          grep -q '"version":"'"$(cat VERSION)"'"' /tmp/mcp.out
+          grep -q cancel_run /tmp/mcp.out
       - name: foreach + after_foreach live
         run: |
           ./wedra pipeline run examples/csv_foreach.yaml --yes

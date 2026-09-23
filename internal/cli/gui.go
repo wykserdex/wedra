@@ -18,6 +18,7 @@ import (
 func RunGUI(args []string) {
 	listen := "127.0.0.1:8765"
 	open := false
+	noSession := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if len(a) > 9 && a[:9] == "--listen=" {
@@ -32,26 +33,49 @@ func RunGUI(args []string) {
 			i++
 		} else if a == "--open" {
 			open = true
+		} else if a == "--no-session" {
+			noSession = true
 		}
 	}
 	srv := api.NewServer("plugins", "examples", "var/runs")
+	// v0.9: сессия человека — мутации (запуск, гейт, отмена) только с cookie
+	// из ссылки ?k=, напечатанной в ЭТОТ терминал. --no-session — старое
+	// поведение (любой локальный процесс может одобрить гейт).
+	secret := ""
+	if !noSession {
+		var err error
+		if secret, err = api.NewSessionSecret(); err != nil {
+			fmt.Println("не удалось сгенерировать ключ сессии:", err)
+			os.Exit(1)
+		}
+		srv.EnableSession(secret)
+	}
 	handler := srv.Routes()
 
 	ver := api.Version
 	if raw, err := os.ReadFile("VERSION"); err == nil {
 		ver = strings.TrimSpace(string(raw))
 	}
-	fmt.Printf("▶ GUI v%s — http://%s\n", ver, listen)
+	link := "http://" + listen + "/"
+	if host, port, err := net.SplitHostPort(listen); err == nil && (host == "0.0.0.0" || host == "::" || host == "") {
+		link = "http://localhost:" + port + "/"
+	}
+	if secret != "" {
+		link += "?k=" + secret
+	}
+	fmt.Printf("▶ GUI v%s — %s\n", ver, link)
+	if secret != "" {
+		fmt.Println("  ссылка с ключом — только для человека: без неё запуск/гейты/отмена → 401")
+	} else {
+		fmt.Println("  ⚠ --no-session: любой локальный процесс может запускать раны и одобрять гейты")
+	}
 	fmt.Println("  API: /api/health, /api/plugins, /api/pipelines, /api/runs, /api/run, /api/validate/pipeline")
 	fmt.Println("  Frontend: web/static с диска (если виден из CWD) или встроенный GUI (go:embed, v0.7) — консоль: раны, live-журнал, DAG; /editor/ — редактор пайплайнов")
 	fmt.Println("  Ctrl+C — остановить")
 
 	if open {
 		go func() {
-			url := "http://" + listen
-			if host, _, err := net.SplitHostPort(listen); err == nil && (host == "0.0.0.0" || host == "::") {
-				url = "http://localhost:" + listen[len(host)+1:]
-			}
+			url := link
 			var cmd *exec.Cmd
 			switch runtime.GOOS {
 			case "darwin":

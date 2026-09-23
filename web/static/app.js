@@ -18,7 +18,16 @@ async function api(path, opts = {}) {
   const r = await fetch(path, opts);
   const ct = r.headers.get('content-type') || '';
   const body = ct.includes('json') ? await r.json() : await r.text();
-  if (!r.ok) throw new Error(typeof body === 'string' ? body : JSON.stringify(body));
+  if (!r.ok) {
+    // v0.9: 401 — нет сессии человека (открыть ссылку ?k=... из терминала wedra)
+    if (r.status === 401) throw new Error('нет сессии: откройте ссылку с ключом (?k=...) из терминала wedra');
+    // 400 {issues} — валидация до запуска: показываем коды, а не сырой JSON
+    if (body && Array.isArray(body.issues)) {
+      const errs = body.issues.filter(i => i.severity === 'error');
+      throw new Error(errs.map(i => i.code + ': ' + i.message).join('\n') || JSON.stringify(body));
+    }
+    throw new Error(typeof body === 'string' ? body : (body.error || JSON.stringify(body)));
+  }
   return body;
 }
 
@@ -34,6 +43,9 @@ async function init() {
   loadPipelines();
   tickRuns();
   state.timers.runs = setInterval(tickRuns, 2500);
+  // v0.9: ?run=<id> — ссылка из wedra mcp (гейт ждёт человека): сразу деталка рана
+  const runParam = new URLSearchParams(location.search).get('run');
+  if (runParam) { setTab('runs'); openRunDetail(runParam, true); }
 }
 
 function setTab(t) {
@@ -75,7 +87,7 @@ function renderRuns() {
   const el = $('#runs-list');
   if (!state.runs.length) { el.innerHTML = '<div class="empty">ранов пока нет</div>'; return; }
   el.innerHTML = state.runs.slice(0, 60).map(r => {
-    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'failed' ? 'err' : 'skip';
+    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'failed' ? 'err' : 'skip'; // cancelled → skip
     const label = r.status === 'running' ? 'идёт…' : r.status;
     const t = (r.last || r.started || '').replace('T', ' ').replace('Z', '');
     return `<div class="run-item ${state.currentRun === r.id ? 'active' : ''}" onclick="openRunDetail('${r.id}',true)">
@@ -119,7 +131,8 @@ async function startRun() {
     state.runsBeforeStart = state.runs.length;
     state.timers.pendingNew = true;
     const yes = !$('#run-gate').checked;
-    await api('/api/run', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({file, yes}) });
+    const res = await api('/api/run', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({file, yes}) });
+    if (res && res.run) { state.timers.pendingNew = false; setTimeout(() => openRunDetail(res.run, true), 400); }
     $('#run-status').textContent = yes ? 'ран запущен (--yes) — ищем его в списке…' : 'ран запущен — гейты будут решать прямо здесь…';
   } catch (e) {
     $('#run-status').innerHTML = '<span style="color:var(--err)">' + esc(e.message) + '</span>';
@@ -137,8 +150,9 @@ async function openRunDetail(id, force) {
   let d;
   try { d = await api('/api/runs/' + id); } catch (e) { return; }
   state.detailStatus = d.status;
-  const st = d.status === 'ok' ? 'ok' : d.status === 'running' ? 'run' : 'err';
-  const label = d.status === 'running' ? 'идёт…' : d.status;
+  const st = d.status === 'ok' ? 'ok' : d.status === 'running' ? 'run' : d.status === 'cancelled' ? 'skip' : 'err';
+  const label = d.status === 'running' ? 'идёт…' : d.status === 'cancelled' ? 'отменён' : d.status;
+  const cancelBtn = d.status === 'running' ? `<button class="btn" id="cancel-btn" onclick="cancelRun('${esc(id)}')">■ отменить</button>` : '';
   const ctx = d.context || {};
   const steps = (ctx.steps && Object.keys(ctx.steps).length) || 0;
   const inp = ctx.input ? Object.keys(ctx.input).length : 0;
@@ -149,6 +163,7 @@ async function openRunDetail(id, force) {
       <button class="btn" onclick="closeDetail()">←</button>
       <h2>${esc(d.pipeline || '?')}</h2>
       <span class="badge ${st}">${label}</span>
+      ${cancelBtn}
       <span class="sub">${esc(id)} · контекст: input ${inp} полей, steps ${steps}</span>
     </div>
     <div class="cols">
@@ -188,7 +203,8 @@ async function openRunDetail(id, force) {
         renderJournal(tail.events, true);
         updateGateCard(id);
         const d2 = state.journal.events[state.journal.events.length - 1];
-        if (d2 && (d2.type === 'run_end' || d2.type === 'run_failed')) {
+        if (d2 && (d2.type === 'run_end' || d2.type === 'run_failed' || d2.type === 'run_cancelled')) {
+          const cb = $('#cancel-btn'); if (cb) cb.remove();
           const dd = await api('/api/runs/' + id);
           state.detailStatus = dd.status;
           tickRuns();
@@ -198,6 +214,13 @@ async function openRunDetail(id, force) {
     } catch {}
   }, 2000);
 }
+
+// v0.9: отмена рана (POST /cancel; требует сессию человека)
+window.cancelRun = async (id) => {
+  const b = $('#cancel-btn'); if (b) { b.disabled = true; b.textContent = 'отмена…'; }
+  try { await api('/api/runs/' + id + '/cancel', { method: 'POST' }); }
+  catch (e) { if (b) { b.disabled = false; b.textContent = '■ отменить'; } alert(e.message); }
+};
 
 window.closeDetail = () => {
   state.currentRun = null;
@@ -239,11 +262,12 @@ function renderTimeline(events) {
     if (type === 'step_skipped') { html += ev(t(e), 'skip', `↷ ${esc(e.step)} пропущен`, e.reason ? `reason: ${esc(e.reason)}${e.condition ? ' · ' + esc(e.condition) : ''}` : ''); continue; }
     if (type === 'gate_wait') { html += ev(t(e), 'run', `👤 гейт ${esc(e.step)}: ожидает решение (в браузере)`, (e.actions || []).join('/') ); continue; }
     if (type === 'gate_retry') { html += ev(t(e), 'skip', `⚠ гейт ${esc(e.step)}: ${esc(e.reason || 'переспрос')}`, 'попытка ' + (e.attempt || '?')); continue; }
-    if (type === 'gate_decision') { html += ev(t(e), e.action === 'accept' ? 'ok' : 'skip', `👤 гейт ${esc(e.step)}: ${esc(e.action)}${e.auto ? ' (авто --yes)' : ''}`, e.materialized ? esc(JSON.stringify(e.materialized)) : ''); continue; }
+    if (type === 'gate_decision') { html += ev(t(e), e.action === 'accept' ? 'ok' : 'skip', `👤 гейт ${esc(e.step)}: ${esc(e.action)}${e.auto ? ' (авто --yes)' : ''}${e.source ? ' · ' + esc(e.source) : ''}`, e.materialized ? esc(JSON.stringify(e.materialized)) : ''); continue; }
     if (type === 'run_start') { html += ev(t(e), 'dim', `ран: ${esc(e.pipeline || '?')}${e.foreach ? ' · foreach ' + esc(e.foreach) : ''}`, ''); continue; }
     if (type === 'run_resumed') { html += ev(t(e), 'par', `ран возобновлён (resume)`, ''); continue; }
     if (type === 'run_end') { html += ev(t(e), (e.aborted || 0) ? 'err' : 'ok', `■ ран завершён: ok=${e.ok} aborted=${e.aborted || 0}`, ''); continue; }
-    if (type === 'run_failed') { html += ev(t(e), 'err', `■ ран упал: ${esc(e.error || '')}`, ''); continue; }
+    if (type === 'run_failed') { html += ev(t(e), 'err', `■ ран упал${e.code ? ' [' + esc(e.code) + ']' : ''}: ${esc(e.error || '')}`, ''); continue; }
+    if (type === 'run_cancelled') { html += ev(t(e), 'skip', '■ ран отменён (resume — продолжить с места остановки)', ''); continue; }
     if (type === 'post_phase_start') { html += ev(t(e), 'dim', 'post-фаза (после foreach)…', ''); continue; }
     if (type === 'post_phase_end') { html += ev(t(e), 'dim', 'post-фаза завершена', ''); continue; }
     if (type === 'foreach_item_failed') { html += ev(t(e), 'err', `⤷ ${esc(e.step)} · элемент ${e.item_index}: ${esc(e.error || 'ошибка')}`, ''); continue; }
