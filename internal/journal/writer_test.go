@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wedra/internal/context"
+	"wedra/internal/runctx"
 )
 
 // Event не мутирует переданный map (footgun для переиспользуемых мап).
@@ -51,7 +51,7 @@ func TestSnapshotAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{"input": "x"})
+	ctx := runctx.NewCtx(map[string]interface{}{"input": "x"})
 	ctx.SetStep("a", map[string]interface{}{"k": float64(1)})
 	j.Snapshot(ctx)
 	raw, err := os.ReadFile(filepath.Join(dir, "context.json"))

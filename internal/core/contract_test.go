@@ -50,13 +50,16 @@ func TestRunInputContractViolation(t *testing.T) {
 			},
 		},
 	}
-	_, err := Run(pf, NewEngine(), quietOpts(t))
-	if err == nil {
-		t.Fatal("ожидалось падение: вход num (number) получил string")
+	// v0.9 (ERRORS.md: contract_input): вход не прошёл контракт — строка не
+	// уходит в плагин (как в v0.23), но падает элемент, а не весь ран.
+	stats, err := Run(pf, NewEngine(), quietOpts(t))
+	if err != nil {
+		t.Fatalf("contract_input не должен ронять ран: %v", err)
 	}
-	if !strings.Contains(err.Error(), "нарушение контракта") {
-		t.Fatalf("сообщение не про контракт: %v", err)
+	if stats.Aborted != 1 || stats.OK != 0 {
+		t.Fatalf("ожидался aborted=1 ok=0, got %+v", stats)
 	}
+	assertContractInput(t, stats.RunDir, "нарушение контракта")
 }
 
 // Честный кейс: число на входе, число на выходе — контракт держится.

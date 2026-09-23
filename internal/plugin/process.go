@@ -26,10 +26,16 @@ type ExecResult struct {
 	ExitCode  int
 	Stderr    string
 	Duration  time.Duration
+	// v0.9: Cancelled — процесс убит внешней отменой (ctx рана), не
+	// таймаутом шага. ErrCode при этом "cancelled", Platform=true.
+	Cancelled bool
 }
 
 func (r *ExecResult) OK() bool { return !r.Platform && r.ExitCode == 0 && r.ErrCode == "" }
 func (r *ExecResult) ShouldRetry() bool {
+	if r.Cancelled {
+		return false
+	}
 	if r.ErrCode == "timeout" {
 		return true
 	}
@@ -60,13 +66,28 @@ func Exec(m *Manifest, inputJSON []byte, timeout time.Duration) *ExecResult {
 }
 
 func ExecWithEnv(m *Manifest, inputJSON []byte, timeout time.Duration, extraEnv []string) *ExecResult {
-	return execPluginEnv(m, inputJSON, timeout, extraEnv)
+	return execPluginEnv(context.Background(), m, inputJSON, timeout, extraEnv)
 }
 
-func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []string) *ExecResult {
-	res := &ExecResult{ExitCode: -1}
+// ExecWithEnvCtx — v0.9: как ExecWithEnv, но с родительским ctx (отмена рана).
+// Отмена parent убивает группу процессов плагина; результат — ErrCode
+// "cancelled", Cancelled=true (не "timeout" и не retryable).
+func ExecWithEnvCtx(parent context.Context, m *Manifest, inputJSON []byte, timeout time.Duration, extraEnv []string) *ExecResult {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return execPluginEnv(parent, m, inputJSON, timeout, extraEnv)
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout time.Duration, extraEnv []string) *ExecResult {
+	res := &ExecResult{ExitCode: -1}
+	if err := parent.Err(); err != nil {
+		res.Platform, res.Cancelled, res.ErrCode, res.ErrMsg = true, true, "cancelled", "ран отменён до запуска шага"
+		res.ExitCode = 2
+		return res
+	}
+
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	var cmd *exec.Cmd
@@ -141,6 +162,14 @@ func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []
 	res.Duration = time.Since(start)
 	res.Stderr = common.Truncate(stderr.String(), 4000)
 
+	// отмена родителя проверяется первой: ctx.Err() дочернего при отмене
+	// родителя — Canceled, при истечении своего таймаута — DeadlineExceeded
+	if parent.Err() != nil {
+		res.Platform, res.Cancelled = true, true
+		res.ErrCode, res.ErrMsg = "cancelled", "ран отменён — процесс плагина остановлен"
+		res.ExitCode = 2
+		return res
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		res.Platform = true
 		res.ErrCode, res.ErrMsg = "timeout", "плагин превысил таймаут "+timeout.String()

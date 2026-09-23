@@ -1,7 +1,9 @@
 package execution
 
 import (
+	stdctx "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,11 +11,11 @@ import (
 	"time"
 
 	"wedra/internal/common"
-	"wedra/internal/context"
 	"wedra/internal/gate"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
 	"wedra/internal/plugin"
+	"wedra/internal/runctx"
 )
 
 type RunOptions struct {
@@ -28,6 +30,68 @@ type RunOptions struct {
 	// v0.24: фабрика не-терминального ввода гейта (GUI/API). Вызывается на
 	// каждом встроенном gate-шаге; nil — терминальный stdin (дефолт).
 	GateUI func(*pipeline.Step) gate.GateUI
+	// v0.9: NoAutoApprove — --yes не одобряет гейты вовсе (MCP-раны).
+	NoAutoApprove bool
+	// v0.9: MCPMode — stdin/stdout заняты JSON-RPC: терминальный гейт
+	// (os.Stdin) запрещён, без GateUI — ошибка E_NO_GATE_UI.
+	MCPMode bool
+	// v0.9: Ctx — отмена рана (Ctrl+C, API /cancel, MCP cancel_run).
+	// nil — context.Background().
+	Ctx stdctx.Context
+}
+
+// ErrCancelled — ран отменён через RunOptions.Ctx. errors.Is(err, ErrCancelled).
+var ErrCancelled = errors.New("ран отменён (cancelled)")
+
+// RunError — ошибка рантайма с кодом из protocol/v0.2/ERRORS.md
+// (contract_output, platform:<code>, when_error, foreach_path, secrets_missing,
+// network_denied, cancelled, run_error). Код пишется в run_failed/step_failed.
+type RunError struct {
+	Code string
+	Err  error
+}
+
+func (e *RunError) Error() string { return e.Err.Error() }
+func (e *RunError) Unwrap() error { return e.Err }
+
+func runErr(code string, format string, a ...interface{}) error {
+	return &RunError{Code: code, Err: fmt.Errorf(format, a...)}
+}
+
+// ErrorCode — код ошибки рантайма (для журнала, API и MCP).
+func ErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, ErrCancelled) {
+		return "cancelled"
+	}
+	var re *RunError
+	if errors.As(err, &re) {
+		return re.Code
+	}
+	return "run_error"
+}
+
+// failEvent — терминальное событие рана: run_cancelled для отмены,
+// иначе run_failed; оба с полем code. Затем snapshot (resume).
+func failEvent(j *journal.Journal, ctx *runctx.Ctx, err error, extra map[string]interface{}) {
+	kv := map[string]interface{}{"error": err.Error(), "code": ErrorCode(err)}
+	for k, v := range extra {
+		kv[k] = v
+	}
+	if errors.Is(err, ErrCancelled) {
+		j.Event("run_cancelled", kv)
+	} else {
+		j.Event("run_failed", kv)
+	}
+	if ctx != nil {
+		j.Snapshot(ctx)
+	}
+}
+
+func (o RunOptions) cancelled() bool {
+	return o.Ctx != nil && o.Ctx.Err() != nil
 }
 
 func (o RunOptions) logf(format string, a ...interface{}) {
@@ -69,6 +133,9 @@ func Run(pf *pipeline.PipelineFile, eng Engine, opts RunOptions) (RunStats, erro
 
 func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store journal.RunStore) (RunStats, error) {
 	var stats RunStats
+	if opts.Ctx == nil {
+		opts.Ctx = stdctx.Background()
+	}
 	// v0.16: secrets — до любого эффекта: не запустим ран без ключей
 	var missingSecrets []string
 	for _, k := range pf.Pipeline.Secrets {
@@ -77,7 +144,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 	}
 	if len(missingSecrets) > 0 {
-		return stats, fmt.Errorf("secrets: не заданы переменные окружения: %s (export перед запуском, значения в YAML не живут)", strings.Join(missingSecrets, ", "))
+		return stats, runErr("secrets_missing", "secrets: не заданы переменные окружения: %s (export перед запуском, значения в YAML не живут)", strings.Join(missingSecrets, ", "))
 	}
 	// v0.17: network: deny — до любого эффекта, не доверяем validate
 	if pf.Pipeline.Network == "deny" {
@@ -91,7 +158,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				continue // ошибка резолвинга всплывает ниже
 			}
 			if len(m.Permissions.Network) > 0 {
-				return stats, fmt.Errorf("network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
+				return stats, runErr("network_denied", "network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
 			}
 		}
 	}
@@ -113,7 +180,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 	}
 
-	var ctx *context.Ctx
+	var ctx *runctx.Ctx
 	var startItemIdx int
 	var j *journal.Journal
 	var err error
@@ -123,7 +190,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: %w", opts.Resume, err)
 		}
-		ctx = &context.Ctx{Data: data}
+		ctx = &runctx.Ctx{Data: data}
 		maxIdx, err := store.MaxItemIndex(opts.Resume)
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: не читается journal: %w", opts.Resume, err)
@@ -152,7 +219,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
 		// also append to store's event log for SQLite
 		_ = store.AppendEvent(runID, "run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
-		ctx = context.NewCtx(pf.Pipeline.Input)
+		ctx = runctx.NewCtx(pf.Pipeline.Input)
 	}
 
 	var items []interface{}
@@ -173,11 +240,11 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	} else if strings.HasPrefix(pf.Pipeline.Foreach, "input.") {
 		v, ok := ctx.Get(pf.Pipeline.Foreach)
 		if !ok {
-			return stats, fmt.Errorf("foreach: путь %s не найден", pf.Pipeline.Foreach)
+			return stats, runErr("foreach_path", "foreach: путь %s не найден", pf.Pipeline.Foreach)
 		}
 		arr, ok := v.([]interface{})
 		if !ok {
-			return stats, fmt.Errorf("foreach: %s не массив", pf.Pipeline.Foreach)
+			return stats, runErr("foreach_path", "foreach: %s не массив", pf.Pipeline.Foreach)
 		}
 		items = arr
 		for i := range pf.Pipeline.Steps {
@@ -191,7 +258,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	} else if strings.HasPrefix(pf.Pipeline.Foreach, "steps.") {
 		parts := strings.Split(pf.Pipeline.Foreach, ".")
 		if len(parts) < 3 {
-			return stats, fmt.Errorf("foreach: %s должен быть вида steps.<id>.<field>", pf.Pipeline.Foreach)
+			return stats, runErr("foreach_path", "foreach: %s должен быть вида steps.<id>.<field>", pf.Pipeline.Foreach)
 		}
 		srcID := parts[1]
 		srcIdx := -1
@@ -202,7 +269,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			}
 		}
 		if srcIdx == -1 {
-			return stats, fmt.Errorf("foreach: шаг %s не найден", srcID)
+			return stats, runErr("foreach_path", "foreach: шаг %s не найден", srcID)
 		}
 		for i := 0; i <= srcIdx; i++ {
 			preSteps = append(preSteps, &pf.Pipeline.Steps[i])
@@ -223,8 +290,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			}
 			acts, err := runParallelSegments(eng, pf, preRefs, ctx, j, opts, true)
 			if err != nil {
-				j.Event("run_failed", map[string]interface{}{"error": err.Error()})
-				j.Snapshot(ctx)
+				failEvent(j, ctx, err, nil)
 				return stats, fmt.Errorf("pre-foreach: %w", err)
 			}
 			for _, a := range acts {
@@ -236,15 +302,15 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		v, ok := ctx.Get(pf.Pipeline.Foreach)
 		if !ok {
-			return stats, fmt.Errorf("foreach: после pre-фазы путь %s не найден", pf.Pipeline.Foreach)
+			return stats, runErr("foreach_path", "foreach: после pre-фазы путь %s не найден", pf.Pipeline.Foreach)
 		}
 		arr, ok := v.([]interface{})
 		if !ok {
-			return stats, fmt.Errorf("foreach: %s не массив (после pre-фазы)", pf.Pipeline.Foreach)
+			return stats, runErr("foreach_path", "foreach: %s не массив (после pre-фазы)", pf.Pipeline.Foreach)
 		}
 		items = arr
 	} else {
-		return stats, fmt.Errorf("foreach: путь должен начинаться с input. или steps., got %s", pf.Pipeline.Foreach)
+		return stats, runErr("foreach_path", "foreach: путь должен начинаться с input. или steps., got %s", pf.Pipeline.Foreach)
 	}
 
 	itemKey := pf.Pipeline.ForeachItem
@@ -259,7 +325,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				opts.logf("  → фаза 3: post-foreach %d шагов", len(postSteps))
 				for _, st := range postSteps {
 					if _, err := runStep(eng, pf, st, ctx, j, opts); err != nil {
-						j.Event("run_failed", map[string]interface{}{"step": st.ID, "error": err.Error()})
+						failEvent(j, ctx, err, map[string]interface{}{"step": st.ID})
 						return stats, fmt.Errorf("шаг %s (post-foreach): %w", st.ID, err)
 					}
 				}
@@ -291,6 +357,10 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if idx < startItemIdx {
 			continue
 		}
+		if opts.cancelled() {
+			failEvent(j, ctx, ErrCancelled, map[string]interface{}{"item_index": idx})
+			return stats, ErrCancelled
+		}
 		if pf.Pipeline.Foreach != "" {
 			if len(preSteps) == 0 {
 				ctx.ResetSteps()
@@ -314,8 +384,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		acts, err := runParallelSegments(eng, pf, loopRefs, ctx, j, opts, true)
 		if err != nil {
-			j.Event("run_failed", map[string]interface{}{"error": err.Error()})
-			j.Snapshot(ctx)
+			failEvent(j, ctx, err, nil)
 			return stats, fmt.Errorf("в цикле: %w", err)
 		}
 		for i, action := range acts {
@@ -357,8 +426,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		acts, err := runParallelSegments(eng, pf, postRefs, ctx, j, opts, true)
 		if err != nil {
-			j.Event("run_failed", map[string]interface{}{"error": err.Error()})
-			j.Snapshot(ctx)
+			failEvent(j, ctx, err, nil)
 			return stats, fmt.Errorf("post-foreach: %w", err)
 		}
 		for _, a := range acts {
@@ -410,9 +478,12 @@ func segmentSteps(steps []*pipeline.Step) []stepSegment {
 // порядке списка шагов. stopOnAbort: при on_error=stop в одиночном шаге
 // последующие шаги не исполняются (abort_item присутствует в actions).
 // Внутри параллельной группы stop = остановка рана (барьер не терпит половин).
-func runParallelSegments(eng Engine, pf *pipeline.PipelineFile, steps []*pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions, stopOnAbort bool) ([]string, error) {
+func runParallelSegments(eng Engine, pf *pipeline.PipelineFile, steps []*pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions, stopOnAbort bool) ([]string, error) {
 	var actions []string
 	for _, seg := range segmentSteps(steps) {
+		if opts.cancelled() {
+			return actions, ErrCancelled
+		}
 		if seg.parallel {
 			acts, err := runParallelGroup(eng, pf, seg, ctx, j, opts)
 			if err != nil {
@@ -439,7 +510,7 @@ func runParallelSegments(eng Engine, pf *pipeline.PipelineFile, steps []*pipelin
 // порядке списка (детерминизм). Платформенная ошибка или on_error=stop в
 // любой ветке останавливает ран. human_gate и foreach в группах запрещены
 // валидатором.
-func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ctx *context.Ctx, j *journal.Journal, opts RunOptions) ([]string, error) {
+func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) ([]string, error) {
 	ids := make([]string, 0, len(seg.steps))
 	for _, st := range seg.steps {
 		ids = append(ids, st.ID)
@@ -502,7 +573,7 @@ func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ct
 
 // cloneCtx — глубокая копия контекста (JSON-roundtrip; значения контекста
 // всегда JSON-безопасны).
-func cloneCtx(ctx *context.Ctx) *context.Ctx {
+func cloneCtx(ctx *runctx.Ctx) *runctx.Ctx {
 	b, err := json.Marshal(ctx.Data)
 	if err != nil {
 		panic("context: не сериализуется: " + err.Error())
@@ -511,17 +582,17 @@ func cloneCtx(ctx *context.Ctx) *context.Ctx {
 	if err := json.Unmarshal(b, &data); err != nil {
 		panic("context: не десериализуется: " + err.Error())
 	}
-	return &context.Ctx{Data: data}
+	return &runctx.Ctx{Data: data}
 }
 
 // runStepFlow — обёртка над runStep с управляющим потоком v0.20:
 // when-условие (skip) и foreach на уровне шага (per-item мини-цикл).
-func runStepFlow(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+func runStepFlow(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if st.When.IsSet() {
 		ok, err := pipeline.EvaluateWhen(st.When, ctx.Data)
 		if err != nil {
 			j.Event("step_skipped", map[string]interface{}{"step": st.ID, "reason": "when", "error": err.Error()})
-			return "", fmt.Errorf("шаг %s: when: %w", st.ID, err)
+			return "", &RunError{Code: "when_error", Err: fmt.Errorf("шаг %s: when: %w", st.ID, err)}
 		}
 		if !ok {
 			opts.logf("  → %-12s (условие не выполнено: %s — skipped)", st.ID, st.When.String())
@@ -540,14 +611,14 @@ func runStepFlow(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *
 // последней итерации; steps.<id>_all — массив всех выходов.
 // В отличие от pipeline-foreach, «item» здесь не существует: on_error=stop
 // останавливает весь ран.
-func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	v, ok := ctx.Get(st.Foreach)
 	if !ok {
-		return "", fmt.Errorf("foreach: путь %s не найден в контексте", st.Foreach)
+		return "", runErr("foreach_path", "foreach: путь %s не найден в контексте", st.Foreach)
 	}
 	arr, ok := v.([]interface{})
 	if !ok {
-		return "", fmt.Errorf("foreach: %s не массив (шаг %s)", st.Foreach, st.ID)
+		return "", runErr("foreach_path", "foreach: %s не массив (шаг %s)", st.Foreach, st.ID)
 	}
 	itemKey := st.ForeachItem
 	if itemKey == "" {
@@ -577,15 +648,27 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 	return "ok", nil
 }
 
-func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if plugin.IsBuiltin(st.Plugin) {
 		var svc *gate.Service
 		if opts.GateUI != nil {
 			svc = gate.NewServiceWithUI(opts.GateUI(st))
+		} else if opts.MCPMode {
+			// stdin занят JSON-RPC: терминальный гейт съел бы сообщения клиента
+			return "", runErr("E_NO_GATE_UI", "шаг %s: human_gate без GateUI в MCP-режиме (терминальный ввод запрещён)", st.ID)
 		} else {
 			svc = gate.NewService()
 		}
-		return svc.Run(st, ctx, j, gate.GateOptions{Yes: opts.Yes, Quiet: opts.Quiet}), nil
+		action := svc.Run(st, ctx, j, gate.GateOptions{
+			Yes: opts.Yes, Quiet: opts.Quiet,
+			Policy:       gate.Policy{AllowAutoApprove: !opts.NoAutoApprove},
+			RequireHuman: pf.Pipeline.Gates == "human_only",
+		})
+		// гейт закрыт отменой рана (ChannelUI.Close) — это cancel, не reject
+		if opts.cancelled() {
+			return "", ErrCancelled
+		}
+		return action, nil
 	}
 	m, err := eng.LoadManifest(st.Plugin)
 	if err != nil {
@@ -593,7 +676,22 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *cont
 	}
 	input, err := buildInput(m, st, ctx)
 	if err != nil {
-		return "", err
+		// v0.9 (ERRORS.md: contract_input): вход не собрался (нет пути,
+		// тип/формат) — судьба элемента по on_error, ран живёт. Раньше
+		// return err ронял весь ран: один "bad-email" убивал 3 хороших.
+		switch st.OnError {
+		case "skip":
+			opts.logf("    ! пропущен по on_error=skip: %s", err)
+			j.Event("step_skipped", map[string]interface{}{"step": st.ID, "reason": "on_error", "code": "contract_input", "message": err.Error()})
+			if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+				delete(stepsMap, st.ID)
+			}
+			return "ok", nil
+		default:
+			opts.logf("    × contract_input: %s — элемент остановлен", err)
+			j.Event("step_failed", map[string]interface{}{"step": st.ID, "code": "contract_input", "message": err.Error()})
+			return "abort_item", nil
+		}
 	}
 	for _, w := range plugin.FileRefWarnings(m, input) {
 		opts.logf("    ⚠ %s", w)
@@ -623,18 +721,29 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *cont
 			"step": st.ID, "attempt": attempt,
 			"network": netEnv, "network_declared": pipeline.NetworkHostList(m),
 		})
-		res = plugin.ExecWithEnv(m, rawIn, timeout, []string{"WEDRA_NETWORK=" + netEnv})
+		res = plugin.ExecWithEnvCtx(opts.Ctx, m, rawIn, timeout, []string{"WEDRA_NETWORK=" + netEnv})
 		j.Event("step_end", map[string]interface{}{
 			"step": st.ID, "attempt": attempt, "exit_code": res.ExitCode,
 			"duration_ms": res.Duration.Milliseconds(), "status": statusOf(res),
 			"error": errOrNil(res), "stderr": common.Truncate(res.Stderr, 500),
 		})
+		if res.Cancelled {
+			return "", ErrCancelled
+		}
 		if res.OK() || !res.ShouldRetry() {
 			break
 		}
 		delay := retryDelay(st, attempt)
 		opts.logf("    … retry через %s (%s: %s)", delay, res.ErrCode, res.ErrMsg)
-		time.Sleep(delay)
+		if opts.Ctx != nil {
+			select {
+			case <-opts.Ctx.Done():
+				return "", ErrCancelled
+			case <-time.After(delay):
+			}
+		} else {
+			time.Sleep(delay)
+		}
 	}
 	if res.OK() {
 		out, dropped, err := plugin.EnforceOutput(m, res.Output)
@@ -642,13 +751,14 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *cont
 			j.Event("contract_warning", map[string]interface{}{"step": st.ID, "dropped_fields": dropped})
 		}
 		if err != nil {
-			return "", err
+			// PROTOCOL §5: выход плагина нарушил контракт — платформенная ошибка
+			return "", &RunError{Code: "contract_output", Err: err}
 		}
 		ctx.SetStep(st.ID, out)
 		return "ok", nil
 	}
 	if res.Platform {
-		return "", fmt.Errorf("платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
+		return "", runErr("platform:"+res.ErrCode, "платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
 	}
 	switch st.OnError {
 	case "skip":
@@ -684,7 +794,7 @@ func errOrNil(r *plugin.ExecResult) interface{} {
 	return map[string]interface{}{"code": r.ErrCode, "message": r.ErrMsg, "retryable": r.Retryable}
 }
 
-func buildInput(m *pipeline.Manifest, st *pipeline.Step, ctx *context.Ctx) (map[string]interface{}, error) {
+func buildInput(m *pipeline.Manifest, st *pipeline.Step, ctx *runctx.Ctx) (map[string]interface{}, error) {
 	in := map[string]interface{}{}
 	for name, port := range m.Input {
 		from := pipeline.PortSource(name, port, st)

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/context"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/runctx"
 )
 
 func gateTestStep(t *testing.T) *pipeline.Step {
@@ -42,7 +42,7 @@ func TestChannelGateAcceptWithEdits(t *testing.T) {
 	dir := t.TempDir()
 	j, _ := journal.NewJournal(dir)
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{})
+	ctx := runctx.NewCtx(map[string]interface{}{})
 	ctx.SetStep("check", map[string]interface{}{"score": float64(10), "note": "ok"})
 	st := gateTestStep(t)
 	ui := NewChannelUI()
@@ -74,7 +74,7 @@ func TestChannelGateRejectStops(t *testing.T) {
 	dir := t.TempDir()
 	j, _ := journal.NewJournal(dir)
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{})
+	ctx := runctx.NewCtx(map[string]interface{}{})
 	ctx.SetStep("check", map[string]interface{}{"score": float64(10), "note": "ok"})
 	st := gateTestStep(t)
 	ui := NewChannelUI()
@@ -95,7 +95,7 @@ func TestChannelGateEOFStops(t *testing.T) {
 	dir := t.TempDir()
 	j, _ := journal.NewJournal(dir)
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{})
+	ctx := runctx.NewCtx(map[string]interface{}{})
 	ctx.SetStep("check", map[string]interface{}{"score": float64(10), "note": "ok"})
 	st := gateTestStep(t)
 	ui := NewChannelUI()
@@ -122,7 +122,7 @@ func TestChannelGateJunkActionsStop(t *testing.T) {
 	dir := t.TempDir()
 	j, _ := journal.NewJournal(dir)
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{})
+	ctx := runctx.NewCtx(map[string]interface{}{})
 	ctx.SetStep("check", map[string]interface{}{"score": float64(10), "note": "ok"})
 	st := gateTestStep(t)
 	ui := NewChannelUI()
@@ -152,7 +152,7 @@ func TestChannelGateBadEditTypeSkipped(t *testing.T) {
 	dir := t.TempDir()
 	j, _ := journal.NewJournal(dir)
 	defer j.Close()
-	ctx := context.NewCtx(map[string]interface{}{})
+	ctx := runctx.NewCtx(map[string]interface{}{})
 	ctx.SetStep("check", map[string]interface{}{"score": float64(10), "note": "ok"})
 	st := gateTestStep(t)
 	ui := NewChannelUI()
