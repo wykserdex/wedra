@@ -1,0 +1,10 @@
+format_version: "0.2"
+pipeline:
+  name: port_unbound
+  input:
+    email: "a@b.c"
+  steps:
+    - id: s
+      plugin: fake/need_two
+      bind:
+        a: input.email
