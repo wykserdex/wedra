@@ -1,0 +1,16 @@
+format_version: "0.2"
+pipeline:
+  name: foreach_item_format
+  input:
+    emails:
+      - "good@x.ru"
+      - "bad-email"
+  foreach: input.emails
+  foreach_item: item
+  item_type: string
+  item_format: email
+  steps:
+    - id: s
+      plugin: fake/syntax
+      bind:
+        email: input.item
