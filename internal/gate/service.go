@@ -8,14 +8,40 @@ import (
 	"strings"
 
 	"wedra/internal/common"
-	"wedra/internal/context"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/runctx"
 )
 
 type GateOptions struct {
 	Yes   bool
 	Quiet bool
+	// v0.9: политика авто-аппрува. Нулевое значение — авто-аппрув
+	// запрещён: вызывающий (раннер) обязан явно разрешить его.
+	Policy Policy
+	// v0.9: RequireHuman — пайплайн требует человека (pipeline.gates:
+	// human_only); вычисляет раннер, у гейта нет доступа к pipeline.
+	RequireHuman bool
+}
+
+// Policy — кто вправе одобрять гейты без человека.
+// AllowAutoApprove=false (MCP-раны, нулевое значение) — --yes игнорируется,
+// гейт ждёт решения человека.
+type Policy struct {
+	AllowAutoApprove bool
+}
+
+// Источники решения гейта — поле source события gate_decision.
+const (
+	SourceTerminal = "terminal"
+	SourceGUI      = "gui"
+	SourceAutoYes  = "auto_yes"
+)
+
+// autoApproveAllowed — --yes срабатывает, только если политика разрешает и
+// ни шаг (approval: human), ни пайплайн (gates: human_only) не требуют человека.
+func autoApproveAllowed(st *pipeline.Step, opts GateOptions) bool {
+	return opts.Yes && opts.Policy.AllowAutoApprove && !opts.RequireHuman && st.Approval != "human"
 }
 
 // GateUI — канал ввода human_gate.
@@ -86,11 +112,11 @@ func basename(path string) string {
 	return parts[len(parts)-1]
 }
 
-func (s *Service) Materialize(form []pipeline.FormField, ctx *context.Ctx, edits map[string]interface{}) map[string]interface{} {
+func (s *Service) Materialize(form []pipeline.FormField, ctx *runctx.Ctx, edits map[string]interface{}) map[string]interface{} {
 	return gateMaterialize(form, ctx, edits)
 }
 
-func gateMaterialize(form []pipeline.FormField, ctx *context.Ctx, edits map[string]interface{}) map[string]interface{} {
+func gateMaterialize(form []pipeline.FormField, ctx *runctx.Ctx, edits map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{}
 	bnCount := map[string]int{}
 	for _, f := range form {
@@ -122,7 +148,7 @@ func gateMaterialize(form []pipeline.FormField, ctx *context.Ctx, edits map[stri
 	return out
 }
 
-func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, opts GateOptions) string {
+func (s *Service) Run(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts GateOptions) string {
 	if !opts.Quiet {
 		fmt.Printf("\n══ human_gate · %s ══\n", st.ID)
 		for _, f := range st.Form {
@@ -139,7 +165,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 		}
 	}
 
-	if opts.Yes {
+	if autoApproveAllowed(st, opts) {
 		if !opts.Quiet {
 			fmt.Println("  [--yes] auto-accept")
 		}
@@ -147,8 +173,11 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 		if len(m) > 0 {
 			ctx.SetStep(st.ID, m)
 		}
-		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "auto": true, "materialized": m})
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "auto": true, "source": SourceAutoYes, "materialized": m})
 		return "ok"
+	}
+	if opts.Yes && !opts.Quiet {
+		fmt.Println("  [--yes] не действует: гейт требует решения человека (approval: human / gates: human_only / политика)")
 	}
 
 	ui := s.UI
@@ -215,7 +244,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 			// v0.23: EOF — не «accept». Гейт — это человек; закрытый ввод
 			// трактуем как остановку рана, не как молчаливое одобрение.
 			fmt.Println("  ! ввод закрыт (EOF) — гейт: стоп")
-			j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "EOF (ввод закрыт)"})
+			j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "EOF (ввод закрыт)", "source": SourceTerminal})
 			return "abort_item"
 		}
 		ans = strings.ToLower(strings.TrimSpace(ans))
@@ -240,12 +269,12 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 	if action == "" {
 		// 5 мусорных попыток — тоже не «accept»
 		fmt.Println("  ! не удалось распознать действие — гейт: стоп")
-		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "нераспознанный ввод (5 попыток)"})
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "stop", "reason": "нераспознанный ввод (5 попыток)", "source": SourceTerminal})
 		return "abort_item"
 	}
 
 	if action == "reject" {
-		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "reject"})
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "reject", "source": SourceTerminal})
 		if st.OnReject == "" || st.OnReject == "stop" {
 			return "abort_item"
 		}
@@ -255,7 +284,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, o
 	if len(m) > 0 {
 		ctx.SetStep(st.ID, m)
 	}
-	j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "edits": edits, "materialized": m})
+	j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "edits": edits, "materialized": m, "source": SourceTerminal})
 	return "ok"
 }
 
@@ -278,7 +307,7 @@ func editKey(f pipeline.FormField, bnCount map[string]int) string {
 // runStructured — гейт без терминала (v0.24): события в журнал (браузер
 // рендерит их), решение — один круг через WaitDecision.
 // Семантика v0.23 сохранена: EOF → стоп, нераспознанное действие (5 раз) → стоп.
-func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.Journal, su StructuredUI) string {
+func (s *Service) runStructured(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, su StructuredUI) string {
 	actions := st.Actions
 	if len(actions) == 0 {
 		actions = []string{"accept", "reject"}
@@ -301,15 +330,17 @@ func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.
 
 	var action string
 	var edits map[string]interface{}
+	var last Decision
 	for attempt := 0; attempt < 5; attempt++ {
 		d, err := su.WaitDecision()
 		if err != nil {
 			// EOF (вкладку закрыли, ран убивают) — стоп, не accept (v0.23).
 			j.Event("gate_decision", map[string]interface{}{
-				"step": st.ID, "action": "stop", "reason": "ввод закрыт (EOF)",
+				"step": st.ID, "action": "stop", "reason": "ввод закрыт (EOF)", "source": SourceGUI,
 			})
 			return "abort_item"
 		}
+		last = d
 		matched := false
 		for _, a := range actions {
 			if strings.EqualFold(d.Action, a) {
@@ -328,14 +359,14 @@ func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.
 		break
 	}
 	if action == "" {
-		j.Event("gate_decision", map[string]interface{}{
+		j.Event("gate_decision", decisionKV(last, map[string]interface{}{
 			"step": st.ID, "action": "stop", "reason": "нераспознанное действие (5 попыток)",
-		})
+		}))
 		return "abort_item"
 	}
 
 	if action == "reject" {
-		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "reject"})
+		j.Event("gate_decision", decisionKV(last, map[string]interface{}{"step": st.ID, "action": "reject"}))
 		if st.OnReject == "" || st.OnReject == "stop" {
 			return "abort_item"
 		}
@@ -347,7 +378,7 @@ func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.
 	if len(m) > 0 {
 		ctx.SetStep(st.ID, m)
 	}
-	kv := map[string]interface{}{"step": st.ID, "action": "accept", "edits": clean, "materialized": m}
+	kv := decisionKV(last, map[string]interface{}{"step": st.ID, "action": "accept", "edits": clean, "materialized": m})
 	if len(skipped) > 0 {
 		kv["skipped_edits"] = skipped
 	}
@@ -358,7 +389,7 @@ func (s *Service) runStructured(st *pipeline.Step, ctx *context.Ctx, j *journal.
 // validateStructuredEdits — правки из браузера: ключ — полный путь поля
 // (как в gate_wait), валидация типа как в терминальном пути (f.Type или
 // тип текущего значения). Неподходящие — пропускаются, список в skipped.
-func validateStructuredEdits(st *pipeline.Step, ctx *context.Ctx, edits map[string]interface{}) (map[string]interface{}, []string) {
+func validateStructuredEdits(st *pipeline.Step, ctx *runctx.Ctx, edits map[string]interface{}) (map[string]interface{}, []string) {
 	clean := map[string]interface{}{}
 	var skipped []string
 	if len(edits) == 0 {
@@ -389,4 +420,18 @@ func validateStructuredEdits(st *pipeline.Step, ctx *context.Ctx, edits map[stri
 		clean[editKey(f, bnCount)] = v
 	}
 	return clean, skipped
+}
+
+// decisionKV — source (+ session-хэш, если есть) структурированного решения.
+// Секрет сессии сюда не попадает никогда: Decision.Session — уже хэш.
+func decisionKV(d Decision, kv map[string]interface{}) map[string]interface{} {
+	src := d.Source
+	if src == "" {
+		src = SourceGUI
+	}
+	kv["source"] = src
+	if d.Session != "" {
+		kv["session"] = d.Session
+	}
+	return kv
 }

@@ -57,6 +57,15 @@ func main() {
 	}
 
 	srv := api.NewServer("plugins", "pipelines", "runs")
+	// v0.9: сессия человека. Ключ уходит только в окно (WebView2/браузер),
+	// в лог и консоль пишется URL без ключа. Иначе любой локальный процесс
+	// (включая агента) мог бы POST-ить гейты на 127.0.0.1.
+	secret, err := api.NewSessionSecret()
+	if err != nil {
+		fmt.Println("не удалось сгенерировать ключ сессии:", err)
+		os.Exit(1)
+	}
+	srv.EnableSession(secret)
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
@@ -90,7 +99,7 @@ func main() {
 	go func() { httpErr <- http.Serve(ln, srv.Routes()) }()
 
 	// окно (Windows) или браузер + ожидание (остальные ОС / фолбэк)
-	desktop(url, debug, logf)
+	desktop(url+"/?k="+secret, debug, logf)
 
 	ln.Close()
 	select {

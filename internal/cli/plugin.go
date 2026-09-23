@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -31,10 +32,41 @@ func RunPluginTest(args []string) {
 	}
 	dir := args[0]
 	spec := ""
-	for i := 1; i+1 < len(args); i++ {
-		if args[i] == "--spec" {
-			spec = args[i+1]
+	conformance, asJSON := false, false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--spec":
+			if i+1 < len(args) {
+				spec = args[i+1]
+				i++
+			}
+		case "--conformance":
+			conformance = true
+		case "--json":
+			asJSON = true
 		}
+	}
+	// v0.9: --conformance — батарея ядра/протокола по фикстурам в <dir>
+	// (handshake, big_stdout, big_stderr, cancel, error_codes). --json —
+	// машиночитаемый отчёт для CI.
+	if conformance {
+		report := core.RunConformance(dir)
+		if asJSON {
+			b, _ := json.MarshalIndent(report, "", "  ")
+			fmt.Println(string(b))
+		} else {
+			for _, c := range report.Checks {
+				mark := "✓"
+				if !c.Pass {
+					mark = "✗"
+				}
+				fmt.Printf("  %s %-12s %s\n", mark, c.Name, c.Details)
+			}
+		}
+		if !report.OK {
+			os.Exit(1)
+		}
+		return
 	}
 	fmt.Printf("▶ plugin test %s\n", dir)
 	passed, failed, err := core.RunPluginTests(dir, spec, false)
