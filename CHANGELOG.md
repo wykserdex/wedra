@@ -1,5 +1,70 @@
 # Changelog — честная 0.x
 
+## v0.9 (2026-09-23) — агентный трек: MCP + человеческий гейт, conformance
+
+Идея релиза: агент предлагает план → wedra проверяет до запуска → человек
+одобряет → wedra исполняет и пишет журнал. Коды ошибок — ERRORS.md.
+
+**Агент (MCP)**
+- `wedra mcp` — MCP-сервер (stdio, JSON-RPC 2.0): list_plugins,
+  describe_plugin, validate_pipeline, plan_pipeline, run_pipeline, get_run,
+  cancel_run. stdout занят протоколом, всё остальное пишется в stderr.
+- Консоль гейтов человека: `wedra mcp` поднимает HTTP на
+  127.0.0.1:<случайный порт> (`--gui-listen=`). Когда гейт ждёт решения,
+  браузер человека открывается на `/?run=<id>&k=<ключ>`. Агент получает
+  только URL без ключа. Инструмента одобрения у агента нет.
+- `--no-gui`: консоли нет. Пайплайн с шагом-гейтом → E_NO_HUMAN_CHANNEL
+  до старта (раньше ран вечно висел в waiting_human).
+- get_run: `stats{ok,aborted}`, `error` и `code` по завершении. cancelled
+  определяется по коду ошибки, а не по подстроке.
+- serverInfo.version берётся из VERSION.
+
+**Человек и доверие**
+- Шаги `approval:` и `gates:` у пайплайна (E_APPROVAL_VALUE, E_GATES_VALUE).
+  Для approval-шага `--yes` не действует. Автоодобрение — только политикой
+  (`--no-auto-approve` запрещает).
+- В `gate_decision` добавлено поле `source`: terminal | gui | auto_yes. Для GUI
+  ещё пишется `session`: короткий sha256-хэш, не секрет.
+- GUI-сессия: `wedra gui` печатает ссылку `?k=<128-бит ключ>`. Ключ
+  меняется на HttpOnly SameSite=Strict cookie `wedra_session`, после чего
+  идёт redirect без `k`. Мутации (запуск, гейт, отмена, запись пайплайна)
+  без cookie → 401 E_SESSION_REQUIRED. `--no-session` — старое поведение.
+- `wedra approve` — одобрение из терминала (TTY + код подтверждения).
+- Модель угроз: ключ защищает от агента и других процессов того же
+  пользователя, которые шлют HTTP на локальный порт. Он не защищает от
+  процесса, читающего экран, stderr или профиль браузера (это вне модели).
+
+**Проверка до запуска**
+- `pipeline validate --json` и `pipeline plan --json` печатают
+  `{ok, issues[]}` с code, severity, step, port, path, hint, fix. Код
+  выхода: 0 — ok, 1 — есть ошибки. `--json` можно ставить в любом месте.
+- E_PORT_SOURCE — bind на несуществующее поле, с кандидатами в `fix`.
+- POST /api/run валидирует синхронно. Невалидный пайплайн → 400
+  `{ok:false, issues}`, каталог рана не создаётся. Нет секретов → 400
+  secrets_missing. Ответ 202 содержит id рана.
+- `plugin test <dir> --conformance [--json]` — handshake, big_stdout,
+  big_stderr, cancel, error_codes. Код выхода 1 при провале.
+
+**Исполнение**
+- Отмена: Ctrl+C (первый — мягкая отмена, второй — выход 130),
+  POST /api/runs/<id>/cancel, MCP cancel_run. Процесс плагина
+  убивается, retry не делается, в журнал пишется
+  `run_cancelled{code:"cancelled"}`, дальше — resume.
+- `run_failed` получил поле `code`: secrets_missing, network_denied,
+  foreach_path, when_error, contract_output, platform:<code>.
+- Нарушение входного контракта (contract_input) роняет только элемент
+  (aborted), а не весь ран. email_triage_chain снова проходит: ok=3 aborted=1.
+- GUI: кнопка «отменить», статус «отменён», коды issues при 400,
+  source решения в таймлайне, `?run=<id>` открывает деталку.
+
+**Фиксы**
+- `run --db-path=` работал только через пробел.
+- `internal/context` переименован в `internal/runctx`: пакет затенял
+  stdlib context.
+- Сервер GUI брал PluginsDir из cwd, а не из аргумента.
+- Удалён дублирующий тест process_unix_test.go.
+
+
 ## v0.8a (2026-09-06) — фикс: перетаскивание в редакторе (mouse-based DnD)
 
 - Палитра→холст: нативный HTML5 DnD (draggable/dragstart/drop) заменён на

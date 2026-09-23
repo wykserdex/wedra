@@ -96,10 +96,24 @@
 | secrets_missing | нет env из `pipeline.secrets` | ран не стартует |
 | network_denied | `network: deny` нарушен в рантайме | ран не стартует |
 | run_error | прочее (резолв, resume, параллельная группа) | ран остановлен |
-| cancelled | отмена (Фаза 5) | `run_cancelled`, затем snapshot |
+| cancelled | отмена: Ctrl+C, `POST /api/runs/<id>/cancel`, MCP `cancel_run` | `run_cancelled`, затем snapshot, процесс плагина убит, retry нет; `--resume` продолжит |
 
 `step_skipped` с `reason:on_error` несёт исходный `code` плагина (`bad_syntax`, ...).
 `gate_decision` несёт `source`: `terminal` / `gui` / `auto_yes`.
+
+## Коды MCP / HTTP (ответ инструмента или API, не журнал)
+
+| Код | Где | Когда |
+|---|---|---|
+| E_PLUGIN_OUTSIDE_ROOT | MCP | ссылка на плагин вне `--plugins` / `--workdir` |
+| E_RUN_BUSY | MCP, HTTP 409 | уже идёт ран (один за раз) |
+| E_RUN_DONE | MCP `cancel_run`, HTTP 409 | отмена уже завершённого рана |
+| E_NO_HUMAN_CHANNEL | MCP `run_pipeline` | в пайплайне есть гейт, а консоли человека нет (`wedra mcp --no-gui`); отказ до старта |
+| E_NO_GATE_UI | рантайм | гейт в режиме без UI (MCP без консоли): ран остановлен, а не вечное ожидание |
+| E_SESSION_REQUIRED | HTTP 401 | мутация без cookie сессии человека |
+
+HTTP `POST /api/run` на невалидном пайплайне возвращает `400 {ok:false, issues[]}`
+(коды из разделов выше), каталог рана не создаётся.
 
 ## Human-only гейты (модель угроз — честно)
 
@@ -107,7 +121,7 @@
   (`--yes` не одобряет, ждёт человека). Для раннов из MCP авто-аппрув выключен всегда.
 - Мутирующие HTTP (`POST /api/run`, `POST /api/runs/<id>/gate`, `POST .../cancel`)
   требуют cookie сессии человека (`wedra gui` печатает ссылку `?k=<secret>` в терминал
-  человека; секрет — только в памяти и cookie, в журнал пишется только хэш `session`).
+  человека; `wedra mcp` открывает такую ссылку в браузере сам, когда гейт ждёт; секрет — только в памяти и cookie, в журнал пишется только хэш `session`).
   Без cookie — 401. Агент через MCP не имеет инструмента одобрения; `get_run`
   в статусе `waiting_human` говорит «попросите пользователя одобрить в окне wedra».
 - Это защита от того, что агент **случайно или по инструкции** одобрит сам себя

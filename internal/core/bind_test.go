@@ -196,8 +196,29 @@ func TestBindMissingPathRuntimeError(t *testing.T) {
 			},
 		},
 	}
-	_, err := Run(pf, NewEngine(), quietOpts(t))
-	if err == nil || !strings.Contains(err.Error(), "input.not_here") {
-		t.Fatalf("ожидалась ошибка про несуществующий путь, got: %v", err)
+	// v0.9 (ERRORS.md: contract_input): несуществующий путь входа роняет
+	// элемент (aborted), а не весь ран; причина — в step_failed.
+	stats, err := Run(pf, NewEngine(), quietOpts(t))
+	if err != nil {
+		t.Fatalf("contract_input не должен ронять ран: %v", err)
 	}
+	if stats.Aborted != 1 {
+		t.Fatalf("ожидался aborted=1, got %+v", stats)
+	}
+	assertContractInput(t, stats.RunDir, "input.not_here")
+}
+
+// assertContractInput — в журнале step_failed{code: contract_input}, текст
+// упоминает want.
+func assertContractInput(t *testing.T, runDir, want string) {
+	t.Helper()
+	for _, e := range readEvents(t, runDir) {
+		if e["type"] == "step_failed" && e["code"] == "contract_input" {
+			if msg, _ := e["message"].(string); !strings.Contains(msg, want) {
+				t.Fatalf("step_failed не упоминает %q: %v", want, e)
+			}
+			return
+		}
+	}
+	t.Fatalf("нет step_failed{code: contract_input}")
 }

@@ -25,7 +25,8 @@
 ## 3. Запуск — ждёт человека
 
 - `run_pipeline` → `{run_id, status: "waiting_human"}`
-- в браузере (ссылка `?k=<secret>` из терминала `wedra gui`) человек правит
+- `wedra mcp` сам открывает браузер человека на этом ране (консоль гейтов на
+  127.0.0.1, ссылка с ключом; агенту уходит адрес без ключа), человек правит
   `risk` в гейте `review` и жмёт accept
 - `get_run` → `done`: `3 ok / 1 aborted` (`"bad-email"` abortнул только свой элемент),
   выходы шагов + ссылка на журнал
@@ -33,7 +34,7 @@
 ## 4. Финальный кадр: агент не может одобрить сам
 
 ```bash
-curl -X POST localhost:8765/api/runs/<id>/gate -d '{"action":"accept"}' # → 401
+curl -X POST http://127.0.0.1:<порт из hint>/api/runs/<id>/gate -d '{"action":"accept"}' # → 401 E_SESSION_REQUIRED
 ```
 
 - у агента нет инструмента одобрения (MCP: только `get_run` с hint
