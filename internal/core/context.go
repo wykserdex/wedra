@@ -1,6 +1,6 @@
 package core
 
-import ctxpkg "wedra/internal/context"
+import ctxpkg "wedra/internal/runctx"
 
 type Ctx = ctxpkg.Ctx
 

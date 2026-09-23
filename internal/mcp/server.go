@@ -19,6 +19,9 @@ import (
 	"wedra/internal/pipeline"
 )
 
+// Version — версия сервера в initialize (cli проставляет из VERSION).
+var Version = "0.9"
+
 // Server — MCP-сервер: JSON-RPC stdio + 7 инструментов поверх core/pipeline/execution.
 // Решения гейтов через MCP невозможны никогда; get_run в waiting_human
 // просит пользователя одобрить в окне wedra.
@@ -29,6 +32,8 @@ type Server struct {
 	engine      *core.Engine
 	multi       *multiEngine
 
+	human HumanChannel
+
 	mu           sync.Mutex
 	running      bool
 	currentRunID string
@@ -37,11 +42,14 @@ type Server struct {
 }
 
 type runState struct {
-	id     string
-	dir    string
-	done   chan struct{}
-	status string
-	errMsg string
+	id      string
+	dir     string
+	done    chan struct{}
+	status  string
+	errMsg  string
+	code    string
+	okItems int
+	aborted int
 }
 
 // Options — флаги wedra mcp --plugins ... --workdir ...
@@ -49,6 +57,22 @@ type Options struct {
 	PluginsDirs []string
 	WorkDir     string
 	RunsDir     string
+	// v0.9: Human — канал к человеку для гейтов и отмены (встроенный GUI).
+	// nil — гейты MCP-ранов одобрить некому: run_pipeline с human_gate
+	// отклоняется с E_NO_HUMAN_CHANNEL, а не висит в waiting_human вечно.
+	Human HumanChannel
+}
+
+// HumanChannel — куда MCP-сервер отдаёт гейты ранов. Реализация (cli/mcp.go)
+// регистрирует ChannelUI во встроенном HTTP-сервере с сессией и открывает
+// браузер человеку. Агенту URL с ключом не выдаётся никогда.
+type HumanChannel interface {
+	AttachRun(runID string, ui *gate.ChannelUI, cancel context.CancelFunc)
+	DetachRun(runID string)
+	// GateWaiting — ран дошёл до гейта (первый раз): показать человеку.
+	GateWaiting(runID string)
+	// PublicURL — адрес консоли БЕЗ ключа (для подсказки агенту).
+	PublicURL(runID string) string
 }
 
 func NewServer(opts Options) (*Server, error) {
@@ -90,6 +114,7 @@ func NewServer(opts Options) (*Server, error) {
 		multi:       multi,
 		runs:        map[string]*runState{},
 		cancels:     map[string]context.CancelFunc{},
+		human:       opts.Human,
 	}, nil
 }
 
@@ -274,7 +299,7 @@ func (s *Server) handle(req *Request) *Response {
 		return &Response{Result: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-			"serverInfo":      map[string]interface{}{"name": "wedra", "version": "0.6"},
+			"serverInfo":      map[string]interface{}{"name": "wedra", "version": Version},
 		}}
 	case "ping":
 		return &Response{Result: map[string]interface{}{}}
@@ -464,6 +489,18 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	if len(missing) > 0 {
 		return "", false, rpcErr("secrets_missing", "secrets: нет env "+strings.Join(missing, ", ")+" (значения в YAML не живут)")
 	}
+	hasGate := false
+	for _, st := range pf.Pipeline.Steps {
+		if pipeline.IsBuiltin(st.Plugin) {
+			hasGate = true
+			break
+		}
+	}
+	if hasGate && s.human == nil {
+		return "", false, &RPCError{Code: -32000,
+			Message: "в пайплайне есть human_gate, а канала к человеку нет (wedra mcp запущен с --no-gui): одобрить гейт некому",
+			Data:    map[string]string{"code": "E_NO_HUMAN_CHANNEL"}}
+	}
 	s.mu.Lock()
 	if s.running {
 		cur := s.currentRunID
@@ -499,29 +536,43 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			<-runCtx.Done()
 			ui.Close()
 		}()
+		if s.human != nil {
+			// человек может отменить ран из консоли; гейт регистрируется
+			// лениво — при первом gate-шаге (GateUI-фабрика ниже)
+			s.human.AttachRun(runID, nil, cancel)
+			defer s.human.DetachRun(runID)
+		}
+		gateShown := false
 		opts := execution.RunOptions{
 			Yes: false, Quiet: true, RunsDir: s.runsDir, RunID: runID,
 			NoAutoApprove: true, MCPMode: true, Ctx: runCtx,
-			GateUI: func(*pipeline.Step) gate.GateUI { return ui },
+		}
+		if s.human != nil {
+			opts.GateUI = func(*pipeline.Step) gate.GateUI {
+				s.human.AttachRun(runID, ui, nil)
+				if !gateShown {
+					gateShown = true
+					s.human.GateWaiting(runID)
+				}
+				return ui
+			}
 		}
 		stats, err := execution.Run(pf, s.multi, opts)
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		st.aborted = stats.Aborted
+		st.okItems = stats.OK
 		if err != nil {
-			if strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "отмен") {
+			st.code = execution.ErrorCode(err)
+			if st.code == "cancelled" {
 				st.status = "cancelled"
 			} else {
 				st.status = "failed"
 			}
 			st.errMsg = err.Error()
-			_ = stats
 			return
 		}
-		if stats.Aborted > 0 {
-			st.status = "done"
-		} else {
-			st.status = "done"
-		}
+		st.status = "done"
 	}()
 
 	// wait_seconds: подождать завершения/гейта
@@ -644,6 +695,19 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 	newEvents := events[since:]
 	status := s.runStatus(runID)
 	out := map[string]interface{}{"run_id": runID, "status": status, "total": len(events), "events": newEvents}
+	s.mu.Lock()
+	if rs, ok := s.runs[runID]; ok {
+		select {
+		case <-rs.done:
+			out["stats"] = map[string]int{"ok": rs.okItems, "aborted": rs.aborted}
+			if rs.errMsg != "" {
+				out["error"] = rs.errMsg
+				out["code"] = rs.code
+			}
+		default:
+		}
+	}
+	s.mu.Unlock()
 	if status == "waiting_human" {
 		var lastWait map[string]interface{}
 		for _, e := range events {
@@ -655,7 +719,13 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 			out["pending_gate"] = map[string]interface{}{
 				"step": lastWait["step"], "form": lastWait["form"], "actions": lastWait["actions"],
 			}
-			out["hint"] = "попросите пользователя одобрить шаг в окне wedra (у агента нет инструмента одобрения)"
+			hint := "попросите пользователя одобрить шаг в окне wedra (у агента нет инструмента одобрения)"
+			if s.human != nil {
+				if u := s.human.PublicURL(runID); u != "" {
+					hint += "; консоль: " + u + " (вкладка уже открыта у человека)"
+				}
+			}
+			out["hint"] = hint
 		}
 	}
 	if snap, err := rd.ContextSnapshot(); err == nil && snap != nil {

@@ -15,6 +15,10 @@ var ErrClosed = errors.New("ввод гейта закрыт (EOF)")
 type Decision struct {
 	Action string                 `json:"action"`
 	Edits  map[string]interface{} `json:"edits"`
+	// v0.9: кто решил (gui/terminal) и хэш сессии человека — проставляет
+	// сервер, не клиент (json:"-": из тела запроса не читаются).
+	Source  string `json:"-"`
+	Session string `json:"-"`
 }
 
 type signal struct {

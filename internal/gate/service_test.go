@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/context"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/runctx"
 )
 
 // fakeUI — скриптованный ввод: список строк, затем EOF.
@@ -44,7 +44,7 @@ func runGate(t *testing.T, ui GateUI) (string, []map[string]interface{}) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := NewServiceWithUI(ui).Run(gateStep(), context.NewCtx(map[string]interface{}{}), j, GateOptions{Quiet: true})
+	res := NewServiceWithUI(ui).Run(gateStep(), runctx.NewCtx(map[string]interface{}{}), j, GateOptions{Quiet: true})
 	j.Close()
 	raw, err := os.ReadFile(filepath.Join(dir, "journal.jsonl"))
 	if err != nil {

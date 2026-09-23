@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wedra/internal/context"
+	"wedra/internal/runctx"
 )
 
 // When — условие выполнения шага (v0.20).
@@ -97,7 +97,7 @@ var WhenOps = map[string]bool{
 // (нет пути при exists-семантике это ok=false, а не ошибка; ошибка — это
 // несовместимые типы для сравнения, например gt по строке).
 func EvaluateWhen(w When, data map[string]interface{}) (bool, error) {
-	v, found := context.ResolvePath(w.Path, data)
+	v, found := runctx.ResolvePath(w.Path, data)
 	switch w.Op {
 	case OpExists:
 		return found, nil

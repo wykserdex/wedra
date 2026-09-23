@@ -3,8 +3,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jchv/go-webview2"
 )
@@ -29,7 +31,9 @@ func desktop(url string, debug bool, logf func(string, ...interface{})) {
 		},
 	})
 	if wv == nil {
-		logf("WebView2 не запустился (нет рантайма?) — открой %s в браузере", url)
+		// в лог-файл — без ключа сессии; ссылка с ключом — только в консоль и браузер
+		logf("WebView2 не запустился (нет рантайма?) — открываю системный браузер (%s)", strings.SplitN(url, "?", 2)[0])
+		fmt.Println("  ссылка с ключом сессии (только для вас):", url)
 		logf("рантайм: https://developer.microsoft.com/microsoft-edge/webview2/")
 		openBrowser(url)
 		waitSignal()

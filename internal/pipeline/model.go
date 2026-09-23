@@ -47,7 +47,10 @@ type Pipeline struct {
 	// v0.17: network — "deny" запрещает шаги, чей плагин в манифесте
 	// заявил сеть (declare-now: декларирование — контракт, аудит — журнал).
 	Network string `yaml:"network"`
-	Steps   []Step `yaml:"steps"`
+	// v0.9: gates — политика гейтов пайплайна: "human_only" запрещает
+	// авто-аппрув (--yes) для всех human_gate; "any" / "" — по шагу.
+	Gates string `yaml:"gates"`
+	Steps []Step `yaml:"steps"`
 }
 
 type Step struct {
@@ -77,6 +80,14 @@ type Step struct {
 	Form     []FormField `yaml:"form"`
 	Actions  []string    `yaml:"actions"`
 	OnReject string      `yaml:"on_reject"`
+	// v0.9: approval — "human" запрещает авто-аппрув этого гейта (--yes
+	// ждёт человека); "any" / "" — как раньше.
+	Approval string `yaml:"approval"`
+}
+
+// RequiresHuman — гейт этого шага нельзя одобрить автоматически (--yes).
+func (p *Pipeline) RequiresHuman(st *Step) bool {
+	return p.Gates == "human_only" || st.Approval == "human"
 }
 
 type Retry struct {
