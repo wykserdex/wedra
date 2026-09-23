@@ -425,3 +425,14 @@ func LintIssues(pf *PipelineFile, eng Engine, projectRoot string) []Issue {
 	}
 	return v.issues
 }
+
+// resolveSourceCoded — resolveSource + код Issue. Все ошибки резолва
+// источника (нет поля input, шаг не выше, плагин не объявляет выход,
+// кривой путь) — E_PORT_SOURCE: для агента это один класс «перепривяжи».
+func resolveSourceCoded(path string, prior map[string]priorStep, pf *PipelineFile, st *Step) (srcInfo, string, string) {
+	src, perr := resolveSource(path, prior, pf, st)
+	if perr != "" {
+		return src, E_PORT_SOURCE, perr
+	}
+	return src, "", ""
+}
