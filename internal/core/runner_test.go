@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wedra/internal/gate"
 )
 
 const fxPlugins = "testdata/plugins/"
@@ -391,6 +393,60 @@ func TestRunGateRejectAborts(t *testing.T) {
 	}
 	if stats.Aborted != 1 {
 		t.Fatalf("reject должен аборти́ть элемент: %+v", stats)
+	}
+}
+
+type scriptedGateUI struct {
+	answers []string
+	index   int
+}
+
+func (u *scriptedGateUI) ReadLine() (string, error) {
+	if u.index >= len(u.answers) {
+		return "", os.ErrClosed
+	}
+	answer := u.answers[u.index]
+	u.index++
+	return answer, nil
+}
+
+func TestRunGateRejectResumeRetriesItem(t *testing.T) {
+	pf := &PipelineFile{
+		FormatVersion: PlatformAPI,
+		Pipeline: Pipeline{
+			Name:  "t_gate_resume",
+			Input: map[string]interface{}{},
+			Steps: []Step{{ID: "review", Plugin: "core/human_gate"}},
+		},
+	}
+	runsDir := t.TempDir()
+	firstUI := &scriptedGateUI{answers: []string{"r\n"}}
+	firstOpts := quietOpts(t)
+	firstOpts.RunsDir = runsDir
+	firstOpts.RunID = "resume-gate"
+	firstOpts.GateUI = func(*Step) gate.GateUI { return firstUI }
+	firstStats, err := Run(pf, NewEngine(), firstOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstStats.Aborted != 1 {
+		t.Fatalf("unexpected first stats: %+v", firstStats)
+	}
+
+	secondUI := &scriptedGateUI{answers: []string{"a\n"}}
+	secondOpts := quietOpts(t)
+	secondOpts.RunsDir = runsDir
+	secondOpts.Resume = filepath.Base(firstStats.RunDir)
+	secondOpts.GateUI = func(*Step) gate.GateUI { return secondUI }
+	secondStats, err := Run(pf, NewEngine(), secondOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondStats.OK != 1 || secondStats.Aborted != 0 {
+		t.Fatalf("unexpected resume stats: %+v", secondStats)
+	}
+	if secondUI.index != 1 {
+		t.Fatalf("resume did not reopen the gate: %d", secondUI.index)
 	}
 }
 

@@ -2,7 +2,7 @@
 
 Проверяют, что плагин и ядро соблюдают PROTOCOL, а не только что manifest валиден.
 
-Фикстуры из `internal/core/testdata/plugins/`:
+Фикстуры из `conformance/fixtures/v0.2/` (в development checkout также доступны в `internal/core/testdata/plugins/`):
 - `echo_ok` — корректный ok
 - `failer` — доменная ошибка exit 1
 - `crasher` — краш exit 2
@@ -11,21 +11,19 @@
 - `leaker` — возвращает незадекларированное поле
 - `type_drifter` — дрейф типа
 - `file_ref_echo` — file_ref
-- `sleeper` — таймаут
+- `sleeper` — отмена
 - `retry_flaky` — retryable
+- `chatter` — oversized stdout
+- `big_stderr` — большой stderr без нарушения протокола
 
 Проверки:
 - корректный handshake (stdin JSON → stdout JSON)
-- неизвестный message type (status != ok/error)
-- невалидный input (bad JSON)
-- timeout
-- cancel (не реализован, план v0.3)
+- timeout и отмена
 - аварийное завершение (exit >=2) → platform:<code>
 - мусор в stdout → protocol_violation
-- большой output (пока нет лимита, план)
-- повторный request_id (план v0.3 envelope)
-- несовместимую версию (platform_api)
-- graceful shutdown
+- лимит stdout иstderr
+- golden issue codes
 
 Запуск: `go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1`
-или одна фикстура: `tool plugin test internal/core/testdata/plugins/<name>`
+или батарея CLI: `wedra plugin test --conformance --json`
+или одна фикстура: `tool plugin test conformance/fixtures/v0.2/<name>`

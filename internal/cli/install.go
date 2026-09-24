@@ -117,6 +117,9 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 	if localRegistryDir != "" {
 		// плагин — каталог, пресет — файл
 		cand := filepath.Join(localRegistryDir, entry.Path)
+		if _, e := os.Stat(cand); e != nil {
+			cand = filepath.Join(localRegistryDir, "plugins", filepath.Base(filepath.FromSlash(entry.Path)))
+		}
 		if fi, e := os.Stat(cand); e == nil && (fi.IsDir() || fi.Mode().IsRegular()) {
 			return cand, "", nil
 		}
@@ -159,6 +162,16 @@ func RunPipelineInstall(args []string) {
 		fmt.Println("пресет не распарсился как пайплайн:", err)
 		os.Exit(1)
 	}
+	for i := range pf.Pipeline.Steps {
+		if name, _, ok := registry.NormalizePluginRef(pf.Pipeline.Steps[i].Plugin); ok {
+			pf.Pipeline.Steps[i].Plugin = name
+		}
+	}
+	normalized, err := yaml.Marshal(&pf)
+	if err != nil {
+		fmt.Println("не удалось нормализовать пресет:", err)
+		os.Exit(1)
+	}
 	pname := pf.Pipeline.Name
 	if pname == "" {
 		pname = name
@@ -168,7 +181,7 @@ func RunPipelineInstall(args []string) {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(outFile, raw, 0o644); err != nil {
+	if err := os.WriteFile(outFile, normalized, 0o644); err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
@@ -186,7 +199,7 @@ func RunPipelineInstall(args []string) {
 			fmt.Printf("ошибка: плагин %s в одном пайплайне требует разные версии: %s и %s\n", nm, prev, vr)
 			os.Exit(1)
 		}
-		if vr != "" {
+		if prev, ok := wantVer[nm]; !ok || prev == "" {
 			wantVer[nm] = vr
 		}
 	}

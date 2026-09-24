@@ -13,38 +13,69 @@ import (
 )
 
 func RunPipelineRun(args []string) {
-	if len(args) == 0 {
-		fmt.Println("нужен файл пайплайна: orchestrator pipeline run <file.yaml>")
-		os.Exit(2)
-	}
-	file := args[0]
+	file := ""
 	yes := false
 	runsDir := ""
 	resume := ""
 	store := "fs"
 	dbPath := ""
 	noAuto := false
-	for _, a := range args[1:] {
-		if a == "--yes" {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--yes":
 			yes = true
-		}
-		// v0.9: --no-auto-approve — политика: --yes не одобряет ни один гейт
-		if a == "--no-auto-approve" {
+		case a == "--no-auto-approve":
 			noAuto = true
-		}
-		if len(a) > 11 && a[:11] == "--runs-dir=" {
-			runsDir = a[11:]
-		}
-		if len(a) > 9 && a[:9] == "--resume=" {
-			resume = a[9:]
-		}
-		if len(a) > 8 && a[:8] == "--store=" {
-			store = a[8:]
-		}
-		// v0.9: было a[:9] == "--db-path=" (10 символов) — никогда не совпадало
-		if strings.HasPrefix(a, "--db-path=") {
+		case strings.HasPrefix(a, "--runs-dir="):
+			runsDir = strings.TrimPrefix(a, "--runs-dir=")
+		case a == "--runs-dir":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --runs-dir нужно значение")
+				os.Exit(2)
+			}
+			i++
+			runsDir = args[i]
+		case strings.HasPrefix(a, "--resume="):
+			resume = strings.TrimPrefix(a, "--resume=")
+		case a == "--resume":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --resume нужно значение")
+				os.Exit(2)
+			}
+			i++
+			resume = args[i]
+		case strings.HasPrefix(a, "--store="):
+			store = strings.TrimPrefix(a, "--store=")
+		case a == "--store":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --store нужно значение")
+				os.Exit(2)
+			}
+			i++
+			store = args[i]
+		case strings.HasPrefix(a, "--db-path="):
 			dbPath = strings.TrimPrefix(a, "--db-path=")
+		case a == "--db-path":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --db-path нужно значение")
+				os.Exit(2)
+			}
+			i++
+			dbPath = args[i]
+		case strings.HasPrefix(a, "-"):
+			fmt.Printf("неизвестный флаг pipeline run %q\n", a)
+			os.Exit(2)
+		case file == "":
+			file = a
+		default:
+			fmt.Printf("лишний аргумент pipeline run %q\n", a)
+			os.Exit(2)
 		}
+	}
+	if file == "" {
+		fmt.Println("нужен файл пайплайна: orchestrator pipeline run <file.yaml>")
+		os.Exit(2)
 	}
 	if runsDir == "" {
 		runsDir = "var/runs"

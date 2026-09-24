@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"wedra/internal/journal"
 )
@@ -107,17 +108,60 @@ func RunRunsShow(args []string) {
 
 func RunRunsResume(args []string) {
 	if len(args) < 1 {
-		fmt.Println("нужен id прогона: orchestrator runs resume <run_id> -- <pipeline.yaml>")
+		fmt.Println("нужен id прогона: orchestrator runs resume <run_id> <pipeline.yaml>")
 		os.Exit(2)
 	}
 	runID := args[0]
 	pipelineFile := ""
 	yes := false
-	for _, a := range args[1:] {
-		if a == "--yes" {
+	noAuto := false
+	runsDir := ""
+	store := ""
+	dbPath := ""
+	for i := 1; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			continue
+		case a == "--yes":
 			yes = true
-		} else if a != "--" && pipelineFile == "" && (len(a) > 5 && (a[len(a)-5:] == ".yaml" || a[len(a)-4:] == ".yml")) {
+		case a == "--no-auto-approve":
+			noAuto = true
+		case strings.HasPrefix(a, "--runs-dir="):
+			runsDir = strings.TrimPrefix(a, "--runs-dir=")
+		case a == "--runs-dir":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --runs-dir нужно значение")
+				os.Exit(2)
+			}
+			i++
+			runsDir = args[i]
+		case strings.HasPrefix(a, "--store="):
+			store = strings.TrimPrefix(a, "--store=")
+		case a == "--store":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --store нужно значение")
+				os.Exit(2)
+			}
+			i++
+			store = args[i]
+		case strings.HasPrefix(a, "--db-path="):
+			dbPath = strings.TrimPrefix(a, "--db-path=")
+		case a == "--db-path":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --db-path нужно значение")
+				os.Exit(2)
+			}
+			i++
+			dbPath = args[i]
+		case strings.HasPrefix(a, "-"):
+			fmt.Printf("неизвестный флаг runs resume %q\n", a)
+			os.Exit(2)
+		case pipelineFile == "":
 			pipelineFile = a
+		default:
+			fmt.Printf("лишний аргумент runs resume %q\n", a)
+			os.Exit(2)
 		}
 	}
 	if pipelineFile == "" {
@@ -127,6 +171,18 @@ func RunRunsResume(args []string) {
 	newArgs := []string{pipelineFile}
 	if yes {
 		newArgs = append(newArgs, "--yes")
+	}
+	if noAuto {
+		newArgs = append(newArgs, "--no-auto-approve")
+	}
+	if runsDir != "" {
+		newArgs = append(newArgs, "--runs-dir="+runsDir)
+	}
+	if store != "" {
+		newArgs = append(newArgs, "--store="+store)
+	}
+	if dbPath != "" {
+		newArgs = append(newArgs, "--db-path="+dbPath)
 	}
 	newArgs = append(newArgs, "--resume="+runID)
 	RunPipelineRun(newArgs)

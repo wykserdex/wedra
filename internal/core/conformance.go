@@ -2,7 +2,10 @@ package core
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"wedra/internal/pipeline"
@@ -27,14 +30,41 @@ func confFail(name, details string) ConformanceCheck {
 	return ConformanceCheck{Name: name, Pass: false, Details: details}
 }
 
+func defaultConformanceFixturesDir(fixturesDir string) string {
+	if strings.TrimSpace(fixturesDir) != "" {
+		return fixturesDir
+	}
+	var candidates []string
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(cwd, "conformance", "fixtures", "v0.2"),
+			filepath.Join(cwd, "internal", "core", "testdata", "plugins"),
+		)
+	}
+	if _, file, _, ok := runtime.Caller(0); ok {
+		candidates = append(candidates, filepath.Join(filepath.Dir(file), "testdata", "plugins"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(dir, "conformance", "fixtures", "v0.2"),
+			filepath.Join(dir, "internal", "core", "testdata", "plugins"),
+		)
+	}
+	for _, candidate := range candidates {
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			return candidate
+		}
+	}
+	return filepath.Join("internal", "core", "testdata", "plugins")
+}
+
 // RunConformance — батарея ядра по фикстурам fixturesDir
-// (default internal/core/testdata/plugins):
+// (по умолчанию conformance/fixtures/v0.2, затем development testdata):
 // handshake, big_stdout 17MB→protocol_violation, big_stderr 2MB→ok,
 // cancel (sleeper+отмена → cancelled, не timeout), error_codes (golden Issue).
 func RunConformance(fixturesDir string) ConformanceReport {
-	if fixturesDir == "" {
-		fixturesDir = filepath.Join("internal", "core", "testdata", "plugins")
-	}
+	fixturesDir = defaultConformanceFixturesDir(fixturesDir)
 	var checks []ConformanceCheck
 
 	load := func(name string) *Manifest {

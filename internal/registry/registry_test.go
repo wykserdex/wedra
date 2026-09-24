@@ -135,3 +135,34 @@ func TestLoadLocalFile(t *testing.T) {
 		t.Fatalf("Dir должен быть каталогом файла: %s", h.Dir)
 	}
 }
+
+func TestRefToDirNestedFallback(t *testing.T) {
+	pluginsDir := filepath.Join(t.TempDir(), "plugins")
+	nested := filepath.Join(pluginsDir, "community", "csv_loader")
+	writeFile(t, filepath.Join(nested, "plugin.yaml"), "id: csv_loader\n")
+	got, err := RefToDir("csv_loader", pluginsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nested {
+		t.Fatalf("got %q, want %q", got, nested)
+	}
+}
+
+func TestNormalizePluginRef(t *testing.T) {
+	name, version, ok := NormalizePluginRef(`plugins\community\csv_loader@v0.8a`)
+	if !ok || name != "csv_loader" || version != "v0.8a" {
+		t.Fatalf("got %q %q %v", name, version, ok)
+	}
+	if _, _, ok := NormalizePluginRef("plugins/community/a/b"); ok {
+		t.Fatal("nested path должен быть отвергнут")
+	}
+}
+
+func TestRegistryRejectsEscapingPath(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  bad:\n    source: x\n    path: ../outside\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("escaping registry path должен быть отвергнут")
+	}
+}

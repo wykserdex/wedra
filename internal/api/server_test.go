@@ -59,6 +59,18 @@ func TestAPIRunInvalid400Direct(t *testing.T) {
 		t.Fatalf("202 должен выдавать run: %v", start)
 	}
 	waitRunStatus(t, ts, start["run"].(string), "ok")
+	nestedDir := filepath.Join(pipelines, "nested")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "gate_demo.yaml"), []byte(gatePipeYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+	code, nested := postJSON(t, ts.URL+"/api/run", map[string]interface{}{"file": filepath.Join("nested", "gate_demo.yaml"), "yes": true})
+	if code != 202 {
+		t.Fatalf("POST nested gate_demo: code=%d body=%v", code, nested)
+	}
+	waitRunStatus(t, ts, nested["run"].(string), "ok")
 }
 
 func newTestServer(t *testing.T, srv *Server) *httptest.Server {

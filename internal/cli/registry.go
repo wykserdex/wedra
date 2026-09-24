@@ -54,6 +54,9 @@ func RunRegistryValidate(args []string) {
 			ok, detail = false, "source: "+err.Error()
 		} else {
 			dir := filepath.Join(root.root, entry.Path)
+			if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+				dir = filepath.Join(root.root, "plugins", name)
+			}
 			m, lerr := core.NewEngine().LoadManifest(dir)
 			if lerr != nil {
 				ok, detail = false, "манифест: "+lerr.Error()
@@ -129,7 +132,7 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 	if localSource != "" && sameRepo(entry.Source, localSource) {
 		return &srcRoot{root: localSource}, nil
 	}
-	key := entry.Source + "|" + entry.Version
+	key := entry.Source + "|" + entry.Version + "|" + entry.Commit
 	if c, ok := cache[key]; ok {
 		return c, nil
 	}
@@ -141,7 +144,11 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 	}
 	// 2) оффлайн: каталог локального реестра и есть source
 	if hDir != "" {
-		if _, e := os.Stat(filepath.Join(hDir, entry.Path)); e == nil {
+		candidate := filepath.Join(hDir, entry.Path)
+		if _, e := os.Stat(candidate); e != nil {
+			candidate = filepath.Join(hDir, "plugins", filepath.Base(filepath.FromSlash(entry.Path)))
+		}
+		if _, e := os.Stat(candidate); e == nil {
 			c := &srcRoot{root: hDir}
 			cache[key] = c
 			return c, nil

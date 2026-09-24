@@ -234,7 +234,7 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	seen := map[string]bool{}
-	var list []map[string]interface{}
+	list := make([]map[string]interface{}, 0)
 	for _, d := range dirs {
 		m, err := s.Engine.LoadManifest(d)
 		if err != nil {
@@ -511,6 +511,36 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) resolvePipelineFile(name string) (string, error) {
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("нужно имя или путь к pipeline")
+	}
+	base, err := filepath.Abs(s.PipelinesDir)
+	if err != nil {
+		return "", err
+	}
+	candidates := []string{}
+	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || (len(name) >= 2 && name[1] == ':') {
+		candidates = append(candidates, name)
+	} else {
+		candidates = append(candidates, filepath.Join(base, name), name)
+	}
+	for _, candidate := range candidates {
+		abs, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(base, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if fi, err := os.Stat(abs); err == nil && !fi.IsDir() {
+			return abs, nil
+		}
+	}
+	return "", fmt.Errorf("pipeline %q не найден внутри %s", name, s.PipelinesDir)
+}
+
 // handleRunStart — v0.22: POST /api/run {file, yes} — in-process запуск.
 // v0.24: yes=false — человеческий гейт в браузере: ран блокируется на
 // gate-шаге, решение — POST /api/runs/<runID>/gate. ID рана известен заранее
@@ -531,11 +561,11 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "json: "+err.Error(), 400)
 		return
 	}
-	if req.File == "" || strings.ContainsAny(req.File, "/\\") || strings.Contains(req.File, "..") {
-		http.Error(w, "file: только имя из "+s.PipelinesDir, 400)
+	path, err := s.resolvePipelineFile(req.File)
+	if err != nil {
+		http.Error(w, "file: "+err.Error(), 400)
 		return
 	}
-	path := filepath.Join(s.PipelinesDir, req.File)
 	pf, err := pipeline.LoadPipelineFile(path)
 	if err != nil {
 		http.Error(w, "pipeline: "+err.Error(), 400)

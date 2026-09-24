@@ -79,6 +79,7 @@ func TestGeminiOK(t *testing.T) {
 func TestGemini429IsRetryableDomain(t *testing.T) {
 	requirePython(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
@@ -99,6 +100,7 @@ func TestGemini429IsRetryableDomain(t *testing.T) {
 func TestGemini401NotRetryable(t *testing.T) {
 	requirePython(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()

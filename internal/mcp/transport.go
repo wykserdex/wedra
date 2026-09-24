@@ -11,7 +11,7 @@ import (
 // Request — JSON-RPC 2.0 запрос (stdio, по одному сообщению на строку).
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      *int64          `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
@@ -19,10 +19,10 @@ type Request struct {
 // Response — ответ. Error — только для протокольных ошибок;
 // ok:false в validate — это нормальный result, не error.
 type Response struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      *int64      `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  interface{}     `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
 }
 
 // RPCError — JSON-RPC error.

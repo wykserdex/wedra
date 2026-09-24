@@ -9,7 +9,7 @@ import (
 // (v0.17: общий сканер для cmd/orchestrator и cmd/tool; CI проверяет и тот, и другой).
 func ScanPlugins() []Manifest {
 	eng := NewEngine()
-	roots := []string{"plugins/official", "plugins/community", "plugins"}
+	roots := []string{"plugins", "plugins/official", "plugins/community"}
 	var out []Manifest
 	seen := map[string]bool{}
 	for _, root := range roots {
@@ -22,14 +22,11 @@ func ScanPlugins() []Manifest {
 				continue
 			}
 			dir := filepath.Join(root, e.Name())
-			if seen[dir] {
-				continue
-			}
-			seen[dir] = true
 			m, err := eng.LoadManifest(dir)
-			if err != nil {
+			if err != nil || m.ID == "" || seen[m.ID] {
 				continue
 			}
+			seen[m.ID] = true
 			out = append(out, *m)
 		}
 	}

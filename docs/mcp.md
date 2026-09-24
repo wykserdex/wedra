@@ -13,8 +13,9 @@ go build -o wedra ./cmd/wedra
 wedra mcp --plugins /abs/path/plugins --workdir /abs/path/project
 ```
 
-- `--plugins <dir>` — repeatable, корни плагинов (песочница).
+- `--plugins <dir>` — repeatable, корни плагинов.
 - `--workdir <dir>` — корень `path` пайплайнов и `file_ref`.
+- Это проверка ссылок и путей, не OS-песочница: процессы плагинов наследуют права пользователя.
 - Абсолютные пути и `..` вне корней → `E_PLUGIN_OUTSIDE_ROOT`.
 - `secrets` — только имена, значений в ответах нет.
 - Один ран за раз: занят → `E_RUN_BUSY` с id текущего рана.

@@ -145,7 +145,9 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile, st
 	}
 }
 
-func IsBuiltin(ref string) bool { return strings.HasPrefix(ref, "core/") }
+func IsBuiltin(ref string) bool {
+	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+}
 
 type Engine interface {
 	LoadManifest(ref string) (*Manifest, error)

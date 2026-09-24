@@ -14,18 +14,38 @@ func Run() {
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
+	if cmd == "help" || cmd == "--help" || cmd == "-h" {
+		printHelp()
+		return
+	}
 	switch cmd {
 	case "pipeline":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		handlePipeline(os.Args[2:])
 	case "plugin":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		handlePlugin(os.Args[2:])
 	case "runs", "run":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		if cmd == "runs" {
 			handleRuns(os.Args[2:])
 		} else {
 			handlePipeline(append([]string{"run"}, os.Args[2:]...))
 		}
 	case "gui", "serve":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		RunGUI(os.Args[2:])
 	case "version", "--version", "-v":
 		ver := api.Version
@@ -34,12 +54,28 @@ func Run() {
 		}
 		fmt.Printf("wedra v%s, protocol v0.2\n", ver)
 	case "registry":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		RunRegistryValidate(os.Args[2:])
 	case "validate":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		handlePipeline(append([]string{"validate"}, os.Args[2:]...))
 	case "mcp":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		RunMCP(os.Args[2:])
 	case "approve":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
 		RunApprove(os.Args[2:])
 	default:
 		fmt.Printf("неизвестная команда %q\n", cmd)
@@ -64,6 +100,7 @@ func printHelp() {
   wedra plugin install <name>[@version] [--registry=<url|path>]        # из реестра в plugins/
   wedra plugin validate <dir>
   wedra plugin test <dir> [--conformance] [--json]
+  wedra plugin test --conformance [--json] [--fixtures=dir]
   wedra plugin create <dir> [--author --description --example]
   wedra plugin inspect <dir>
   wedra plugin search <query>              # поиск по official/community
@@ -72,7 +109,7 @@ func printHelp() {
                                                  # v0.17: trust-гейт реестра (манифест, id, конформность)
   wedra runs list [var/runs]               # список прогонов (fs + json)
   wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
-  wedra runs resume <run_id> <pipeline.yaml> [--yes]
+  wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve]
   wedra gui [--port 8765] [--open] [--no-session]  # консоль; мутации — по ссылке ?k= из терминала
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY
@@ -84,6 +121,15 @@ func printHelp() {
 Версия: v%s (честная 0.x), протокол v0.2
 См. protocol/v0.2/PROTOCOL.md, protocol/v0.2/ERRORS.md, docs/mcp.md, CHANGELOG.md
 `, ver, ver)
+}
+
+func helpRequested(args []string) bool {
+	for _, a := range args {
+		if a == "help" || a == "--help" || a == "-h" {
+			return true
+		}
+	}
+	return false
 }
 
 func handlePipeline(args []string) {
@@ -123,6 +169,10 @@ func handleRuns(args []string) {
 	case "resume":
 		RunRunsResume(args[1:])
 	default:
+		if strings.HasPrefix(sub, "-") {
+			fmt.Printf("неизвестная runs команда %q\n", sub)
+			os.Exit(2)
+		}
 		if len(args) == 1 {
 			RunRunsShow(args)
 		} else {

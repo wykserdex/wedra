@@ -106,6 +106,94 @@ type RunStats struct {
 	RunDir  string
 }
 
+func resumeItemIndex(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func resumeCursor(dir string) (int, RunStats, error) {
+	events, err := journal.NewReader(dir).Events()
+	if err != nil {
+		return 0, RunStats{}, err
+	}
+	latest := map[int]string{}
+	seen := map[int]bool{}
+	maxSeen := -1
+	for _, ev := range events {
+		typ, _ := ev["type"].(string)
+		if typ != "item_start" && typ != "item_end" {
+			continue
+		}
+		idx, ok := resumeItemIndex(ev["item_index"])
+		if !ok {
+			continue
+		}
+		seen[idx] = true
+		if idx > maxSeen {
+			maxSeen = idx
+		}
+		if typ == "item_end" {
+			status, _ := ev["status"].(string)
+			latest[idx] = status
+		}
+	}
+	count := func(before int) RunStats {
+		var stats RunStats
+		for idx := 0; idx < before; idx++ {
+			if !seen[idx] {
+				continue
+			}
+			status, ended := latest[idx]
+			if ended && (status == "" || status == "ok") {
+				stats.OK++
+			} else if ended && status == "aborted" {
+				stats.Aborted++
+			}
+		}
+		return stats
+	}
+	for idx := 0; idx <= maxSeen; idx++ {
+		status, ended := latest[idx]
+		if ended && (status == "" || status == "ok") {
+			continue
+		}
+		if idx < maxSeen {
+			return 0, RunStats{}, nil
+		}
+		return idx, count(idx), nil
+	}
+	if maxSeen < 0 {
+		return 0, RunStats{}, nil
+	}
+	return maxSeen + 1, count(maxSeen + 1), nil
+}
+
+func writeAggregates(ctx *runctx.Ctx, agg map[string][]interface{}, steps []*pipeline.Step) {
+	stepsMap, ok := ctx.Data["steps"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, st := range steps {
+		if st.Foreach != "" {
+			continue
+		}
+		if values, ok := agg[st.ID]; ok {
+			stepsMap[st.ID+"_all"] = values
+		}
+	}
+}
+
 func sanitize(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -191,16 +279,17 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			return stats, fmt.Errorf("--resume %s: %w", opts.Resume, err)
 		}
 		ctx = &runctx.Ctx{Data: data}
-		maxIdx, err := store.MaxItemIndex(opts.Resume)
-		if err != nil {
-			return stats, fmt.Errorf("--resume %s: не читается journal: %w", opts.Resume, err)
-		}
-		startItemIdx = maxIdx + 1
 		j, err = store.OpenAppend(opts.Resume)
 		if err != nil {
 			return stats, err
 		}
+		defer j.Close()
+		startItemIdx, priorStats, err := resumeCursor(j.Dir)
+		if err != nil {
+			return stats, fmt.Errorf("--resume %s: не читается journal: %w", opts.Resume, err)
+		}
 		stats.RunDir = j.Dir
+		stats.OK, stats.Aborted = priorStats.OK, priorStats.Aborted
 		opts.logf("▶ resume %q с элемента %d (журнал: %s)", pf.Pipeline.Name, startItemIdx, j.Dir)
 		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx})
 	} else {
@@ -217,8 +306,6 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		stats.RunDir = j.Dir
 		opts.logf("▶ запуск %q  (журнал: %s)", pf.Pipeline.Name, j.Dir)
 		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
-		// also append to store's event log for SQLite
-		_ = store.AppendEvent(runID, "run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
 		ctx = runctx.NewCtx(pf.Pipeline.Input)
 	}
 
@@ -318,6 +405,23 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		itemKey = "item"
 	}
 
+	agg := map[string][]interface{}{}
+	if startItemIdx > 0 {
+		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
+			for _, st := range loopSteps {
+				if raw, ok := stepsMap[st.ID+"_all"]; ok {
+					if arr, ok := raw.([]interface{}); ok {
+						if len(arr) >= startItemIdx {
+							agg[st.ID] = append([]interface{}{}, arr[:startItemIdx]...)
+						} else {
+							agg[st.ID] = append([]interface{}{}, arr...)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if startItemIdx > 0 {
 		if startItemIdx >= len(items) {
 			opts.logf("  resume: все %d элементов уже пройдены", len(items))
@@ -334,23 +438,6 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			return stats, nil
 		}
 		opts.logf("  resume: пропускаем %d элементов, продолжаем с %d/%d", startItemIdx, startItemIdx+1, len(items))
-	}
-
-	agg := map[string][]interface{}{}
-	if startItemIdx > 0 {
-		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
-			for _, st := range loopSteps {
-				if raw, ok := stepsMap[st.ID+"_all"]; ok {
-					if arr, ok := raw.([]interface{}); ok {
-						if len(arr) >= startItemIdx {
-							agg[st.ID] = append([]interface{}{}, arr[:startItemIdx]...)
-						} else {
-							agg[st.ID] = append([]interface{}{}, arr...)
-						}
-					}
-				}
-			}
-		}
 	}
 
 	for idx, it := range items {
@@ -403,6 +490,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				agg[st.ID] = append(agg[st.ID], v)
 			}
 		}
+		if pf.Pipeline.Foreach != "" {
+			writeAggregates(ctx, agg, loopSteps)
+		}
 		j.Snapshot(ctx)
 		j.Event("item_end", map[string]interface{}{"item_index": idx, "status": itemStatus})
 		if itemStatus == "aborted" {
@@ -414,11 +504,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 
 	if len(postSteps) > 0 {
 		opts.logf("\n▶ фаза 3: post-foreach %d шагов (агрегаты: %d)", len(postSteps), len(agg))
-		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
-			for id, arr := range agg {
-				stepsMap[id+"_all"] = arr
-			}
-		}
+		writeAggregates(ctx, agg, loopSteps)
 		j.Event("post_phase_start", map[string]interface{}{"steps": len(postSteps)})
 		postRefs := make([]*pipeline.Step, 0, len(postSteps))
 		for i := range postSteps {
