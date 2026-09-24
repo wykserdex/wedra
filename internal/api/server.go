@@ -49,6 +49,15 @@ type Server struct {
 	// v0.9: секрет сессии человека (EnableSession). Пусто — сессия не
 	// требуется (тесты, встраивание). Только в памяти и в cookie.
 	SessionSecret string
+
+	summaryMu    sync.Mutex
+	summaryCache map[string]summaryCacheEntry
+}
+
+type summaryCacheEntry struct {
+	modTime time.Time
+	size    int64
+	value   map[string]interface{}
 }
 
 func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
@@ -63,6 +72,7 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 		Engine:       eng,
 		gates:        map[string]*gate.ChannelUI{},
 		cancels:      map[string]context.CancelFunc{},
+		summaryCache: map[string]summaryCacheEntry{},
 	}
 }
 
@@ -361,10 +371,7 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "method not allowed", 405)
 }
 
-// runSummary — сводка рана из журнала (v0.22: статусы для GUI).
-func runSummary(dir string) map[string]interface{} {
-	rd := journal.NewReader(dir)
-	events, _ := rd.Events()
+func summarizeRun(dir string, events []map[string]interface{}) map[string]interface{} {
 	pipelineName, status, started, last := "", "running", "", ""
 	steps := 0
 	for _, e := range events {
@@ -377,11 +384,12 @@ func runSummary(dir string) map[string]interface{} {
 		switch e["type"] {
 		case "run_start":
 			pipelineName, _ = e["pipeline"].(string)
+		case "run_resumed":
+			status = "running"
 		case "step_end", "step_skipped", "step_failed":
 			steps++
 		case "run_end":
 			status = "ok"
-			// JSON-числа приходят float64
 			if ab, ok := e["aborted"].(float64); ok && ab > 0 {
 				status = "aborted"
 			}
@@ -396,6 +404,41 @@ func runSummary(dir string) map[string]interface{} {
 		"status": status, "steps": steps, "events": len(events),
 		"started": started, "last": last,
 	}
+}
+
+func cloneSummary(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *Server) cachedRunSummary(dir string) map[string]interface{} {
+	path := filepath.Join(dir, "journal.jsonl")
+	info, err := os.Stat(path)
+	if err != nil {
+		return runSummary(dir)
+	}
+	s.summaryMu.Lock()
+	entry, ok := s.summaryCache[dir]
+	s.summaryMu.Unlock()
+	if ok && entry.size == info.Size() && entry.modTime.Equal(info.ModTime()) {
+		return cloneSummary(entry.value)
+	}
+	summary := runSummary(dir)
+	s.summaryMu.Lock()
+	if s.summaryCache == nil {
+		s.summaryCache = map[string]summaryCacheEntry{}
+	}
+	s.summaryCache[dir] = summaryCacheEntry{modTime: info.ModTime(), size: info.Size(), value: cloneSummary(summary)}
+	s.summaryMu.Unlock()
+	return summary
+}
+
+func runSummary(dir string) map[string]interface{} {
+	events, _ := journal.NewReader(dir).Events()
+	return summarizeRun(dir, events)
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +470,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	sortStringsDesc(ids)
 	var list []map[string]interface{}
 	for _, id := range ids {
-		m := runSummary(filepath.Join(s.RunsDir, id))
+		m := s.cachedRunSummary(filepath.Join(s.RunsDir, id))
 		if artsMap != nil {
 			m["artifacts"] = artsMap[id]
 		}
@@ -503,7 +546,7 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		store := journal.NewFilesystemStore(s.RunsDir)
 		arts, _ = store.ListArtifacts(id)
 	}
-	summary := runSummary(dir)
+	summary := summarizeRun(dir, events)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id": id, "events": events, "context": snap, "artifacts": arts,
@@ -598,7 +641,12 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 409, map[string]string{"error": "уже идёт ран — дождись завершения", "code": "E_RUN_BUSY"})
 		return
 	}
-	runID := time.Now().Format("20060102-150405") + "-" + execution.Sanitize(pf.Pipeline.Name)
+	runID, err := execution.NewRunID(pf.Pipeline.Name)
+	if err != nil {
+		s.runMu.Unlock()
+		writeJSON(w, 500, map[string]string{"error": "не удалось создать run_id: " + err.Error()})
+		return
+	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.setCancel(runID, cancel)
 	s.running = true
@@ -718,7 +766,7 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 		// v0.27: ран завершён (run_end в журнале) — решения не принимает, даже
 		// если clearGate ещё не успел сработать (окно между записью run_end и
 		// dereg под нагрузкой давало 202 на мёртвый ран)
-		if sum := runSummary(dir); sum["status"] != "running" {
+		if sum := s.cachedRunSummary(dir); sum["status"] != "running" {
 			st, _ := sum["status"].(string)
 			w.WriteHeader(409)
 			json.NewEncoder(w).Encode(map[string]string{"error": "ран завершён (" + st + ") — решения не принимает"})
@@ -749,16 +797,12 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	var pf pipeline.PipelineFile
-	if err := json.Unmarshal(data, &pf); err != nil {
-		pfPtr, err2 := pipeline.LoadPipelineFileFromBytes(data)
-		if err2 != nil {
-			http.Error(w, fmt.Sprintf("parse error: %v / %v", err, err2), 400)
-			return
-		}
-		pf = *pfPtr
+	pf, err := pipeline.LoadPipelineFileFromBytes(data)
+	if err != nil {
+		http.Error(w, "parse: "+err.Error(), 400)
+		return
 	}
-	issues := pipeline.ValidateIssues(&pf, s.Engine)
+	issues := pipeline.ValidateIssues(pf, s.Engine)
 	errs, warns := pipeline.SplitIssues(issues)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"errors": errs, "warnings": warns, "ok": len(errs) == 0, "issues": issues})

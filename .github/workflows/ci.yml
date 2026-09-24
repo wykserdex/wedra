@@ -33,7 +33,7 @@ jobs:
         run: go test ./... -count=1 -run Test -v -race
       - name: conformance tests
         run: go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1
-      - name: build tool
+      - name: build legacy tool
         run: go build -o tool ./cmd/tool
       - name: build wedra
         run: go build -o wedra ./cmd/wedra
@@ -42,15 +42,15 @@ jobs:
           for d in plugins/official/* plugins/community/*; do
             if [ -f "$d/plugin.yaml" ]; then
               echo "== $d =="
-              ./tool plugin validate "$d"
-              ./tool plugin test "$d"
+              ./wedra plugin validate "$d"
+              ./wedra plugin test "$d"
             fi
           done
       - name: plugin list + search
         run: |
-          ./tool plugin list
-          ./tool plugin search csv
-          ./tool plugin search llm
+          ./wedra plugin list
+          ./wedra plugin search csv
+          ./wedra plugin search llm
       - name: pipeline validate + lint + plan (all pipelines)
         run: |
           for f in examples/*.yaml; do

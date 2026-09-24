@@ -73,6 +73,26 @@ func TestAPIRunInvalid400Direct(t *testing.T) {
 	waitRunStatus(t, ts, nested["run"].(string), "ok")
 }
 
+func TestValidatePipelineJSONUsesCanonicalFields(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	code, out := postJSON(t, ts.URL+"/api/validate/pipeline", map[string]interface{}{
+		"format_version": "0.2",
+		"pipeline": map[string]interface{}{
+			"name": "json_fields", "input": map[string]interface{}{"note": "x"},
+			"steps": []interface{}{map[string]interface{}{
+				"id": "gate", "plugin": "core/human_gate", "parallel_group": "p",
+				"actions": []interface{}{"accept"},
+			}},
+		},
+	})
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, out)
+	}
+	if out["ok"] != false {
+		t.Fatalf("canonical JSON fields were ignored: %v", out)
+	}
+}
+
 func newTestServer(t *testing.T, srv *Server) *httptest.Server {
 	t.Helper()
 	ts := httptest.NewServer(srv.Routes())

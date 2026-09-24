@@ -44,6 +44,30 @@ func TestEventDoesNotMutateInput(t *testing.T) {
 }
 
 // Snapshot — context.json появляется атомарно, без .tmp-хвостов.
+func TestNewJournalDoesNotTruncateExisting(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.Event("marker", map[string]interface{}{"value": "keep"})
+	j.Close()
+	if _, err := NewJournal(dir); err == nil {
+		t.Fatal("повторное создание должно вернуть collision")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "journal.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev map[string]interface{}
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev["type"] != "marker" {
+		t.Fatalf("старый журнал перезаписан: %v", ev)
+	}
+}
+
 func TestSnapshotAtomic(t *testing.T) {
 	dir := t.TempDir()
 	j, err := NewJournal(dir)
