@@ -11,7 +11,6 @@ import (
 type RunStore interface {
 	Create(runID string) (*Journal, error)
 	OpenAppend(runID string) (*Journal, error)
-	AppendEvent(runID string, kind string, kv map[string]interface{}) error
 	SaveArtifact(runID string, name string, data []byte) error
 	LoadContext(runID string) (map[string]interface{}, error)
 	MaxItemIndex(runID string) (int, error)
@@ -41,16 +40,6 @@ func (s *FilesystemStore) Create(runID string) (*Journal, error) {
 
 func (s *FilesystemStore) OpenAppend(runID string) (*Journal, error) {
 	return OpenJournalAppend(s.runDir(runID))
-}
-
-func (s *FilesystemStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
-	j, err := s.OpenAppend(runID)
-	if err != nil {
-		return err
-	}
-	defer j.Close()
-	j.Event(kind, kv)
-	return nil
 }
 
 func (s *FilesystemStore) SaveArtifact(runID string, name string, data []byte) error {
@@ -163,13 +152,9 @@ func (s *FilesystemStore) ListRuns() ([]string, error) {
 	return out, nil
 }
 
-// JsonStore — индекс прогонов в одном JSON-файле (var/runs/runs.db).
-// v0.15: честное имя (было SQLiteStore) — это JSON-файл, не SQLite, и зависимости
-// на SQLite-драйвер не тянется. Полный rewrite файла на каждый append; рассчитан на
-// single writer (один процесс). Журнал (journal.jsonl) остаётся единственным
-// источником истины; store — вторичный индекс: при нечитаемом файле чтения
-// деградируют в FS, а записи пресекаются ошибкой (файл не перезаписывается).
-// Позже заменяется на настоящий SQLite-драйвер через тот же интерфейс RunStore.
+// JsonStore — индекс прогонов и артефактов в одном JSON-файле (var/runs/runs.db).
+// Журнал (journal.jsonl) остаётся единственным источником событий; store не
+// индексирует каждое событие, поэтому не создаёт O(n²) rewrite на append.
 
 type dbFile struct {
 	Runs      []dbRun      `json:"runs"`
@@ -244,13 +229,6 @@ func (s *JsonStore) saveDB(db *dbFile) error {
 	return os.WriteFile(s.DBPath, raw, 0o644)
 }
 
-func (s *JsonStore) attach(j *Journal, runID string) *Journal {
-	j.setEventSink(func(kind string, kv map[string]interface{}) {
-		_ = s.indexEvent(runID, kind, kv)
-	})
-	return j
-}
-
 func (s *JsonStore) ensureRun(runID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -264,29 +242,6 @@ func (s *JsonStore) ensureRun(runID string) error {
 		}
 	}
 	db.Runs = append(db.Runs, dbRun{ID: runID})
-	return s.saveDB(db)
-}
-
-func (s *JsonStore) indexEvent(runID, kind string, kv map[string]interface{}) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	db, err := s.loadDB()
-	if err != nil {
-		return err
-	}
-	var itemIdx *int
-	if v, ok := kv["item_index"]; ok {
-		if idx, ok := completedItemIndex(v); ok {
-			itemIdx = &idx
-		}
-	}
-	data := make(map[string]interface{}, len(kv))
-	for k, v := range kv {
-		data[k] = v
-	}
-	db.Events = append(db.Events, dbEvent{
-		ID: len(db.Events) + 1, RunID: runID, Type: kind, Data: data, ItemIndex: itemIdx,
-	})
 	return s.saveDB(db)
 }
 
@@ -318,7 +273,7 @@ func (s *JsonStore) Create(runID string) (*Journal, error) {
 		}
 	}
 	s.mu.Unlock()
-	return s.attach(j, runID), nil
+	return j, nil
 }
 
 func (s *JsonStore) OpenAppend(runID string) (*Journal, error) {
@@ -326,15 +281,11 @@ func (s *JsonStore) OpenAppend(runID string) (*Journal, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = s.ensureRun(runID)
-	return s.attach(j, runID), nil
-}
-
-func (s *JsonStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
-	if err := s.FilesystemStore.AppendEvent(runID, kind, kv); err != nil {
-		return err
+	if err := s.ensureRun(runID); err != nil {
+		j.Close()
+		return nil, err
 	}
-	return s.indexEvent(runID, kind, kv)
+	return j, nil
 }
 
 func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
