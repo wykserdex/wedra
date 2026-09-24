@@ -22,6 +22,10 @@ import (
 // Version — версия сервера в initialize (cli проставляет из VERSION).
 var Version = "0.9"
 
+const defaultProtocolVersion = "2024-11-05"
+
+var supportedProtocolVersions = []string{defaultProtocolVersion}
+
 // Server — MCP-сервер: JSON-RPC stdio + 7 инструментов поверх core/pipeline/execution.
 // Решения гейтов через MCP невозможны никогда; get_run в waiting_human
 // просит пользователя одобрить в окне wedra.
@@ -208,7 +212,7 @@ func (s *Server) checkPluginRef(ref string) error {
 
 // checkPathInWorkdir — file_ref и path пайплайна внутри --workdir.
 func (s *Server) checkPathInWorkdir(p string) error {
-	if p == "" || filepath.IsAbs(p) && false {
+	if p == "" {
 		return nil
 	}
 	if filepath.IsAbs(p) {
@@ -282,7 +286,7 @@ func (s *Server) Serve(t *Transport) error {
 		if req.Method == "notifications/initialized" || req.Method == "notifications/cancelled" {
 			continue
 		}
-		if req.ID == nil {
+		if len(req.ID) == 0 {
 			continue
 		}
 		res := s.handle(req)
@@ -293,11 +297,36 @@ func (s *Server) Serve(t *Transport) error {
 	}
 }
 
+func negotiateProtocol(params json.RawMessage) (string, error) {
+	if len(params) == 0 || string(params) == "null" {
+		return defaultProtocolVersion, nil
+	}
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return "", err
+	}
+	if p.ProtocolVersion == "" {
+		return defaultProtocolVersion, nil
+	}
+	for _, version := range supportedProtocolVersions {
+		if p.ProtocolVersion == version {
+			return version, nil
+		}
+	}
+	return supportedProtocolVersions[0], nil
+}
+
 func (s *Server) handle(req *Request) *Response {
 	switch req.Method {
 	case "initialize":
+		version, err := negotiateProtocol(req.Params)
+		if err != nil {
+			return &Response{Error: &RPCError{Code: -32602, Message: "invalid initialize params: " + err.Error()}}
+		}
 		return &Response{Result: map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": version,
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
 			"serverInfo":      map[string]interface{}{"name": "wedra", "version": Version},
 		}}
@@ -359,6 +388,18 @@ func toJSON(v interface{}) string {
 	return string(b)
 }
 
+func permissionsJSON(m *pipeline.Manifest) map[string]interface{} {
+	network := make([]map[string]interface{}, 0, len(m.Permissions.Network))
+	for _, np := range m.Permissions.Network {
+		network = append(network, map[string]interface{}{
+			"host": np.Host, "port": np.Port, "any_host": np.AnyHost, "note": np.Note,
+		})
+	}
+	return map[string]interface{}{
+		"network": network, "filesystem": m.Permissions.Filesystem, "secrets": m.Permissions.Secrets,
+	}
+}
+
 func (s *Server) toolListPlugins(args map[string]interface{}) (string, bool, *RPCError) {
 	filter, _ := args["filter"].(string)
 	seen := map[string]bool{}
@@ -392,8 +433,7 @@ func (s *Server) toolListPlugins(args map[string]interface{}) (string, bool, *RP
 				seen[m.ID] = true
 				list = append(list, map[string]interface{}{
 					"id": m.ID, "version": m.Version, "description": m.Description,
-					"input": m.Input, "output": m.Output,
-					"permissions": map[string]interface{}{"secrets": m.Permissions.Secrets},
+					"input": m.Input, "output": m.Output, "permissions": permissionsJSON(m),
 				})
 			}
 		}
@@ -431,7 +471,7 @@ func (s *Server) toolDescribePlugin(args map[string]interface{}) (string, bool, 
 	return toJSON(map[string]interface{}{
 		"id": m.ID, "version": m.Version, "description": m.Description, "author": m.Author,
 		"runtime": m.Runtime, "input": m.Input, "output": m.Output,
-		"permissions": map[string]interface{}{"secrets": m.Permissions.Secrets},
+		"permissions": permissionsJSON(m),
 	}), false, nil
 }
 

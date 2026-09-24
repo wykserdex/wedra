@@ -1,0 +1,23 @@
+{
+  "protocol": "0.2",
+  "version": "v0.2",
+  "fixtures": [
+    "echo_ok",
+    "chatter",
+    "big_stderr",
+    "sleeper",
+    "crasher",
+    "bad_proto",
+    "failer",
+    "contract_breaker",
+    "leaker",
+    "type_drifter",
+    "file_ref_echo",
+    "num_only",
+    "retry_flaky",
+    "consumer_opt",
+    "spawner",
+    "net_demo",
+    "net_probe"
+  ]
+}

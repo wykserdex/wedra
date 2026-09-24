@@ -34,14 +34,18 @@ type Registry struct {
 const (
 	FormatVersion      = "0.1"
 	RegistryFile       = "registry.yaml"
+	AddonsRegistryFile = "registry-addons.yaml"
 	DefaultRegistryURL = "https://github.com/wykserdex/wedra"
 )
 
-// DefaultSource — локальный registry.yaml в CWD (запуск из клона репозитория),
+// DefaultSource — локальный registry.yaml (или registry-addons.yaml) в CWD,
 // иначе дефолтный URL-реестр.
 func DefaultSource() string {
 	if _, err := os.Stat(RegistryFile); err == nil {
-		return "."
+		return RegistryFile
+	}
+	if _, err := os.Stat(AddonsRegistryFile); err == nil {
+		return AddonsRegistryFile
 	}
 	return DefaultRegistryURL
 }
@@ -154,7 +158,26 @@ func parseRegistry(raw []byte) (*Registry, error) {
 	}
 	reg.Plugins = normalizeEntries(reg.Plugins)
 	reg.Presets = normalizeEntries(reg.Presets)
+	for name, entry := range reg.Plugins {
+		if !safeEntryPath(entry.Path) {
+			return nil, fmt.Errorf("registry.yaml: плагин %q: небезопасный path %q", name, entry.Path)
+		}
+	}
+	for name, entry := range reg.Presets {
+		if !safeEntryPath(entry.Path) {
+			return nil, fmt.Errorf("registry.yaml: пресет %q: небезопасный path %q", name, entry.Path)
+		}
+	}
 	return &reg, nil
+}
+
+func safeEntryPath(path string) bool {
+	normalized := strings.ReplaceAll(strings.TrimSpace(path), `\`, "/")
+	if normalized == "" || strings.HasPrefix(normalized, "/") || (len(normalized) >= 2 && normalized[1] == ':') {
+		return false
+	}
+	clean := filepath.Clean(filepath.FromSlash(normalized))
+	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
 func normalizeEntries(in map[string]Entry) map[string]Entry {
@@ -164,6 +187,8 @@ func normalizeEntries(in map[string]Entry) map[string]Entry {
 	for name, e := range in {
 		if e.Path == "" {
 			e.Path = "."
+		} else {
+			e.Path = strings.ReplaceAll(e.Path, `\`, "/")
 		}
 		if e.Version == "" {
 			e.Version = "main"
@@ -173,14 +198,15 @@ func normalizeEntries(in map[string]Entry) map[string]Entry {
 	return in
 }
 
-// IsLocalRef — локальный путь: содержит "/" (кроме core/*), начинается с "." или "/".
+// IsLocalRef — локальный путь: содержит разделитель пути, начинается с "." или "/".
 // Голое имя (и имя@версия) — это имя из реестра.
-// v0.29: Windows-абсолюты (C:\..., C:/..., \\server\...) — тоже локальные.
+// v0.29: Windows-абсолюты и Windows-разделители тоже считаются локальными.
 func IsLocalRef(ref string) bool {
-	if strings.HasPrefix(ref, "core/") {
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`) {
 		return true
 	}
-	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") {
+	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, `\`) {
 		return true
 	}
 	if filepath.IsAbs(ref) {
@@ -189,7 +215,7 @@ func IsLocalRef(ref string) bool {
 	if len(ref) >= 2 && ref[1] == ':' {
 		return true
 	}
-	return strings.Contains(ref, "/")
+	return strings.ContainsAny(ref, `/\`)
 }
 
 // SplitRef — "name" или "name@version" → (name, version).
@@ -200,17 +226,45 @@ func SplitRef(ref string) (name, version string) {
 	return ref, ""
 }
 
+func NormalizePluginRef(ref string) (name, version string, ok bool) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(ref), `\`, "/")
+	for _, prefix := range []string{"plugins/official/", "plugins/community/"} {
+		if !strings.HasPrefix(normalized, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(normalized, prefix)
+		if rest == "" || strings.Contains(rest, "/") {
+			return "", "", false
+		}
+		name, version = SplitRef(rest)
+		return name, version, true
+	}
+	return "", "", false
+}
+
 // RefToDir — резолвит ссылку `plugin:` в локальный каталог плагина.
 // Локальные пути возвращаются как есть. Реестровые имена ищутся в
-// <pluginsDir>/<name>; если не установлены — ошибка с подсказкой.
+// <pluginsDir>/<name>, затем в <pluginsDir>/official/<name> и
+// <pluginsDir>/community/<name>; flat-layout имеет приоритет.
 // Запрошенная версия (@version) сверяется с lock-файлом .wedra.
 func RefToDir(ref, pluginsDir string) (string, error) {
 	if IsLocalRef(ref) {
 		return ref, nil
 	}
 	name, ver := SplitRef(ref)
-	dir := filepath.Join(pluginsDir, name)
-	if _, err := os.Stat(filepath.Join(dir, "plugin.yaml")); err != nil {
+	candidates := []string{
+		filepath.Join(pluginsDir, name),
+		filepath.Join(pluginsDir, "official", name),
+		filepath.Join(pluginsDir, "community", name),
+	}
+	dir := ""
+	for _, candidate := range candidates {
+		if _, err := os.Stat(filepath.Join(candidate, "plugin.yaml")); err == nil {
+			dir = candidate
+			break
+		}
+	}
+	if dir == "" {
 		return "", fmt.Errorf("плагин %q не установлен: orchestrator plugin install %s", ref, ref)
 	}
 	if ver != "" {

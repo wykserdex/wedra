@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -19,6 +20,10 @@ func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]inte
 		"id": id, "version": "0.1", "platform_api": "0.1",
 		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
 		"input":   input, "output": output,
+		"permissions": map[string]interface{}{
+			"network":    []map[string]interface{}{{"host": "api.example.com", "port": 443}},
+			"filesystem": "workspace", "secrets": []string{"DEMO_TOKEN"},
+		},
 	}
 	raw, _ := json.Marshal(manifest)
 	// plugin.yaml нужен в YAML, но JSON — валидный YAML тоже
@@ -48,6 +53,59 @@ func testServer(t *testing.T) *Server {
 	return srv
 }
 
+func TestMCPInitializeNegotiatesAndExposesPermissions(t *testing.T) {
+	srv := testServer(t)
+	resp := srv.handle(&Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize",
+		Params: json.RawMessage(`{"protocolVersion":"2026-07-28"}`),
+	})
+	if resp.Error != nil {
+		t.Fatal(resp.Error)
+	}
+	result, _ := json.Marshal(resp.Result)
+	var init struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(result, &init); err != nil {
+		t.Fatal(err)
+	}
+	if init.ProtocolVersion != "2024-11-05" {
+		t.Fatalf("unexpected protocol version: %q", init.ProtocolVersion)
+	}
+
+	listed, _, rpcErr := srv.callTool("list_plugins", map[string]interface{}{})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	var listOut struct {
+		Plugins []struct {
+			Permissions map[string]interface{} `json:"permissions"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(listed), &listOut); err != nil {
+		t.Fatal(err)
+	}
+	if len(listOut.Plugins) != 1 {
+		t.Fatalf("unexpected plugin list: %s", listed)
+	}
+	for _, key := range []string{"network", "filesystem", "secrets"} {
+		if _, ok := listOut.Plugins[0].Permissions[key]; !ok {
+			t.Fatalf("permission %q missing: %s", key, listed)
+		}
+	}
+}
+
+func TestMCPTransportPreservesStringID(t *testing.T) {
+	tr := NewTransport(bytes.NewBufferString(`{"jsonrpc":"2.0","id":"abc","method":"ping"}`+"\n"), &bytes.Buffer{})
+	req, err := tr.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(req.ID) != `"abc"` {
+		t.Fatalf("unexpected request id: %s", req.ID)
+	}
+}
+
 func TestMCPValidatePortSource(t *testing.T) {
 	srv := testServer(t)
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: bad\n  input:\n    email: \"a@b.c\"\n  steps:\n    - id: s\n      plugin: " + srv.pluginsDirs[0] + "/echoer\n      bind:\n        text: input.nope\n"
@@ -68,8 +126,15 @@ func TestMCPValidatePortSource(t *testing.T) {
 	if out.OK {
 		t.Fatalf("want ok:false, got %s", res)
 	}
-	if len(out.Issues) == 0 || out.Issues[0].Code != "E_PORT_SOURCE" {
-		t.Fatalf("want issues[0].code==E_PORT_SOURCE, got %s", res)
+	found := false
+	for _, issue := range out.Issues {
+		if issue.Code == "E_PORT_SOURCE" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("want E_PORT_SOURCE, got %s", res)
 	}
 }
 
@@ -189,7 +254,8 @@ func TestMCPStdioIsolation(t *testing.T) {
 	srv := testServer(t)
 	mkReq := func(id int64, method string, params interface{}) *Request {
 		raw, _ := json.Marshal(params)
-		return &Request{JSONRPC: "2.0", ID: &id, Method: method, Params: raw}
+		rawID, _ := json.Marshal(id)
+		return &Request{JSONRPC: "2.0", ID: rawID, Method: method, Params: raw}
 	}
 	reqs := []*Request{
 		mkReq(1, "initialize", map[string]interface{}{}),
