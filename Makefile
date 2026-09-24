@@ -25,8 +25,8 @@ plugins: build
 	for d in plugins/official/* plugins/community/*; do \
 		if [ -f "$$d/plugin.yaml" ]; then \
 			echo "== $$d =="; \
-			./tool plugin validate "$$d"; \
-			./tool plugin test "$$d"; \
+			./wedra plugin validate "$$d"; \
+			./wedra plugin test "$$d"; \
 		fi; \
 	done
 

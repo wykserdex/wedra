@@ -124,7 +124,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	cmd.Stdin = bytes.NewReader(input)
 	baseEnv := os.Environ()
 	if m.Runtime.Type == "python" {
-		// v0.29: PYTHONUTF8 — stdin/stdout плагина всегда UTF-8.
+		// PYTHONUTF8 keeps plugin stdin/stdout UTF-8.
 		// На Windows с локалью cp1251 без этого кириллица бьётся
 		// на границе ядро<->плагин (extraEnv может переопределить).
 		baseEnv = append(baseEnv, "PYTHONUTF8=1")

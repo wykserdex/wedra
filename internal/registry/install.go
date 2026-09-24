@@ -54,7 +54,7 @@ func CloneTo(source, ref, dir string) error {
 	return CloneToPinned(source, ref, "", dir)
 }
 
-// CloneToPinned — CloneTo + supply-chain-пин (v0.28a, уточнение v0.29):
+// CloneToPinned clones the requested source revision and applies the registry commit pin.
 //   - commit == "" — классика: клон ref (тег/ветка);
 //   - commit != "" — детерминизм: тянем РОВНО этот SHA (git fetch <sha>),
 //     тег из реестра в дело не вмешивается. Тег переставили — всё равно
@@ -72,8 +72,7 @@ func CloneToPinned(source, ref, commit, dir string) error {
 	}
 	steps := [][]string{
 		{"init", "-q", dir},
-		// v0.29: фиксируем LF в клоне — иначе глобальный autocrlf машины
-		// выдаст CRLF и пины/тесты станут зависеть от окружения.
+		// Keep checkout line endings stable across platforms.
 		{"-C", dir, "config", "core.autocrlf", "false"},
 		{"-C", dir, "remote", "add", "origin", source},
 		{"-C", dir, "fetch", "-q", "--depth", "1", "origin", commit},

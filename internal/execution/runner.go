@@ -2,6 +2,8 @@ package execution
 
 import (
 	stdctx "context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,13 +32,12 @@ type RunOptions struct {
 	// v0.24: фабрика не-терминального ввода гейта (GUI/API). Вызывается на
 	// каждом встроенном gate-шаге; nil — терминальный stdin (дефолт).
 	GateUI func(*pipeline.Step) gate.GateUI
-	// v0.9: NoAutoApprove — --yes не одобряет гейты вовсе (MCP-раны).
+	// Agent-track policy: --yes never approves gates for MCP runs.
 	NoAutoApprove bool
-	// v0.9: MCPMode — stdin/stdout заняты JSON-RPC: терминальный гейт
-	// (os.Stdin) запрещён, без GateUI — ошибка E_NO_GATE_UI.
+	// Agent-track policy: stdin/stdout are occupied by JSON-RPC, so a
+	// terminal gate is forbidden without GateUI.
 	MCPMode bool
-	// v0.9: Ctx — отмена рана (Ctrl+C, API /cancel, MCP cancel_run).
-	// nil — context.Background().
+	// Agent-track cancellation context (Ctrl+C, API /cancel, MCP cancel_run).
 	Ctx stdctx.Context
 }
 
@@ -194,14 +195,37 @@ func writeAggregates(ctx *runctx.Ctx, agg map[string][]interface{}, steps []*pip
 	}
 }
 
+var cyrillicSanitize = map[rune]string{
+	'а': "a", 'б': "b", 'в': "v", 'г': "g", 'д': "d", 'е': "e", 'ё': "yo", 'ж': "zh", 'з': "z", 'и': "i", 'й': "y", 'к': "k", 'л': "l", 'м': "m", 'н': "n", 'о': "o", 'п': "p", 'р': "r", 'с': "s", 'т': "t", 'у': "u", 'ф': "f", 'х': "h", 'ц': "c", 'ч': "ch", 'ш': "sh", 'щ': "sch", 'ъ': "", 'ы': "y", 'ь': "", 'э': "e", 'ю': "yu", 'я': "ya",
+	'А': "A", 'Б': "B", 'В': "V", 'Г': "G", 'Д': "D", 'Е': "E", 'Ё': "Yo", 'Ж': "Zh", 'З': "Z", 'И': "I", 'Й': "Y", 'К': "K", 'Л': "L", 'М': "M", 'Н': "N", 'О': "O", 'П': "P", 'Р': "R", 'С': "S", 'Т': "T", 'У': "U", 'Ф': "F", 'Х': "H", 'Ц': "C", 'Ч': "Ch", 'Ш': "Sh", 'Щ': "Sch", 'Ъ': "", 'Ы': "Y", 'Ь': "", 'Э': "E", 'Ю': "Yu", 'Я': "Ya",
+}
+
 func sanitize(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			return r
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		if replacement, ok := cyrillicSanitize[r]; ok {
+			b.WriteString(replacement)
+			continue
 		}
-		return '-'
-	}, s)
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	result := strings.Trim(b.String(), "-")
+	if result == "" {
+		return "run"
+	}
+	return result
+}
+
+func NewRunID(name string) (string, error) {
+	var entropy [6]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	return time.Now().UTC().Format("20060102-150405") + "-" + sanitize(name) + "-" + hex.EncodeToString(entropy[:]), nil
 }
 
 // Sanitize — публичная обёртка (v0.24: GUI генерирует runID тем же форматом).
@@ -295,7 +319,10 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	} else {
 		runID := opts.RunID
 		if runID == "" {
-			runID = time.Now().Format("20060102-150405") + "-" + sanitize(pf.Pipeline.Name)
+			runID, err = NewRunID(pf.Pipeline.Name)
+			if err != nil {
+				return stats, fmt.Errorf("run id: %w", err)
+			}
 		}
 		// use store.Create so SQLite DB gets entry
 		j, err = store.Create(runID)
@@ -762,7 +789,7 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 	}
 	input, err := buildInput(m, st, ctx)
 	if err != nil {
-		// v0.9 (ERRORS.md: contract_input): вход не собрался (нет пути,
+		// Contract input (ERRORS.md): input could not be assembled (no path,
 		// тип/формат) — судьба элемента по on_error, ран живёт. Раньше
 		// return err ронял весь ран: один "bad-email" убивал 3 хороших.
 		switch st.OnError {

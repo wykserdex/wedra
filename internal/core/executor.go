@@ -3,6 +3,7 @@ package core
 import (
 	"time"
 
+	"wedra/internal/common"
 	"wedra/internal/plugin"
 )
 
@@ -67,10 +68,7 @@ func EnforceOutput(m *Manifest, out map[string]interface{}) (map[string]interfac
 }
 
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
+	return common.Truncate(s, n)
 }
 
 func buildInput(m *Manifest, st *Step, ctx *Ctx) (map[string]interface{}, error) {

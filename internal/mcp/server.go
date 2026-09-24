@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"wedra/internal/common"
 	"wedra/internal/core"
 	"wedra/internal/execution"
 	"wedra/internal/gate"
@@ -61,7 +62,7 @@ type Options struct {
 	PluginsDirs []string
 	WorkDir     string
 	RunsDir     string
-	// v0.9: Human — канал к человеку для гейтов и отмены (встроенный GUI).
+	// Agent-track human channel for gates and cancellation.
 	// nil — гейты MCP-ранов одобрить некому: run_pipeline с human_gate
 	// отклоняется с E_NO_HUMAN_CHANNEL, а не висит в waiting_human вечно.
 	Human HumanChannel
@@ -541,6 +542,10 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			Message: "в пайплайне есть human_gate, а канала к человеку нет (wedra mcp запущен с --no-gui): одобрить гейт некому",
 			Data:    map[string]string{"code": "E_NO_HUMAN_CHANNEL"}}
 	}
+	runID, err := execution.NewRunID(pf.Pipeline.Name)
+	if err != nil {
+		return "", false, rpcErr("", "не удалось создать run_id: "+err.Error())
+	}
 	s.mu.Lock()
 	if s.running {
 		cur := s.currentRunID
@@ -548,7 +553,6 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		return "", false, &RPCError{Code: -32000, Message: "уже идёт ран " + cur, Data: map[string]string{"code": "E_RUN_BUSY", "run_id": cur}}
 	}
 	s.running = true
-	runID := time.Now().Format("20060102-150405") + "-" + execution.Sanitize(pf.Pipeline.Name)
 	s.currentRunID = runID
 	st := &runState{id: runID, dir: filepath.Join(s.runsDir, runID), done: make(chan struct{}), status: "running"}
 	s.runs[runID] = st
@@ -699,7 +703,7 @@ func truncateJSON(v interface{}, limit int) interface{} {
 	if len(b) <= limit {
 		return v
 	}
-	return string(b[:limit]) + "…(обрезано до 20KB)"
+	return common.Truncate(string(b), limit) + "(обрезано до 20KB)"
 }
 
 func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCError) {

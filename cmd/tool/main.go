@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"wedra/internal/api"
 	"wedra/internal/core"
 )
@@ -49,15 +48,7 @@ func report(errs, warns []string) {
 }
 
 func loadPipeline(path string) (*core.PipelineFile, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var pf core.PipelineFile
-	if err := yaml.Unmarshal(raw, &pf); err != nil {
-		return nil, fmt.Errorf("YAML: %w", err)
-	}
-	return &pf, nil
+	return core.LoadPipelineFile(path)
 }
 
 func main() {

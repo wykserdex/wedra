@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestJsonStoreIndexesEachJournalEventOnce(t *testing.T) {
+func TestJsonStoreUsesJournalAsSourceOfTruth(t *testing.T) {
 	dir := t.TempDir()
 	store := NewJsonStore(dir, filepath.Join(dir, "runs.db"))
 	j, err := store.Create("run-1")
@@ -26,17 +26,8 @@ func TestJsonStoreIndexesEachJournalEventOnce(t *testing.T) {
 	if err := json.Unmarshal(raw, &db); err != nil {
 		t.Fatal(err)
 	}
-	if len(db.Events) != 2 {
-		t.Fatalf("want 2 indexed events, got %d", len(db.Events))
-	}
-	starts := 0
-	for _, event := range db.Events {
-		if event.Type == "run_start" {
-			starts++
-		}
-	}
-	if starts != 1 {
-		t.Fatalf("want one run_start, got %d", starts)
+	if len(db.Events) != 0 {
+		t.Fatalf("normal journal events must not trigger JSON-array rewrites: %d", len(db.Events))
 	}
 	idx, err := store.MaxItemIndex("run-1")
 	if err != nil || idx != 0 {

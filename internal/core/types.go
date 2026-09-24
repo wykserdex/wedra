@@ -19,9 +19,7 @@ type Manifest = pipeline.Manifest
 
 const PlatformAPI = pipeline.PlatformAPI
 
-// v0.29: Engine один — plugin.Engine. core.Engine был построчной копией
-// (Manifest и так алиас pipeline.Manifest, поле RegistrySrc никто не ставил).
-// Оставлен алиас ради совместимости вызовов core.NewEngine().
+// Engine is plugin.Engine; the old core alias remains for compatibility.
 type Engine = plugin.Engine
 
 var NewEngine = plugin.NewEngine
