@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"wedra/internal/core"
 	"wedra/internal/execution"
 )
+
+func runIDFromDir(runDir string) string {
+	if runDir == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Clean(runDir))
+}
 
 func RunPipelineRun(args []string) {
 	file := ""
@@ -116,7 +124,7 @@ func RunPipelineRun(args []string) {
 	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath, Ctx: runCtx, NoAutoApprove: noAuto})
 	if err != nil {
 		if errors.Is(err, execution.ErrCancelled) {
-			fmt.Println("ран отменён; продолжить: wedra runs resume", stats.RunDir)
+			fmt.Println("ран отменён; продолжить: wedra runs resume", runIDFromDir(stats.RunDir))
 			os.Exit(130)
 		}
 		fmt.Println("ран упал:", err)

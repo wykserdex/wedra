@@ -12,6 +12,8 @@
   но не переписывает весь event-массив на каждое событие.
 - JSON/YAML validation использует canonical pipeline parser; `tool` использует
   тот же loader, а CI plugin admission переведён на `wedra`.
+- `wedra gui` и `wedragui` принимают одинаковые `--plugins`, `--pipelines`
+  и `--runs-dir`; MCP разрешает относительные plugin refs от `--workdir`.
 
 ## v0.9 (2026-09-23) — агентный трек: MCP + человеческий гейт, conformance
 
