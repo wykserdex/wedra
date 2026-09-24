@@ -26,30 +26,57 @@ func RunPluginValidate(args []string) {
 }
 
 func RunPluginTest(args []string) {
-	if len(args) < 1 {
+	dir := ""
+	spec := ""
+	fixtures := ""
+	conformance, asJSON := false, false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--spec":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --spec нужно значение")
+				os.Exit(2)
+			}
+			i++
+			spec = args[i]
+		case strings.HasPrefix(a, "--spec="):
+			spec = strings.TrimPrefix(a, "--spec=")
+		case a == "--fixtures":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --fixtures нужно значение")
+				os.Exit(2)
+			}
+			i++
+			fixtures = args[i]
+		case strings.HasPrefix(a, "--fixtures="):
+			fixtures = strings.TrimPrefix(a, "--fixtures=")
+		case a == "--conformance":
+			conformance = true
+		case a == "--json":
+			asJSON = true
+		case a == "--help" || a == "-h":
+			fmt.Println("wedra plugin test <dir> [--spec file.yaml]")
+			fmt.Println("wedra plugin test --conformance [--json] [--fixtures=dir]")
+			return
+		case strings.HasPrefix(a, "-"):
+			fmt.Printf("неизвестный флаг plugin test %q\n", a)
+			os.Exit(2)
+		case dir == "":
+			dir = a
+		default:
+			fmt.Printf("лишний аргумент plugin test %q\n", a)
+			os.Exit(2)
+		}
+	}
+	if !conformance && dir == "" {
 		fmt.Println("нужен путь к плагину: wedra plugin test <dir>")
 		os.Exit(2)
 	}
-	dir := args[0]
-	spec := ""
-	conformance, asJSON := false, false
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--spec":
-			if i+1 < len(args) {
-				spec = args[i+1]
-				i++
-			}
-		case "--conformance":
-			conformance = true
-		case "--json":
-			asJSON = true
-		}
-	}
-	// v0.9: --conformance — батарея ядра/протокола по фикстурам в <dir>
-	// (handshake, big_stdout, big_stderr, cancel, error_codes). --json —
-	// машиночитаемый отчёт для CI.
 	if conformance {
+		if fixtures != "" {
+			dir = fixtures
+		}
 		report := core.RunConformance(dir)
 		if asJSON {
 			b, _ := json.MarshalIndent(report, "", "  ")
@@ -145,7 +172,7 @@ func RunPluginInspect(args []string) {
 func RunPluginList(args []string) {
 	plugins := core.ScanPlugins()
 	if len(plugins) == 0 {
-		fmt.Println("плагины не найдены в plugins/official и plugins/community")
+		fmt.Println("плагины не найдены в plugins (flat/official/community)")
 		return
 	}
 	sort.Slice(plugins, func(i, j int) bool { return plugins[i].ID < plugins[j].ID })

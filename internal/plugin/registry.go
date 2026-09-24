@@ -26,7 +26,9 @@ func NewEngine() *Engine {
 	}
 }
 
-func IsBuiltin(ref string) bool { return strings.HasPrefix(ref, "core/") }
+func IsBuiltin(ref string) bool {
+	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+}
 
 func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if IsBuiltin(ref) {

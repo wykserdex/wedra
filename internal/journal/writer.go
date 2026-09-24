@@ -18,6 +18,7 @@ type Journal struct {
 	mu        sync.Mutex
 	f         *os.File
 	Dir       string
+	onEvent   func(string, map[string]interface{})
 }
 
 func NewJournal(dir string) (*Journal, error) {
@@ -42,12 +43,17 @@ func OpenJournalAppend(dir string) (*Journal, error) {
 	return &Journal{f: f, Dir: dir}, nil
 }
 
+func (j *Journal) setEventSink(sink func(string, map[string]interface{})) {
+	j.mu.Lock()
+	j.onEvent = sink
+	j.mu.Unlock()
+}
+
 // Event — journal-событие. v0.23: не мутирует переданный map (footgun для
 // переиспользуемых мап), ошибки записи не глотаются (disk-full = видимая
 // потеря, не молчаливая).
 func (j *Journal) Event(kind string, kv map[string]interface{}) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	e := make(map[string]interface{}, len(kv)+2)
 	for k, v := range kv {
 		e[k] = v
@@ -56,14 +62,25 @@ func (j *Journal) Event(kind string, kv map[string]interface{}) {
 	e["type"] = kind
 	b, err := json.Marshal(e)
 	if err != nil {
+		j.mu.Unlock()
 		fmt.Fprintf(os.Stderr, "journal: marshal %s: %v (событие потеряно)\n", kind, err)
 		return
 	}
-	if _, werr := j.f.Write(append(b, '\n')); werr != nil {
+	_, werr := j.f.Write(append(b, '\n'))
+	if werr != nil {
 		j.writeErrs++
 		if j.writeErrs <= 3 {
 			fmt.Fprintf(os.Stderr, "journal: запись %s не удалась: %v (событие потеряно)\n", kind, werr)
 		}
+	}
+	sink := j.onEvent
+	j.mu.Unlock()
+	if werr == nil && sink != nil {
+		data := make(map[string]interface{}, len(kv))
+		for k, v := range kv {
+			data[k] = v
+		}
+		sink(kind, data)
 	}
 }
 

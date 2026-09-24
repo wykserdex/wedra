@@ -74,6 +74,38 @@ func (s *FilesystemStore) LoadContext(runID string) (map[string]interface{}, err
 	return data, nil
 }
 
+func completedItemIndex(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func maxCompletedItemIndex(events []map[string]interface{}) int {
+	maxIdx := -1
+	for _, ev := range events {
+		if ev["type"] != "item_end" {
+			continue
+		}
+		if status, ok := ev["status"].(string); ok && status != "ok" {
+			continue
+		}
+		if idx, ok := completedItemIndex(ev["item_index"]); ok && idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	return maxIdx
+}
+
 func (s *FilesystemStore) MaxItemIndex(runID string) (int, error) {
 	rd := NewReader(s.runDir(runID))
 	events, err := rd.Events()
@@ -83,28 +115,7 @@ func (s *FilesystemStore) MaxItemIndex(runID string) (int, error) {
 		}
 		return -1, err
 	}
-	maxIdx := -1
-	for _, ev := range events {
-		t, _ := ev["type"].(string)
-		if t != "item_end" {
-			continue
-		}
-		switch v := ev["item_index"].(type) {
-		case float64:
-			if int(v) > maxIdx {
-				maxIdx = int(v)
-			}
-		case int:
-			if v > maxIdx {
-				maxIdx = v
-			}
-		case json.Number:
-			if i, _ := v.Int64(); int(i) > maxIdx {
-				maxIdx = int(i)
-			}
-		}
-	}
-	return maxIdx, nil
+	return maxCompletedItemIndex(events), nil
 }
 
 func (s *FilesystemStore) Load(runID string) (map[string]interface{}, error) {
@@ -233,34 +244,30 @@ func (s *JsonStore) saveDB(db *dbFile) error {
 	return os.WriteFile(s.DBPath, raw, 0o644)
 }
 
-func (s *JsonStore) Create(runID string) (*Journal, error) {
-	j, err := s.FilesystemStore.Create(runID)
-	if err != nil {
-		return nil, err
-	}
+func (s *JsonStore) attach(j *Journal, runID string) *Journal {
+	j.setEventSink(func(kind string, kv map[string]interface{}) {
+		_ = s.indexEvent(runID, kind, kv)
+	})
+	return j
+}
+
+func (s *JsonStore) ensureRun(runID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// check exists
 	for _, r := range db.Runs {
 		if r.ID == runID {
-			return j, nil
+			return nil
 		}
 	}
 	db.Runs = append(db.Runs, dbRun{ID: runID})
-	if err := s.saveDB(db); err != nil {
-		return nil, err
-	}
-	return j, nil
+	return s.saveDB(db)
 }
 
-func (s *JsonStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
-	if err := s.FilesystemStore.AppendEvent(runID, kind, kv); err != nil {
-		return err
-	}
+func (s *JsonStore) indexEvent(runID, kind string, kv map[string]interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
@@ -269,26 +276,65 @@ func (s *JsonStore) AppendEvent(runID string, kind string, kv map[string]interfa
 	}
 	var itemIdx *int
 	if v, ok := kv["item_index"]; ok {
-		switch vv := v.(type) {
-		case float64:
-			i := int(vv)
-			itemIdx = &i
-		case int:
-			itemIdx = &vv
-		case int64:
-			i := int(vv)
-			itemIdx = &i
+		if idx, ok := completedItemIndex(v); ok {
+			itemIdx = &idx
 		}
 	}
-	ev := dbEvent{
-		ID:        len(db.Events) + 1,
-		RunID:     runID,
-		Type:      kind,
-		Data:      kv,
-		ItemIndex: itemIdx,
+	data := make(map[string]interface{}, len(kv))
+	for k, v := range kv {
+		data[k] = v
 	}
-	db.Events = append(db.Events, ev)
+	db.Events = append(db.Events, dbEvent{
+		ID: len(db.Events) + 1, RunID: runID, Type: kind, Data: data, ItemIndex: itemIdx,
+	})
 	return s.saveDB(db)
+}
+
+func (s *JsonStore) Create(runID string) (*Journal, error) {
+	j, err := s.FilesystemStore.Create(runID)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	db, err := s.loadDB()
+	if err != nil {
+		s.mu.Unlock()
+		j.Close()
+		return nil, err
+	}
+	exists := false
+	for _, r := range db.Runs {
+		if r.ID == runID {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		db.Runs = append(db.Runs, dbRun{ID: runID})
+		if err := s.saveDB(db); err != nil {
+			s.mu.Unlock()
+			j.Close()
+			return nil, err
+		}
+	}
+	s.mu.Unlock()
+	return s.attach(j, runID), nil
+}
+
+func (s *JsonStore) OpenAppend(runID string) (*Journal, error) {
+	j, err := s.FilesystemStore.OpenAppend(runID)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.ensureRun(runID)
+	return s.attach(j, runID), nil
+}
+
+func (s *JsonStore) AppendEvent(runID string, kind string, kv map[string]interface{}) error {
+	if err := s.FilesystemStore.AppendEvent(runID, kind, kv); err != nil {
+		return err
+	}
+	return s.indexEvent(runID, kind, kv)
 }
 
 func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
@@ -313,41 +359,33 @@ func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
 }
 
 func (s *JsonStore) MaxItemIndex(runID string) (int, error) {
+	journalPath := filepath.Join(s.runDir(runID), "journal.jsonl")
+	if _, err := os.Stat(journalPath); err == nil {
+		return s.FilesystemStore.MaxItemIndex(runID)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	db, err := s.loadDB()
 	if err != nil {
-		// чтение деградирует в FS — журнал источник истины
-		return s.FilesystemStore.MaxItemIndex(runID)
+		return -1, err
 	}
 	maxIdx := -1
 	for _, ev := range db.Events {
-		if ev.RunID != runID {
+		if ev.RunID != runID || ev.Type != "item_end" {
 			continue
 		}
-		if ev.Type != "item_end" {
+		if status, ok := ev.Data["status"].(string); ok && status != "ok" {
 			continue
 		}
 		if ev.ItemIndex != nil && *ev.ItemIndex > maxIdx {
 			maxIdx = *ev.ItemIndex
-		} else if ev.Data != nil {
-			if v, ok := ev.Data["item_index"]; ok {
-				switch vv := v.(type) {
-				case float64:
-					if int(vv) > maxIdx {
-						maxIdx = int(vv)
-					}
-				case int:
-					if vv > maxIdx {
-						maxIdx = vv
-					}
-				}
+			continue
+		}
+		if v, ok := ev.Data["item_index"]; ok {
+			if idx, ok := completedItemIndex(v); ok && idx > maxIdx {
+				maxIdx = idx
 			}
 		}
-	}
-	if maxIdx == -1 {
-		// fallback to FS if DB empty
-		return s.FilesystemStore.MaxItemIndex(runID)
 	}
 	return maxIdx, nil
 }
