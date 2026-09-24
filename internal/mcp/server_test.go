@@ -184,6 +184,49 @@ func TestMCPToolsListAndRun(t *testing.T) {
 	}
 }
 
+func TestMCPResolvesRelativePluginFromWorkDir(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	plugins := filepath.Join(work, "plugins")
+	if err := os.MkdirAll(plugins, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakePlugin(t, plugins, "echoer",
+		map[string]interface{}{"text": map[string]interface{}{"type": "string", "from": "input.text"}},
+		map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}})
+	srv, err := NewServer(Options{PluginsDirs: []string{"plugins"}, WorkDir: work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCWD := filepath.Join(root, "other")
+	if err := os.MkdirAll(otherCWD, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(otherCWD); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldCWD)
+
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: relative_plugin\n  input:\n    text: \"hello\"\n  steps:\n    - id: s\n      plugin: plugins/echoer\n      bind:\n        text: input.text\n"
+	res, isErr, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr != nil || isErr {
+		t.Fatalf("relative plugin failed: rpc=%v isErr=%v result=%s", rpcErr, isErr, res)
+	}
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(res), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.OK {
+		t.Fatalf("relative plugin validation failed: %s", res)
+	}
+}
+
 func TestMCPSandboxOutsideRoot(t *testing.T) {
 	srv := testServer(t)
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: evil\n  input: {}\n  steps:\n    - id: s\n      plugin: /tmp/evil/x\n"

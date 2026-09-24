@@ -8,8 +8,8 @@
 // Каталоги — рядом с exe (CWD при двойном клике = папка exe):
 //
 //	plugins/    — плагины (wedra plugin install / tool)
-//	pipelines/  — YAML-пайплайны (консоль их видит в списке)
-//	runs/       — журналы ранов
+//	examples/   — YAML-пайплайны (консоль их видит в списке)
+//	var/runs/   — журналы ранов
 //
 // Лог: %APPDATA%/WEDRA/wedragui.log (Windows) / $XDG_CONFIG_HOME/WEDRA/.
 // Выход: закрыть окно (на фолбэк-пути — закрыть консоль / Ctrl+C).
@@ -30,33 +30,36 @@ import (
 	"time"
 
 	"wedra/internal/api"
+	"wedra/internal/guidirs"
 )
 
 func main() {
+	dirs, args, err := guidirs.Parse(os.Args[1:], guidirs.Default())
+	if err != nil {
+		fmt.Println("каталоги:", err)
+		os.Exit(2)
+	}
 	var port int
 	debug := false
-	for i := 1; i < len(os.Args); i++ {
-		a := os.Args[i]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case strings.HasPrefix(a, "--port="):
 			fmt.Sscanf(a[7:], "%d", &port)
-		case a == "--port" && i+1 < len(os.Args):
-			fmt.Sscanf(os.Args[i+1], "%d", &port)
+		case a == "--port" && i+1 < len(args):
+			fmt.Sscanf(args[i+1], "%d", &port)
 			i++
 		case a == "--debug":
 			debug = true
 		}
 	}
 
-	// каталоги рядом с exe (CWD при двойном клике = папка exe)
-	for _, d := range []string{"plugins", "pipelines", "runs"} {
-		if err := os.MkdirAll(d, 0755); err != nil {
-			fmt.Println("каталог", d, ":", err)
-			os.Exit(1)
-		}
+	if err := dirs.Ensure(); err != nil {
+		fmt.Println("каталоги:", err)
+		os.Exit(1)
 	}
 
-	srv := api.NewServer("plugins", "pipelines", "runs")
+	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	// v0.9: сессия человека. Ключ уходит только в окно (WebView2/браузер),
 	// в лог и консоль пишется URL без ключа. Иначе любой локальный процесс
 	// (включая агента) мог бы POST-ить гейты на 127.0.0.1.
@@ -91,7 +94,7 @@ func main() {
 	}
 
 	logf("WEDRA desktop v%s — GUI: %s", ver, url)
-	logf("каталоги: %s (plugins/, pipelines/, runs/)", workingDir())
+	logf("каталоги: %s (plugins=%s, pipelines=%s, runs=%s)", workingDir(), dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	logf("лог: %s", logPath)
 	fmt.Println("  Закрыть окно (или Ctrl+C) — остановить WEDRA.")
 

@@ -111,6 +111,12 @@ func startHumanConsole(listen string, plugins []string, workdir, runsDir string,
 	pluginsDir := filepath.Join(workdir, "plugins")
 	if len(plugins) > 0 {
 		pluginsDir = plugins[0]
+		if !filepath.IsAbs(pluginsDir) {
+			pluginsDir = filepath.Join(workdir, pluginsDir)
+		}
+	}
+	if !filepath.IsAbs(runsDir) {
+		runsDir = filepath.Join(workdir, runsDir)
 	}
 	srv := api.NewServer(pluginsDir, filepath.Join(workdir, "examples"), runsDir)
 	secret, err := api.NewSessionSecret()

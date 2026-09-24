@@ -110,7 +110,7 @@ func printHelp() {
   wedra runs list [var/runs]               # список прогонов (fs + json)
   wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
   wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve]
-  wedra gui [--port 8765] [--open] [--no-session]  # консоль; мутации — по ссылке ?k= из терминала
+  wedra gui [--port 8765] [--open] [--no-session] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]  # консоль; мутации — по ссылке ?k= из терминала
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY
 

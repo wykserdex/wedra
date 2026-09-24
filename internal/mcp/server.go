@@ -18,6 +18,7 @@ import (
 	"wedra/internal/gate"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/registry"
 )
 
 // Version — версия сервера в initialize (cli проставляет из VERSION).
@@ -92,6 +93,12 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	var absPlugins []string
 	for _, d := range opts.PluginsDirs {
+		if strings.TrimSpace(d) == "" {
+			return nil, fmt.Errorf("плагины: каталог не указан")
+		}
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(absWork, d)
+		}
 		a, err := filepath.Abs(d)
 		if err != nil {
 			return nil, err
@@ -104,6 +111,8 @@ func NewServer(opts Options) (*Server, error) {
 	runsDir := opts.RunsDir
 	if runsDir == "" {
 		runsDir = filepath.Join(absWork, "var", "runs")
+	} else if !filepath.IsAbs(runsDir) {
+		runsDir = filepath.Join(absWork, runsDir)
 	}
 	if err := os.MkdirAll(runsDir, 0755); err != nil {
 		return nil, err
@@ -137,6 +146,20 @@ func parseManifestBytes(raw []byte) (*pipeline.Manifest, error) {
 	return &m, nil
 }
 
+func (m *multiEngine) loadLocal(ref string) (*pipeline.Manifest, error) {
+	path := ref
+	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, `\`) {
+		path = filepath.Join(m.workDir, path)
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	eng := core.NewEngine()
+	eng.PluginsDir = m.workDir
+	return eng.LoadManifest(path)
+}
+
 func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if pipeline.IsBuiltin(ref) {
 		if ref == "core/human_gate" {
@@ -144,24 +167,8 @@ func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		}
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
-	// прямой путь к директории (абсолютный, Windows тоже): грузим plugin.yaml напрямую
-	if filepath.IsAbs(ref) || strings.HasPrefix(ref, "/") {
-		// Unix-путь на Windows заведомо вне корней — песочница уже отклонила,
-		// но для честности пробуем прочитать (даст понятную ошибку)
-		clean := ref
-		if !filepath.IsAbs(clean) {
-			return nil, fmt.Errorf("плагин %q вне корней", ref)
-		}
-		raw, err := os.ReadFile(filepath.Join(clean, "plugin.yaml"))
-		if err != nil {
-			return nil, fmt.Errorf("плагин %q: %w", ref, err)
-		}
-		manifest, err := parseManifestBytes(raw)
-		if err != nil {
-			return nil, err
-		}
-		manifest.Dir = clean
-		return manifest, nil
+	if registry.IsLocalRef(ref) {
+		return m.loadLocal(ref)
 	}
 	// абсолютные пути и .. проверяются песочницей до загрузки
 	lastErr := fmt.Errorf("плагин %q не найден", ref)
@@ -453,20 +460,7 @@ func (s *Server) toolDescribePlugin(args map[string]interface{}) (string, bool, 
 	}
 	m, err := s.multi.LoadManifest(id)
 	if err != nil {
-		// может, это прямой путь к директории
-		if _, statErr := os.Stat(filepath.Join(id, "plugin.yaml")); statErr == nil {
-			if err2 := s.checkPluginRef(id); err2 != nil {
-				return "", false, rpcErr("E_PLUGIN_OUTSIDE_ROOT", err2.Error())
-			}
-			eng := core.NewEngine()
-			if m2, err3 := eng.LoadManifest(id); err3 == nil {
-				m = m2
-			} else {
-				return "", false, rpcErr("", err.Error())
-			}
-		} else {
-			return "", false, rpcErr("", err.Error())
-		}
+		return "", false, rpcErr("", err.Error())
 	}
 	// secrets — только имена (значения никогда не отдаём)
 	return toJSON(map[string]interface{}{
