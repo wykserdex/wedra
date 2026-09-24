@@ -10,12 +10,23 @@ import (
 	"strings"
 
 	"wedra/internal/api"
+	"wedra/internal/guidirs"
 )
 
 // RunGUI — wedra gui [--listen 127.0.0.1:8765] [--open]
-// v0.22: консоль GUI (раны, live-терминал, DAG, запуск --yes из браузера).
-// Запускать из корня репозитория (CWD: plugins/, examples/, var/runs/, web/static/).
+// Каталоги: --plugins, --pipelines, --runs-dir; значения относительны CWD.
+// По умолчанию: plugins/, examples/, var/runs/.
 func RunGUI(args []string) {
+	dirs, remaining, err := guidirs.Parse(args, guidirs.Default())
+	if err != nil {
+		fmt.Println("gui:", err)
+		os.Exit(2)
+	}
+	if err := dirs.Ensure(); err != nil {
+		fmt.Println("gui:", err)
+		os.Exit(1)
+	}
+	args = remaining
 	listen := "127.0.0.1:8765"
 	open := false
 	noSession := false
@@ -37,7 +48,7 @@ func RunGUI(args []string) {
 			noSession = true
 		}
 	}
-	srv := api.NewServer("plugins", "examples", "var/runs")
+	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	// v0.9: сессия человека — мутации (запуск, гейт, отмена) только с cookie
 	// из ссылки ?k=, напечатанной в ЭТОТ терминал. --no-session — старое
 	// поведение (любой локальный процесс может одобрить гейт).
