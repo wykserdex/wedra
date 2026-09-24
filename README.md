@@ -1,63 +1,64 @@
 ![WEDRA](banner.png)
 
-# WEDRA v0.8 — v1.0-трек: desktop-exe — двойной клик = окно с GUI (WebView2, без CGO)
+[English](README.en.md) | Русский
 
+# WEDRA v0.30.0-dev
 
-Локальный оркестратор цепочек с человеком в петле.
+Локальный оркестратор цепочек с человеком в петле. Продуктовая версия —
+`VERSION` (`0.30.0-dev`); версия протокола — `protocol/VERSION` (`0.2`).
+Это разные оси: bump продукта не требует изменения протокола и наоборот.
 
-> **Имя (v0.26):** продукт — **WEDRA** (как и репозиторий). Бинарник — `wedra`
-> (до v0.26 — `orchestrator`), модуль — `wedra`, ассеты релизов — `wedra_<os>_<arch>`.
-> В старых доках/инструкциях — старое имя; команды: `orchestrator …` → `wedra …`.
-> M1–M5 закрыты, M6 GUI в работе (срезы 1–3: консоль, браузерный гейт, редактор). Честная версия: **v0.9** (агентный трек: MCP + человеческий гейт, см. docs/mcp.md).
+> Канонические решения описаны в [versioning](docs/versioning.md) и
+> [architecture](docs/architecture.md); процесс изменений — в
+> [governance](GOVERNANCE.md) и [contributing](CONTRIBUTING.md). Исторические
+> `v9`/`v10` и старые внутренние имена не являются текущими версиями.
 
-**Проверено снаружи (M5, v9.1):** 4 внешних автора, 10 плагинов, 8+1 пайплайнов, 0 провалов, ядро 8.5–9/10. Провенанс: волны squash-нулись в первый коммит репо, source в registry.yaml — сам репо wedra (после переезда), поэтому из git это не читается — ограничение видимости, не сокрытие.
+## Каноническая структура
 
-> «каждый кусок можно независимо написать, протестировать и заменить» · «контракт честный»
-
-```
+```text
 wedra/
-├── VERSION              # 0.21 (читает бинарник, CWD в приоритете)
-├── registry.yaml        # реестр: 23 плагина + 12 пресетов, формат заморожен (commit-пины)
+├── VERSION                 # единственный источник product version
+├── CHANGELOG.md            # история продукта
+├── protocol/               # protocol/VERSION = 0.2 и v0.2/*
 ├── cmd/
-│   ├── wedra/           # точка входа (CLI + REST API)
-│   └── tool/            # compat-шим M5 (run/validate/plugin/runs)
-├── protocol/            # VERSION (0.2), CHANGELOG, v0.2/PROTOCOL.md
-├── schemas/             # pipeline.v0.2, manifest, request, response
+│   ├── wedra/              # основной CLI
+│   ├── wedragui/           # desktop launcher
+│   └── tool/               # compatibility CLI
 ├── internal/
-│   ├── pipeline/        # модель, парсер, валидатор, планер (DAG), when
-│   ├── execution/       # runner: foreach-фазы, step-foreach, parallel_group
-│   ├── plugin/          # process, transport, enforce, manifest
-│   ├── registry/        # реестр v0.1, install, pin-контракт (RefToDir)
-│   ├── journal/         # writer/reader + RunStore (filesystem, json)
-│   ├── gate/            # human_gate: service, terminal, typing
-│   ├── context/         # shared context, dot-пути
-│   ├── cli/             # pipeline|plugin|runs|version + install
-│   ├── api/             # REST API (M6, отложен)
-│   └── core/            # shim-фасад + интеграционные тесты (см. «Судьба core/»)
-├── plugins/             # official/ 5, community/ 18 (OSINT: maigret, holehe, crtsh, the_harvester)
-├── examples/            # 19 пайплайнов (демо v0.20: when/foreach/parallel; v0.3/v0.4: osint)
-├── docs/                # plugin-dev, quickstart, resume, architecture
-├── archive/             # устаревшие доки (M5, LANDING, POSTS)
-├── web/static/          # GUI scaffold (M6, отложен)
-└── var/runs/            # журналы + --resume
+│   ├── pipeline/           # модель, parser, validation, DAG
+│   ├── execution/          # runner и resume
+│   ├── plugin/             # manifest и subprocess
+│   ├── registry/           # registry/install/pinning
+│   ├── journal/            # journal и stores
+│   ├── gate/               # human gate
+│   ├── runctx/             # shared context
+│   ├── cli/                # команды WEDRA
+│   ├── api/                # HTTP/GUI adapter
+│   ├── mcp/                # MCP adapter
+│   └── core/               # transitional compatibility layer
+├── plugins/official/       # поддерживаемые core plugins
+├── plugins/community/      # community plugins
+├── examples/               # канонические примеры и presets
+├── conformance/fixtures/   # публичный conformance corpus
+├── docs/                   # архитектура и guides
+└── var/runs/               # runtime output; не коммитится
 ```
 
-**Судьба `core/` (решение v0.18):** shim остаётся — это стабильный внутренний
-фасад над `execution`/`pipeline`/`journal` (алиасы типов + тонкие обёртки),
-API-поверхность для `cmd/*` и будущего M6, там живут интеграционные тесты.
-Удалять его = сломать compat-шим `tool` без выгоды; чистка — не раньше M6.
+`internal/core` и `cmd/tool` — compatibility surfaces, а не новые
+канонические слои. Структура заморожена до отдельного RFC/ADR; новые
+каталоги и массовые переименования требуют обоснования и миграционного плана.
 
 ## Быстрый старт (CLI — мясо)
 
 ```bash
 go build -o wedra ./cmd/wedra
-./wedra version   # v0.26
-go test ./...            # 167 тестов
+./wedra version   # v0.30.0-dev
+go test ./...            # unit, integration и contract tests
 
 # плагины
-./wedra plugin validate plugins/csv_loader
-./wedra plugin test plugins/csv_loader   # 7 PASS
-./wedra plugin test plugins/email_triage # 10 PASS
+./wedra plugin validate plugins/community/csv_loader
+./wedra plugin test plugins/community/csv_loader   # 7 PASS
+./wedra plugin test plugins/community/email_triage # 10 PASS
 
 # пайплайны
 ./wedra pipeline validate examples/email_check.yaml
@@ -124,6 +125,12 @@ pipeline:
 `validate` предупредит, `run` упадёт до любого эффекта, если ключ не
 экспортирован. Значения в YAML не живут.
 
+## Исторические release notes
+
+Ниже — архивные заметки о старых срезах и миграциях. Они не определяют
+текущую версию; актуальные правила находятся в [docs/versioning.md](docs/versioning.md),
+а история — в [CHANGELOG.md](CHANGELOG.md).
+
 ## Что нового в v0.8 (desktop-exe: двойной клик = окно с GUI)
 
 v0.7 дал автономный `wedra.exe` (GUI встроен, но запуск — из терминала +
@@ -152,7 +159,6 @@ desktop-приложение:
 - CI: +2 шага (cross-build wedragui 4 цели + PE-чек; live-прогон в чистом
   каталоге: GUI + редактор + лог + чистый exit).
 
-## 
 
 До v0.7 GUI жил в `web/static/` на диске (относительно CWD): бинарник из
 GitHub Release без репо показывал «GUI postponed in v0.12». Теперь:
@@ -174,7 +180,6 @@ GitHub Release без репо показывал «GUI postponed in v0.12». Т
   `/editor/app.js`, `/app.js` — 200 + маркеры контента, чужое — 404.
   Тестов 182.
 
-## 
 
 Редактор управляет **сетевой политикой** пайплайна: `network: deny` /
 отсутствие (allow). Из «ручного YAML» остался последний ручное поле —
@@ -200,7 +205,6 @@ type-объявления в `input`.
   + allow-omitempty; конфликт «плагин с сетью + deny» → ошибка, без deny
   → warning с host:port.
 
-## 
 
 Редактор управляет **политикой секретов** пайплайна: `secrets: [ENV_KEY]` —
 env-ключи, которые ядро передаст плагинам. Из «ручного YAML» список сократился:
@@ -224,7 +228,6 @@ env-ключи, которые ядро передаст плагинам. Из 
 - Тесты +3 (parse llm_same_provider: secrets в doc; round-trip на фикстуре
   с permissions.secrets; недообъявленный ключ → warning, ok=true).
 
-## 
 
 Вторая волна OSINT-плагинов — теперь и доменные цепочки штатные.
 
@@ -255,7 +258,6 @@ env-ключи, которые ядро передаст плагинам. Из 
 - Контракт-тесты +14 (crtsh: 5 — mock HTTP-ответ; the_harvester: 9 —
   mock CLI) — 124 кейса по 23 плагинам, CI без сети.
 
-## 
 
 Первые «внешние» плагины-обёртки: цепочки вида «нашёл ник → проверил email
 → человек решил» становятся штатным сценарием.
@@ -289,7 +291,6 @@ env-ключи, которые ядро передаст плагинам. Из 
 - Контракт-тесты +16 (mock-CLI: парсинг репортов, доменные/платформенные
   ошибки, wall timeout, отсутствующий бинарник по пути и по имени из PATH).
 
-## 
 
 Третий срез «мускулов v1.0»: редактор управляет **политикой повторов**.
 llm_* примеры (on_error: retry + retry-блок) теперь редакторские.
@@ -307,7 +308,6 @@ llm_* примеры (on_error: retry + retry-блок) теперь редак�
 - Тесты +3 (parse llm_same_provider: retry в doc; round-trip на фикстурном
   плагине; attempts=0 → ok:false).
 
-## 
 
 Второй срез «мускулов v1.0»: редактор управляет **всем управляющим потоком**,
 кроме retry. Пайплайны foreach_step_demo / parallel_demo / csv_foreach*
@@ -677,14 +677,21 @@ expect `bad_input` → `platform:bad_input` (exit≥2 сохраняет код 
 
 ## Тесты
 
-`go test ./...` — 182 теста PASS, `csv_foreach` зелёный (ok=2), resume — все элементы уже пройдены, install- и trust-сценарии покрыты e2e. Контракт-тесты плагинов (`tool plugin test`) — 124 кейса по всем 23 плагинам (CI: каждый релиз).
+`go test ./...` — основной контракт и интеграционные сценарии; conformance и
+registry проверяются отдельно в CI.
 
-## Версионирование
+## Версии и совместимость
 
-- v0.9 (ex v9), v0.9.1 (ex v9.1), v0.10 (ex v10), v0.11 (GUI scaffold), v0.12 (CLI focus), v0.13 (честный перенос), v0.14 (JsonStore — тогда ещё назывался SQLiteStore, в v0.15 переименован честно), v0.15 (честный релиз), v0.16 (install-путь), v0.17 (trust), v0.18 (волна 2: community-плагины), v0.18.1 (долги), v0.19 (волна 2, батч 2), v0.20 (управляющий поток), v0.21 (хирургия структуры), v0.22 (GUI-консоль), v0.23 (контракт рантайма), v0.24 (браузерный гейт), v0.25 (редактор пайплайнов), v0.25a (баннер, первый буквенный), v0.26 (имя WEDRA), v0.26a (format_version в редакторе), v0.27 (when в редакторе), v0.28 (foreach/parallel в редакторе), v0.28a (security-фиксы по аудиту), v0.29 (retry в редакторе), v0.3 (OSINT-плагины maigret + holehe), v0.3a (maigret/holehe в реестре, SHA-пины), v0.4 (OSINT-аудит домена: crtsh + the_harvester), v0.4a (crtsh/the_harvester в реестре, SHA-пины), v0.5 (secrets в редакторе), v0.6 (network в редакторе), v0.7 (GUI в бинарнике — exe из Release = полный продукт), v0.8 (desktop-exe: двойной клик = окно с GUI), v0.8a (фикс: перетаскивание в редакторе на mouse-событиях — палитра→холст + клик-добавление), v0.9 (агентный трек: wedra mcp, approval/gates, session-гейт GUI, cancel, validate --json, plugin test --conformance)
-- Дальше: when/foreach/parallel в UI редактора → v1.0 — GUI full + маркетплейс (имя WEDRA — решено, v0.26)
-- **Схема букв (с v0.23, договорённости):** цифра = функциональный срез;
-  буква = фикс-релиз внутри среза без новых фич (v0.24a, v0.24b…).
-  Отпущенный tag больше не сдвигается. После `z` — срез был объявлен рано,
-  поднимаем цифру. (В v0.23 я два раза force-moved тег под race- и
-  кросс-сборочные фиксы — с v0.24 так не будет: фикс = v0.23a-стиль.)
+- **Product/application:** единственный источник — `VERSION`; текущая ветка
+  development: `0.30.0-dev`. Стабильный релиз — SemVer `X.Y.Z` и tag `vX.Y.Z`.
+- **Protocol:** `protocol/VERSION` (`0.2`) и `format_version` в YAML — отдельная
+  ось; bump протокола не меняет product version.
+- **Plugin:** `version` в `plugin.yaml` — semver компонента, `platform_api` —
+  совместимость с протоколом.
+- **Registry:** `registry.yaml` version `0.1`; `version` записи — tag источника,
+  а `commit` — immutable pin. Это не версия продукта.
+- **MCP:** wire protocol `2024-11-05` — отдельный внешний протокол.
+
+Исторические `v9`/`v10`, `v0.29` и буквенные suffixes не используются для
+выбора следующего product release. Полная история — в
+[CHANGELOG.md](CHANGELOG.md), правила — в [docs/versioning.md](docs/versioning.md).

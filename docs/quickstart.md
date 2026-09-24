@@ -1,6 +1,6 @@
 # START HERE — тест за 5 минут
 
-Это ранняя «стыдная версия» оркестратора плагинов: CLI, локально, цепочки из YAML + человек в петле. Тестировать идеально — не хваля: нас интересует, **где ты споткнулся**.
+Это ранняя версия оркестратора WEDRA: CLI, локально, цепочки из YAML + человек в петле. Тестировать идеально — не хваля: нас интересует, **где ты споткнулся**.
 
 ## Требования
 
@@ -10,40 +10,40 @@
 ## Шаг 0 — бинарь под твою ОС
 
 ```
-bin/windows-amd64/tool.exe      ← Windows (SmartScreen может ругнуться на неподписанный бинарь — «Подробнее → Выполнить»)
-bin/linux-amd64/tool            ← Linux
-bin/darwin-arm64/tool           ← macOS Apple Silicon (при Gatekeeper: xattr -d com.apple.quarantine ./tool)
-bin/darwin-amd64/tool           ← macOS Intel
+wedra-windows-amd64.exe      ← Windows (SmartScreen может ругнуться на неподписанный бинарь — «Подробнее → Выполнить»)
+wedra-linux-amd64            ← Linux
+wedra-darwin-arm64           ← macOS Apple Silicon (при Gatekeeper: xattr -d com.apple.quarantine ./wedra-darwin-arm64)
+wedra-darwin-amd64           ← macOS Intel
 ```
 
-Дальше пишем `tool` — подставь свой путь. Работай из корня распакованной папки (пути в пайплайнах относительны).
+Дальше пишем `wedra` — подставь свой путь. Работай из корня распакованной папки (пути в пайплайнах относительны).
 
 ## 5-минутный сценарий
 
 **1. Статическая проверка цепочки (покажет, что контракты ловятся до запуска):**
 ```bash
-tool validate examples/email_check.yaml
+wedra validate examples/email_check.yaml
 ```
 
 **2. Пак A — проверка email-списка, человек в петле:**
 ```bash
-tool run examples/email_check.yaml
+wedra run examples/email_check.yaml
 ```
 Прогонит 3 email (третий — заведомо битый, смотри журнал событий). На паузе `human_gate`: Enter (без правки) → `a` (принять) или `r` (отклонить).
 
 **3. Пак B — текстовый LLM-конвейер без ключей (mock-режим):**
 ```bash
-# Windows (cmd):    set LLM_MOCK=1 && tool.exe run pipelines\llm_text_chain.yaml
-# PowerShell:       $env:LLM_MOCK=1; .\tool.exe run pipelines\llm_text_chain.yaml
-# Linux/macOS:      LLM_MOCK=1 ./tool run examples/llm_text_chain.yaml
+# Windows (cmd):    set LLM_MOCK=1 && wedra.exe run examples\llm_text_chain.yaml
+# PowerShell:       $env:LLM_MOCK=1; .\wedra.exe run examples\llm_text_chain.yaml
+# Linux/macOS:      LLM_MOCK=1 ./wedra run examples/llm_text_chain.yaml
 ```
 На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку. С ключами (`GEMINI_API_KEY`, `LLM_OAI_API_KEY`) то же самое по-настоящему.
 
 **4. Собери свой плагин за минуту:**
 ```bash
-tool plugin create plugins/proba
+wedra plugin create plugins/proba
 # отредактируй plugins/proba/main.py (там урок протокола в комментариях)
-tool plugin test plugins/proba      # контракт-тесты — должны быть зелёными из коробки
+wedra plugin test plugins/proba      # контракт-тесты — должны быть зелёными из коробки
 ```
 
 **5. Загляни в журнал:** `runs/<последняя папка>/journal.jsonl` — все события рана.
@@ -53,7 +53,7 @@ tool plugin test plugins/proba      # контракт-тесты — должн
 1. Дошёл ли до рабочей цепочки **без моих подсказок**? Если нет — на каком шаге завяз?
 2. Сколько минут от распаковки до первого зелёного прогона? (замерь честно)
 3. Что было непонятно в терминах: «плагин», «цепочка», «human_gate», «контракт»?
-4. `tool plugin create` → свой плагин: получилось? сколько минут?
+4. `wedra plugin create` → свой плагин: получилось? сколько минут?
 5. Один абзац: стал бы ты таким пользоваться и для какой своей задачи?
 
 Любой traceback, неловкая ошибка, «а чего оно молчит» — присылай скрином/текстом, это золото.

@@ -21,34 +21,52 @@
 ## Дерево
 
 ```
-cmd/wedra        # точка входа (CLI + REST API)
-cmd/tool                # compat-шим (M5): run/validate/plugin/runs
+cmd/wedra/            # основной CLI
+cmd/wedragui/         # desktop launcher
+cmd/tool/             # compatibility CLI
 internal/
-  pipeline/             # модель, парсер, валидатор, планер (DAG), when-условия
-  execution/            # раннер: фазы foreach, step-foreach, parallel_group
-  plugin/               # процесс, transport, enforce, manifest, registry-разрешение
-  registry/             # реестр v0.1, install, pin-контракт (RefToDir)
-  gate/                 # human_gate: service + terminal + typing
-  journal/              # writer/reader + RunStore (filesystem и JSON-store)
-  context/              # shared context, dot-пути
-  cli/                  # команды pipeline|plugin|runs|gui|version, install
-  api/                  # REST API (M6, отложен)
-  core/                 # shim-фасад над execution/pipeline/journal/gate:
-                        # API-поверхность для cmd/* и будущих GUI, там живут
-                        # интеграционные тесты. Судьба записана в README:
-                        # чистка не раньше M6.
-  common/               # мелкие помощники (truncate и пр.)
-plugins/
-  official/             # 5 (созданы ядром: llm-провайдеры, mx, disposable)
-  community/            # 14 (community-авторы, волна 2)
-registry.yaml           # реестр (19 плагинов + 12 пресетов), в корне
-examples/               # 16 пайплайнов-примеров (демо v0.20: when/foreach/parallel)
-protocol/               # VERSION (0.2), CHANGELOG, v0.2/PROTOCOL.md
-schemas/                # pipeline.v0.2, manifest, request, response
-docs/                   # plugin-dev (туториал), quickstart, resume, architecture
-archive/                # устаревшие доки (M5/LANDING/POSTS)
-var/runs/               # журналы прогонов
+  pipeline/           # model, parser, validation, DAG, when
+  execution/          # runner, resume, foreach and parallel phases
+  plugin/             # manifest, subprocess, transport, contract
+  registry/           # registry format, install, commit pins
+  journal/            # append-only journal and stores
+  gate/               # human gate
+  runctx/             # shared context and dot-paths
+  cli/                # WEDRA command adapter
+  api/                # HTTP/GUI adapter
+  mcp/                # MCP adapter
+  core/               # transitional compatibility layer
+  common/             # small shared helpers
+plugins/official/     # maintained core plugins
+plugins/community/    # community plugins
+examples/             # canonical examples and registry presets
+conformance/fixtures/ # public conformance corpus
+protocol/             # VERSION (0.2), changelog, v0.2/
+schemas/              # pipeline and plugin schemas
+docs/                 # architecture, versioning, guides
+archive/              # historical documents, not current policy
+var/runs/             # runtime output, ignored by git
 ```
+
+## Layout freeze and compatibility
+
+The directory layout above is the canonical repository layout. The
+`internal/core` package and `cmd/tool` are compatibility surfaces: new
+implementation logic belongs in the owning package, while existing imports
+remain until a separately reviewed migration removes them. The desktop
+launcher may use its documented standalone layout next to the executable; it
+does not redefine the repository layout.
+
+Until a public RFC/ADR is accepted, do not add parallel top-level package
+families, rename canonical directories, or change the meaning of
+`examples/`, `plugins/official/`, `plugins/community/`, `protocol/`, or
+`var/runs/`. Compatibility changes require a migration note and a regression
+test.
+
+The conformance fixture source is `conformance/fixtures/v0.2/`; the internal
+copy exists only for development tests and must not become a second public
+contract.
+
 
 ## Исполнение рана
 
@@ -79,8 +97,9 @@ validate (статика) → run:
 
 ## Версии
 
-- `VERSION` (корень) — версия приложения, её читает бинарник (CWD в приоритете
-  над ldflags).
-- `protocol/VERSION` — версия протокола (сейчас 0.2).
-- `format_version` в pipeline.yaml и `platform_api` в plugin.yaml — стороны
-  контракта.
+- `VERSION` (корень) — единственная версия приложения; в checkout это
+  `0.30.0-dev`, а release tag обязан совпадать со стабильным SemVer.
+- `protocol/VERSION` — отдельная версия протокола (`0.2`).
+- `format_version` в `pipeline.yaml` и `platform_api` в `plugin.yaml` — поля
+  совместимости, не product version.
+- Полные правила и исторические aliases описаны в `docs/versioning.md`.
