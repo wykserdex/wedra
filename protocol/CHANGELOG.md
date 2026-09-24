@@ -2,6 +2,9 @@
 
 ## v0.2 (текущая)
 
+References to application versions below are historical release notes; the
+current protocol source of truth is `protocol/VERSION`.
+
 Расширение v0.1, обратно совместимо (изменения записаны по мере выхода, с
 версией приложения, где появились):
 
