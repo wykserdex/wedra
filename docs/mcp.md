@@ -36,7 +36,7 @@ wedra mcp --plugins /abs/path/plugins --workdir /abs/path/project
 | `get_run` | `run_id`, `since?` | статус, stats, новые события, выходы (~20KB), `pending_gate{step,form,actions}` без токена |
 | `cancel_run` | `run_id` | `{status:"cancelling"}`; затем `get_run` → `cancelled` (`E_RUN_DONE`, если ран уже завершён) |
 
-## Гейты: как человек одобряет шаг агента (v0.9)
+## Гейты: как человек одобряет шаг агента
 
 `wedra mcp` поднимает **консоль гейтов** — HTTP на `127.0.0.1:<случайный порт>`
 (`--gui-listen=host:port`) с сессией человека (ключ 128 бит, живёт только

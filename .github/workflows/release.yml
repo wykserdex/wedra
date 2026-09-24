@@ -1,5 +1,5 @@
-# v0.17: каждый тег = GitHub Release с бинарниками (wedra + tool, 3 ОС × 2 арх).
-# Это то, что получают авторы во «волне»: скачать и запустить без Go.
+# Каждый стабильный tag vX.Y.Z = GitHub Release с бинарниками и conformance asset.
+# Это то, что получают пользователи: скачать и запустить без Go.
 name: release
 on:
   push:
@@ -16,13 +16,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+      - name: release version check
+        run: |
+          set -eu
+          file_version=$(tr -d '\r\n' < VERSION)
+          test "${GITHUB_REF_NAME#v}" = "$file_version"
       - name: conformance
         run: go test ./internal/core -run TestConformance -count=1
       - name: build all platforms
         run: |
           mkdir -p dist
           VER="${GITHUB_REF_NAME#v}"
-          LDFLAGS="-s -w -X wedra/internal/api.Version=${VER}"
+          LDFLAGS="-s -w -X wedra/internal/api.Version=${VER} -X wedra/internal/mcp.Version=${VER}"
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
               ext=""

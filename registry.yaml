@@ -18,8 +18,9 @@
 #                 переписали (захват репо) — fetch не найдёт коммит → fail-closed
 #   description — человекочитаемое
 #
-# Дисциплина: при каждом релизе wedra — обновлять version И commit во всех
-# записях (commit = SHA того релиза).
+# Дисциплина: version/commit в записях — pin источника, а не версия продукта.
+# При релизе продукта обновляйте их только вместе с новым проверенным содержимым;
+# product version и protocol version живут в VERSION и protocol/VERSION.
 
 version: "0.1"
 

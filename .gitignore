@@ -1,11 +1,15 @@
 /tool
 /bin/
 /runs/
-var/runs/
+/var/runs/
+/pipelines/
+/wedra
+/wedragui
+/orchestrator
 __pycache__/
 *.pyc
 **/testdata/**/_counter
-/orchestrator
+**/.wedra
 /tmp/
 *.zip
 *.exe

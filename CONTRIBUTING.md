@@ -1,9 +1,38 @@
-# Как попасть в реестр (v0.17)
+# Contributing to WEDRA
 
-Реестр — `registry.yaml` в корне репо, формат v0.1 заморожен (как протокол).
-Единственный путь в реестр — зелёный CI: `wedra registry validate`.
+WEDRA is a young project with a public, compatibility-conscious contribution
+process. Read [GOVERNANCE.md](GOVERNANCE.md) before changing protocol,
+registry policy, CLI compatibility, or repository structure.
 
-## Чек-лист плагина
+## Development workflow
+
+1. Use Go 1.22 or newer and Python 3 for plugin fixtures.
+2. Build the primary CLI with `go build -o wedra ./cmd/wedra`.
+3. Run `go test ./... -count=1` and `go vet ./...`.
+4. Keep generated run data under ignored `var/runs/`; never commit journals,
+   `.wedra` locks, binaries, or local registry state.
+5. Use `wedra` for new documentation and CI checks. `tool` is a compatibility
+   command and should not define new behavior.
+
+## Product and protocol versions
+
+The product version is the SemVer value in the root `VERSION` file. The
+protocol version is independent and lives in `protocol/VERSION`; the complete
+rules are in [docs/versioning.md](docs/versioning.md). Do not reuse a released
+tag or infer a new product version from an old `v9`/`v10` alias.
+
+A protocol, registry, or layout change requires a public proposal, a migration
+note, and compatibility tests. The canonical repository layout is documented
+in [docs/architecture.md](docs/architecture.md) and is frozen against parallel
+renames until an accepted ADR.
+
+## Registry admission
+
+The registry is `registry.yaml` in the repository root, with schema version
+`0.1`. A plugin or preset enters the supported registry only after green CI,
+including `wedra registry validate`.
+
+### Plugin checklist
 
 1. **Манифест** `plugin.yaml`:
    - `id` — обязан совпасть с именем записи в реестре (CI проверяет);
@@ -29,7 +58,7 @@
 5. CI: `registry validate` прогоняет манифест, id, **все** конформные тесты.
    Красный = в реестре не оказаться.
 
-## Чек-лист пресета
+### Preset checklist
 
 1. `examples/<name>.yaml`:
    - `format_version`, `steps`;
@@ -38,16 +67,17 @@
 2. `wedra pipeline validate examples/<name>.yaml` — зелёный.
 3. **PR**: файл + запись пресета в `registry.yaml`.
 
-## Чек-лист ревьюера (человек)
+### Reviewer checklist
 
 - `permissions` честные: код делает ровно то, что заявлено в манифесте (и не больше).
 - В коде/тестах/примерах — ни одного значения секрета (только имена).
 - Ошибки: доменные vs платформенные, `retryable` по смыслу.
 - `description` — что делает и что нужно, без маркетинга.
 
-## Версии
+## Version and security links
 
-- Плагин в реестре пишится на **тег** (`version: v0.17`) — никогда на `main`.
-- При каждом релизе wedra `version` во всех записях обновляется до нового тега.
-- Пин `name@version` в пайплайне сверяется с lock-файлом `.wedra` установленного
-  плагина — конфликт = явная ошибка с командой переустановки.
+- Product version: root `VERSION` and [docs/versioning.md](docs/versioning.md).
+- Protocol version: `protocol/VERSION` and `protocol/CHANGELOG.md`.
+- Registry source pins: `registry.yaml` (`version` + `commit`), never `main`.
+- Security reports: [SECURITY.md](SECURITY.md).
+- Governance and breaking changes: [GOVERNANCE.md](GOVERNANCE.md).

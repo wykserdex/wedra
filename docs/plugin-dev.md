@@ -6,13 +6,13 @@
 
 ## 0. Бинарник (1 мин)
 
-Release-архив → `bin/<ваша ОС>/tool` → `chmod +x`. Проверка: `./tool --help`.
-Все команды ниже — `tool` (один бинарник) или `tool.exe` под Windows.
+Release-архив → `wedra-<os>-<arch>[.exe]` → `chmod +x`. Проверка: `./wedra --help`.
+Все команды ниже — `wedra` (один бинарник) или `wedra.exe` под Windows.
 
 ## 1. Скелет (2 мин)
 
 ```bash
-tool plugin create plugins/мой_плагин --author ТЫ --description "Что делает" --example array
+wedra plugin create plugins/мой_плагин --author ТЫ --description "Что делает" --example array
 #   --author/--description: чтобы не было TODO в манифесте
 #   --example string (по умолчанию) | array — форма входа
 ```
@@ -20,8 +20,8 @@ tool plugin create plugins/мой_плагин --author ТЫ --description "Чт
 Гарантия генератора: скелет сразу валиден и зелёный:
 
 ```bash
-tool plugin validate plugins/мой_плагин   # OK
-tool plugin test plugins/мой_плагин       # все тесты passed
+wedra plugin validate plugins/мой_плагин   # OK
+wedra plugin test plugins/мой_плагин       # все тесты passed
 ```
 
 ## 2. Контракт за 90 секунд (это весь «SDK»)
@@ -36,7 +36,7 @@ tool plugin test plugins/мой_плагин       # все тесты passed
 - Шпаргалка типов лежит прямо в шапке сгенерированного `plugin.yaml`:
   `type: string|number|boolean|array|object`, `format` (только для строк):
   `text|email|url|ip|file_ref`.
-- **`permissions` — честно (v0.17, declare-now)**: `network: [{host, port}]` —
+- **`permissions` — честно (declare-now)**: `network: [{host, port}]` —
   каждый сетевой вызов (пусто = сети не будет; пайплайн с `network: deny`
   запрещает такие плагины запуском), `secrets: [ENV_KEY]` — каждый env-ключ,
   который читаешь. Валидатор сверяет с `secrets:` пайплайна, заявленная сеть —
@@ -58,7 +58,7 @@ tool plugin test plugins/мой_плагин       # все тесты passed
 ## 4. Контракт-тесты — твой цикл разработки
 
 ```bash
-tool plugin test plugins/мой_плагин   # гоняет тот же subprocess-протокол, что и ядро
+wedra plugin test plugins/мой_плагин   # гоняет тот же subprocess-протокол, что и ядро
 ```
 
 В `plugin.test.yaml`: кейсы `input → expect`. Матчеры: литерал (глубокое равенство),
@@ -67,7 +67,7 @@ tool plugin test plugins/мой_плагин   # гоняет тот же subpro
 stdin для тестов битого JSON. Прогон включает enforce: вернул поле не того типа —
 тест красный даже если Python «всё напечатал».
 
-## 5. В цепочку (пайплайн, v0.2)
+## 5. В цепочку (pipeline, protocol 0.2)
 
 ```yaml
 format_version: "0.2"
@@ -83,8 +83,8 @@ pipeline:
 ```
 
 ```bash
-tool validate examples/my_first.yaml   # ловит типы/форматы/разводку ДО запуска
-tool run examples/my_first.yaml        # --yes = авто-accept гейтов (CI)
+wedra validate examples/my_first.yaml   # ловит типы/форматы/разводку ДО запуска
+wedra run examples/my_first.yaml        # --yes = авто-accept гейтов (CI)
 ```
 
 Один плагин дважды в цепочке — нормально: второй вызов с другим `bind:`
@@ -100,7 +100,7 @@ tool run examples/my_first.yaml        # --yes = авто-accept гейтов (C
 | «объявил string, вернул int» | enforce скажет это в plugin test сразу |
 | плагин читает выход skip-able шага | вход сделай `optional: true`, иначе validate красный |
 
-## 7. Сдать в реестр (v0.17)
+## 7. Сдать в реестр
 
 Путь плагина в публичный реестр (`registry.yaml` в корне репо):
 

@@ -20,7 +20,7 @@ import (
 )
 
 // Version — версия сервера в initialize (cli проставляет из VERSION).
-var Version = "0.9"
+var Version = "dev"
 
 const defaultProtocolVersion = "2024-11-05"
 

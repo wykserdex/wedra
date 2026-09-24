@@ -26,4 +26,4 @@
 
 Запуск: `go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1`
 или батарея CLI: `wedra plugin test --conformance --json`
-или одна фикстура: `tool plugin test conformance/fixtures/v0.2/<name>`
+или одна фикстура: `wedra plugin test conformance/fixtures/v0.2/<name>`
