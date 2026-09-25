@@ -2,18 +2,18 @@
 
 [English](README.en.md) | Русский
 
-# WEDRA v0.30.0-dev
+# WEDRA v0.31a
 
 Локальный оркестратор цепочек с человеком в петле. WEDRA принимает YAML-пайплайны, запускает плагины отдельными процессами, проверяет их контракт, пишет журнал и позволяет безопасно продолжить прерванный run.
 
 Это инструмент для доверенного локального пользователя и заранее проверенных плагинов. Для недоверенных community-плагинов и публичного HTTP-сервиса WEDRA не является OS-песочницей.
 
-- Product version: [`VERSION`](VERSION) — `0.30.0-dev`
+- Product version: [`VERSION`](VERSION) — `0.31a`
 - Protocol version: [`protocol/VERSION`](protocol/VERSION) — `0.2`
 - Primary CLI: `wedra`
 - Legacy compatibility CLI: `tool`
 
-Product version и protocol version независимы. Исторические `v9`, `v10` и буквенные suffixes не определяют текущую версию; правила — в [docs/versioning.md](docs/versioning.md).
+Product version и protocol version независимы. Текущий релиз использует одобренный letter-suffix `v0.31a`; правила — в [docs/versioning.md](docs/versioning.md).
 
 ## Возможности
 
@@ -175,7 +175,7 @@ MCP ограничивает plugin refs и `file_ref` рабочей дирек
 - `wedragui-windows-{amd64,arm64}.exe`;
 - conformance package и `SHA256SUMS`.
 
-Тег стабильного релиза `vX.Y.Z` должен совпадать с `VERSION`. Перед публикацией выполняются tests, vet, `govulncheck`, registry validation, conformance и cross-build checks.
+Тег релиза `v0.31a` (одобренный letter-suffix) должен совпадать с `VERSION`. Перед публикацией выполняются tests, vet, `govulncheck`, registry validation, conformance и cross-build checks.
 
 ## Структура репозитория
 

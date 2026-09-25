@@ -1,5 +1,13 @@
 # Changelog — WEDRA
 
+## 0.31a — security and release baseline
+
+- Консолидированы hardening-изменения из веток `security/stage-1`…`security/stage-7b` в `main`.
+- Единый canonical validator и pre-run проверки для CLI, API, MCP, install и `execution.Run`.
+- Усилены manifest/schema validation, registry SHA-pins, install atomicity, plugin environment, MCP boundaries и resource limits.
+- Добавлены Windows process-tree termination, journal/resume hardening, CSP/security headers, CI Windows job, `govulncheck` и release checksums.
+- README приведён к текущему CLI, security model и release workflow.
+
 ## 0.30.0-dev — maintenance baseline
 
 - Единая схема версий: продукт живёт в `VERSION` и следует SemVer; протокол —

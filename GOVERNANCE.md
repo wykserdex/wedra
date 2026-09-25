@@ -13,7 +13,8 @@ The repository owner currently holds merge and release authority.
 - A proposal should state compatibility impact, migration steps, tests, and the
   version axis it changes.
 - Released tags are immutable. A correction after publication uses a new
-  SemVer version; it never rewrites or reuses an existing tag.
+  release version (standard SemVer or an explicitly approved letter-suffix);
+  it never rewrites or reuses an existing tag.
 
 ## Releases
 

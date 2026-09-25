@@ -1,4 +1,4 @@
-# Каждый стабильный tag vX.Y.Z = GitHub Release с бинарниками и conformance asset.
+# Каждый одобренный release tag = GitHub Release с бинарниками и conformance asset.
 # Это то, что получают пользователи: скачать и запустить без Go.
 name: release
 on:

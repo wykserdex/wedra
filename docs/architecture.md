@@ -97,8 +97,8 @@ validate (статика) → run:
 
 ## Версии
 
-- `VERSION` (корень) — единственная версия приложения; в checkout это
-  `0.30.0-dev`, а release tag обязан совпадать со стабильным SemVer.
+- `VERSION` (корень) — единственная версия приложения; текущий release —
+  `0.31a`, а release tag обязан точно совпадать с `VERSION`.
 - `protocol/VERSION` — отдельная версия протокола (`0.2`).
 - `format_version` в `pipeline.yaml` и `platform_api` в `plugin.yaml` — поля
   совместимости, не product version.
