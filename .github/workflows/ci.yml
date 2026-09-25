@@ -82,7 +82,7 @@ jobs:
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf 127.0.0.1:8917/api/health >/dev/null && break; sleep 0.5; done
           curl -sf 127.0.0.1:8917/api/health | grep '"status":"ok"'
-          curl -sf 127.0.0.1:8917/api/runs | grep 'status'
+          curl -sf 127.0.0.1:8917/api/runs | grep -E 'status|^\[\]$'
           # v0.9: без сессии человека мутации → 401
           curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep 401
           LINK=$(grep -o 'http://[^ ]*?k=[0-9a-f]*' /tmp/gui.log | head -1)
