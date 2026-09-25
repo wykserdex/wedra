@@ -16,7 +16,7 @@ registry policy, CLI compatibility, or repository structure.
 
 ## Product and protocol versions
 
-The product version is the SemVer value in the root `VERSION` file. The
+The product version is the release value in the root `VERSION` file. The
 protocol version is independent and lives in `protocol/VERSION`; the complete
 rules are in [docs/versioning.md](docs/versioning.md). Do not reuse a released
 tag or infer a new product version from an old `v9`/`v10` alias.
