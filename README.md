@@ -175,7 +175,8 @@ MCP ограничивает plugin refs и `file_ref` рабочей дирек
 - `wedra-{linux,darwin,windows}-{amd64,arm64}`;
 - legacy `tool-{linux,darwin,windows}-{amd64,arm64}`;
 - `wedragui-windows-{amd64,arm64}.exe`;
-- conformance package и `SHA256SUMS`.
+- conformance package, `SHA256SUMS` и SBOM (`sbom.spdx.json`);
+- GitHub build provenance attestation для всех артефактов.
 
 Тег релиза `v0.31a` (одобренный letter-suffix) должен совпадать с `VERSION`. Перед публикацией выполняются tests, vet, `govulncheck`, registry validation, conformance и cross-build checks.
 
