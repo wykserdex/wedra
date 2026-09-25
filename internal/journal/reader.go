@@ -2,12 +2,15 @@ package journal
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// Reader — чтение journal.jsonl для отладки и будущего --resume
+const maxJournalEventSize = 16 << 20
+
 type Reader struct {
 	Dir string
 }
@@ -24,14 +27,24 @@ func (r *Reader) Events() ([]map[string]interface{}, error) {
 	defer f.Close()
 	var events []map[string]interface{}
 	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), maxJournalEventSize)
+	line := 0
 	for sc.Scan() {
-		var ev map[string]interface{}
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+		line++
+		raw := sc.Bytes()
+		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
+		}
+		var ev map[string]interface{}
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return nil, fmt.Errorf("journal: строка %d: %w", line, err)
 		}
 		events = append(events, ev)
 	}
-	return events, sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("journal: чтение: %w", err)
+	}
+	return events, nil
 }
 
 func (r *Reader) ContextSnapshot() (map[string]interface{}, error) {
