@@ -23,6 +23,10 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$file_version"
       - name: dependency integrity
         run: go mod verify
+      - name: vulnerability scan
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          "$RUNNER_TEMP/bin/govulncheck" ./...
       - name: static checks
         run: |
           go vet ./...
