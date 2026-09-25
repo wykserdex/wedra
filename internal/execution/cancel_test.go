@@ -179,6 +179,21 @@ func TestRunRejectsReservedBuiltin(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidNetworkPolicy(t *testing.T) {
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:    "network",
+			Network: "denny",
+			Input:   map[string]interface{}{},
+		},
+	}
+	_, err := Run(pf, permissiveEngine{}, RunOptions{Quiet: true, RunsDir: t.TempDir()})
+	if err == nil || !contains(err.Error(), "network") {
+		t.Fatalf("expected invalid network policy error, got %v", err)
+	}
+}
+
 func TestCloneCtxRejectsNaN(t *testing.T) {
 	ctx := &runctx.Ctx{Data: map[string]interface{}{"value": math.NaN()}}
 	if _, err := cloneCtx(ctx); err == nil {

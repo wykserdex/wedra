@@ -108,6 +108,9 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 	if p.Gates != "" && p.Gates != "human_only" && p.Gates != "any" {
 		v.err(E_GATES_VALUE, "", "", "pipeline.gates", "допускаются: human_only, any", &Fix{Op: "set", Target: "pipeline.gates", Candidates: []string{"human_only", "any"}}, "pipeline gates=%q, ожидается human_only|any", p.Gates)
 	}
+	if p.Network != "" && p.Network != "allow" && p.Network != "deny" {
+		v.err(E_NETWORK_VALUE, "", "", "pipeline.network", "допускаются: allow, deny", &Fix{Op: "set", Target: "pipeline.network", Candidates: []string{"allow", "deny"}}, "pipeline network=%q, ожидается allow|deny", p.Network)
+	}
 	if p.Foreach != "" {
 		if strings.HasPrefix(p.Foreach, "input.") {
 			key := strings.TrimPrefix(p.Foreach, "input.")
