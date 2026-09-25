@@ -265,6 +265,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			if plugin.IsBuiltin(st.Plugin) {
 				continue
 			}
+			if plugin.IsBuiltinNamespace(st.Plugin) {
+				return stats, runErr("E_PLUGIN_LOAD", "шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin)
+			}
 			m, err := eng.LoadManifest(st.Plugin)
 			if err != nil {
 				continue // ошибка резолвинга всплывает ниже
@@ -782,6 +785,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 			return "", ErrCancelled
 		}
 		return action, nil
+	}
+	if plugin.IsBuiltinNamespace(st.Plugin) {
+		return "", runErr("E_PLUGIN_LOAD", "шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin)
 	}
 	m, err := eng.LoadManifest(st.Plugin)
 	if err != nil {

@@ -29,3 +29,24 @@ func TestTruncateRuneSafe(t *testing.T) {
 		}
 	}
 }
+
+func TestBuiltinRefs(t *testing.T) {
+	for _, ref := range []string{"core/human_gate", `core\human_gate`, " core/human_gate "} {
+		if !IsBuiltinRef(ref) {
+			t.Fatalf("expected builtin: %q", ref)
+		}
+	}
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+		if IsBuiltinRef(ref) {
+			t.Fatalf("unexpected builtin: %q", ref)
+		}
+		if !IsBuiltinNamespace(ref) {
+			t.Fatalf("expected reserved namespace: %q", ref)
+		}
+	}
+	for _, ref := range []string{"corex/plugin", "plugin/core"} {
+		if IsBuiltinRef(ref) || IsBuiltinNamespace(ref) {
+			t.Fatalf("unexpected reserved ref: %q", ref)
+		}
+	}
+}

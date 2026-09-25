@@ -167,6 +167,10 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			v.err(E_STEP_ID_DUP, st.ID, "", "pipeline.steps."+st.ID, "id шагов должны быть уникальны", nil, "шаг "+st.ID+": дублирующийся id")
 		}
 		seen[st.ID] = true
+		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
+			v.err(E_PLUGIN_LOAD, st.ID, "", "pipeline.steps."+st.ID+".plugin", "проверьте путь к плагину и plugin.yaml", nil, "шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin)
+			continue
+		}
 		if st.When.IsSet() {
 			if !WhenOps[st.When.Op] {
 				v.err(E_WHEN_OP, st.ID, "", "pipeline.steps."+st.ID+".when", "допускаются: truthy, exists, missing, eq, neq, gt, gte, lt, lte, contains", &Fix{Op: "set", Target: "steps." + st.ID + ".when.op", Candidates: []string{"truthy", "exists", "missing", "eq", "neq", "gt", "gte", "lt", "lte", "contains"}}, "шаг %s: when: неизвестный оператор %q (допускаются: truthy, exists, missing, eq, neq, gt, gte, lt, lte, contains)", st.ID, st.When.Op)

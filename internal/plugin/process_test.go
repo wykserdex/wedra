@@ -91,3 +91,18 @@ func parsePID(s string, out *int) (int, error) {
 	*out = n
 	return n, nil
 }
+
+func TestBuiltinNamespaceIsClosed(t *testing.T) {
+	eng := NewEngine()
+	for _, ref := range []string{"core/human_gate", `core\human_gate`} {
+		manifest, err := eng.LoadManifest(ref)
+		if err != nil || manifest.ID != "core/human_gate" {
+			t.Fatalf("builtin %q: manifest=%+v err=%v", ref, manifest, err)
+		}
+	}
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+		if _, err := eng.LoadManifest(ref); err == nil {
+			t.Fatalf("reserved builtin %q was accepted", ref)
+		}
+	}
+}

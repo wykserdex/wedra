@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"wedra/internal/common"
 )
 
 var formatRank = map[string]int{
@@ -146,7 +148,11 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile, st
 }
 
 func IsBuiltin(ref string) bool {
-	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+	return common.IsBuiltinRef(ref)
+}
+
+func IsBuiltinNamespace(ref string) bool {
+	return common.IsBuiltinNamespace(ref)
 }
 
 type Engine interface {
@@ -209,6 +215,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			errs = append(errs, "шаг "+st.ID+": дублирующийся id")
 		}
 		seen[st.ID] = true
+		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
+			errs = append(errs, fmt.Sprintf("шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin))
+			continue
+		}
 		// v0.20: управляющий поток на уровне шага
 		if st.When.IsSet() {
 			if !WhenOps[st.When.Op] {
