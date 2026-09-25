@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"wedra/internal/common"
@@ -122,16 +123,11 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 
 	cmd.Dir = m.Dir
 	cmd.Stdin = bytes.NewReader(input)
-	baseEnv := os.Environ()
+	baseEnv := pluginBaseEnv(m)
 	if m.Runtime.Type == "python" {
-		// PYTHONUTF8 keeps plugin stdin/stdout UTF-8.
-		// На Windows с локалью cp1251 без этого кириллица бьётся
-		// на границе ядро<->плагин (extraEnv может переопределить).
 		baseEnv = append(baseEnv, "PYTHONUTF8=1")
 	}
-	if len(extraEnv) > 0 || m.Runtime.Type == "python" {
-		cmd.Env = mergeEnv(baseEnv, extraEnv)
-	}
+	cmd.Env = mergeEnv(baseEnv, extraEnv)
 	// v0.23: свой process group — таймаут убивает группу, а не только прямой
 	// процесс (python-плагин с дочерними больше не оставляет сирот).
 	// Убийство группы — в момент таймаута (goroutine): Wait ждёт закрытия
@@ -241,6 +237,43 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		}
 	}
 	return res
+}
+
+var pluginSystemEnv = map[string]struct{}{
+	"PATH": {}, "PATHEXT": {}, "SYSTEMROOT": {}, "WINDIR": {}, "COMSPEC": {},
+	"TEMP": {}, "TMP": {}, "TMPDIR": {}, "LANG": {}, "LC_ALL": {}, "LC_CTYPE": {},
+	"TZ": {}, "HOME": {}, "USERPROFILE": {}, "APPDATA": {}, "LOCALAPPDATA": {},
+	"PROGRAMDATA": {}, "PROGRAMFILES": {}, "PROGRAMFILES(X86)": {},
+	"COMMONPROGRAMFILES": {}, "COMMONPROGRAMFILES(X86)": {}, "COMMONPROGRAMW6432": {},
+	"PROGRAMW6432": {}, "SYSTEMDRIVE": {}, "HOMEDRIVE": {}, "HOMEPATH": {},
+	"PUBLIC": {}, "USERNAME": {}, "USERDOMAIN": {}, "SESSIONNAME": {},
+	"PROCESSOR_ARCHITECTURE": {}, "NUMBER_OF_PROCESSORS": {}, "OS": {}, "PSMODULEPATH": {},
+}
+
+func pluginBaseEnv(m *Manifest) []string {
+	out := make([]string, 0, len(pluginSystemEnv)+len(m.Permissions.Secrets))
+	for _, kv := range os.Environ() {
+		i := indexByte(kv, '=')
+		if i <= 0 || !validEnvName(kv[:i]) {
+			continue
+		}
+		if _, ok := pluginSystemEnv[strings.ToUpper(kv[:i])]; ok {
+			out = append(out, kv)
+		}
+	}
+	for _, name := range m.Permissions.Secrets {
+		if !validEnvName(name) {
+			continue
+		}
+		if value, ok := os.LookupEnv(name); ok {
+			out = append(out, name+"="+value)
+		}
+	}
+	return out
+}
+
+func validEnvName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "=\x00")
 }
 
 func mergeEnv(base, extra []string) []string {
