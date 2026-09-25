@@ -106,3 +106,34 @@ func TestBuiltinNamespaceIsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestPluginOnlyReceivesDeclaredSecrets(t *testing.T) {
+	requirePythonT(t)
+	t.Setenv("WEDRA_TEST_DECLARED_SECRET", "declared")
+	t.Setenv("WEDRA_TEST_UNRELATED_SECRET", "leaked")
+	dir := t.TempDir()
+	script := "import os,sys,json\njson.load(sys.stdin)\njson.dump({'status':'ok','output':{'declared':os.environ.get('WEDRA_TEST_DECLARED_SECRET',''),'unrelated':os.environ.get('WEDRA_TEST_UNRELATED_SECRET','')}},sys.stdout)\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(script), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &pipeline.Manifest{
+		ID:      "env-test",
+		Runtime: pipeline.Runtime{Type: "python", Entry: "main.py"},
+		Dir:     dir,
+		Output: map[string]pipeline.Port{
+			"declared":  {Type: "string"},
+			"unrelated": {Type: "string"},
+		},
+		Permissions: pipeline.Permissions{Secrets: []string{"WEDRA_TEST_DECLARED_SECRET"}},
+	}
+	res := Exec(m, []byte("{}"), 10*time.Second)
+	if !res.OK() {
+		t.Fatalf("plugin failed: %+v", res)
+	}
+	if res.Output["declared"] != "declared" {
+		t.Fatalf("declared secret=%v", res.Output["declared"])
+	}
+	if res.Output["unrelated"] != "" {
+		t.Fatalf("unrelated environment leaked: %v", res.Output["unrelated"])
+	}
+}
