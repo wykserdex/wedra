@@ -234,7 +234,12 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			switch st.OnReject {
 			case "", "stop", "continue":
 			default:
-				v.err(E_ON_REJECT, st.ID, "", "pipeline.steps."+st.ID+".on_reject", "допускаются: stop, continue", &Fix{Op: "set", Target: "steps." + st.ID + ".on_reject", Candidates: []string{"stop", "continue"}}, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
+				v.err(E_ON_REJECT, st.ID, "", "pipeline.steps."+st.ID+".on_reject", "допускаются: stop, continue", &Fix{Op: "set", Target: "steps." + st.ID + ".on_reject", Candidates: []string{"stop", "continue"}}, "шаг %s: on_reject=%s, ожидается stop|continue", st.ID, st.OnReject)
+			}
+			for _, action := range st.Actions {
+				if action != "accept" && action != "reject" {
+					v.err(E_GATE_ACTIONS, st.ID, "", "pipeline.steps."+st.ID+".actions", "разрешены только accept и reject", &Fix{Op: "set", Target: "steps." + st.ID + ".actions", Candidates: []string{"accept", "reject"}}, "шаг %s: actions=%q, допустимы accept|reject", st.ID, action)
+				}
 			}
 			bnSeen := map[string][]string{}
 			for _, f := range st.Form {
