@@ -422,7 +422,18 @@ type cappedWriter struct {
 }
 
 func (c *cappedWriter) Write(p []byte) (int, error) {
-	if c.limit > 0 && c.buf.Len()+len(p) > c.limit {
+	if c.limit <= 0 {
+		return c.buf.Write(p)
+	}
+	remaining := c.limit - c.buf.Len()
+	if remaining <= 0 {
+		c.overflow = true
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		if _, err := c.buf.Write(p[:remaining]); err != nil {
+			return 0, err
+		}
 		c.overflow = true
 		return len(p), nil
 	}
