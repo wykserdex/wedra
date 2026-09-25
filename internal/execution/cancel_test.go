@@ -144,6 +144,19 @@ func contains(s, sub string) bool {
 	}())
 }
 
+func TestResumeRejectsDifferentPipeline(t *testing.T) {
+	dir := t.TempDir()
+	base := &pipeline.PipelineFile{FormatVersion: "0.2", Pipeline: pipeline.Pipeline{Name: "hash", Input: map[string]interface{}{}}}
+	if _, err := Run(base, permissiveEngine{}, RunOptions{Quiet: true, RunID: "hash-run", RunsDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	changed := &pipeline.PipelineFile{FormatVersion: "0.2", Pipeline: pipeline.Pipeline{Name: "other", Input: map[string]interface{}{}}}
+	_, err := Run(changed, permissiveEngine{}, RunOptions{Quiet: true, Resume: "hash-run", RunsDir: dir})
+	if err == nil || !contains(err.Error(), "pipeline identity mismatch") {
+		t.Fatalf("expected identity mismatch, got %v", err)
+	}
+}
+
 func TestRetryDelayIsBounded(t *testing.T) {
 	st := &pipeline.Step{Retry: &pipeline.Retry{Delay: pipeline.Duration{Duration: time.Hour}, Backoff: "exponential"}}
 	if got := retryDelay(st, 10); got != pipeline.MaxRetryDelay {
@@ -186,7 +199,7 @@ func TestRunParallelRejectsNaNContext(t *testing.T) {
 		},
 	}
 	_, err := Run(pf, permissiveEngine{}, RunOptions{Quiet: true, RunsDir: t.TempDir()})
-	if err == nil || !contains(err.Error(), "context") {
+	if err == nil || !contains(err.Error(), "serialization") {
 		t.Fatalf("expected context serialization error, got %v", err)
 	}
 }

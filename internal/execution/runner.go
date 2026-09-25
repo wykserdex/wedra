@@ -3,6 +3,7 @@ package execution
 import (
 	stdctx "context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -151,6 +152,40 @@ func resumeCursor(dir string) (int, RunStats, error) {
 	}
 }
 
+func pipelineIdentity(pf *pipeline.PipelineFile) (string, error) {
+	raw, err := json.Marshal(pf)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:]), nil
+}
+
+func journalPipelineIdentity(dir string) (string, error) {
+	events, err := journal.NewReader(dir).Events()
+	if err != nil {
+		return "", err
+	}
+	identity := ""
+	for _, event := range events {
+		if event["type"] != "run_start" {
+			continue
+		}
+		candidate, ok := event["pipeline_hash"].(string)
+		if !ok || candidate == "" {
+			return "", fmt.Errorf("journal run_start без pipeline_hash")
+		}
+		if identity != "" && identity != candidate {
+			return "", fmt.Errorf("journal содержит разные pipeline_hash")
+		}
+		identity = candidate
+	}
+	if identity == "" {
+		return "", fmt.Errorf("journal не содержит run_start")
+	}
+	return identity, nil
+}
+
 func writeAggregates(ctx *runctx.Ctx, agg map[string][]interface{}, steps []*pipeline.Step) {
 	stepsMap, ok := ctx.Data["steps"].(map[string]interface{})
 	if !ok {
@@ -270,6 +305,10 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	var startItemIdx int
 	var j *journal.Journal
 	var err error
+	pipelineHash, err := pipelineIdentity(pf)
+	if err != nil {
+		return stats, runErr("context_serialization", "pipeline identity serialization: %v", err)
+	}
 
 	if opts.Resume != "" {
 		data, err := store.LoadContext(opts.Resume)
@@ -282,6 +321,13 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			return stats, err
 		}
 		defer j.Close()
+		journalHash, err := journalPipelineIdentity(j.Dir)
+		if err != nil {
+			return stats, fmt.Errorf("--resume %s: %w", opts.Resume, err)
+		}
+		if journalHash != pipelineHash {
+			return stats, fmt.Errorf("--resume %s: pipeline identity mismatch", opts.Resume)
+		}
 		startItemIdx, priorStats, err := resumeCursor(j.Dir)
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: не читается journal: %w", opts.Resume, err)
@@ -289,7 +335,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		stats.RunDir = j.Dir
 		stats.OK, stats.Aborted = priorStats.OK, priorStats.Aborted
 		opts.logf("▶ resume %q с элемента %d (журнал: %s)", pf.Pipeline.Name, startItemIdx, j.Dir)
-		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx})
+		j.Event("run_resumed", map[string]interface{}{"from_item": startItemIdx, "pipeline_hash": pipelineHash})
 	} else {
 		runID := opts.RunID
 		if runID == "" {
@@ -306,7 +352,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		defer j.Close()
 		stats.RunDir = j.Dir
 		opts.logf("▶ запуск %q  (журнал: %s)", pf.Pipeline.Name, j.Dir)
-		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name})
+		j.Event("run_start", map[string]interface{}{"pipeline": pf.Pipeline.Name, "pipeline_hash": pipelineHash})
 		ctx = runctx.NewCtx(pf.Pipeline.Input)
 	}
 
