@@ -31,6 +31,7 @@ var Version = "dev"
 const (
 	defaultProtocolVersion = "2024-11-05"
 	maxWaitSeconds         = 300
+	maxRetainedRuns        = 128
 )
 
 var supportedProtocolVersions = []string{defaultProtocolVersion}
@@ -840,6 +841,7 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	}
 	s.running = true
 	s.currentRunID = runID
+	s.pruneRunsLocked()
 	st := &runState{id: runID, dir: filepath.Join(s.runsDir, runID), done: make(chan struct{}), status: "running"}
 	s.runs[runID] = st
 	s.mu.Unlock()
@@ -921,6 +923,22 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		status = s.runStatus(runID)
 	}
 	return toJSON(map[string]interface{}{"run_id": runID, "status": status}), false, nil
+}
+
+func (s *Server) pruneRunsLocked() {
+	if len(s.runs) < maxRetainedRuns {
+		return
+	}
+	for id, st := range s.runs {
+		select {
+		case <-st.done:
+			delete(s.runs, id)
+		default:
+		}
+		if len(s.runs) < maxRetainedRuns {
+			return
+		}
+	}
 }
 
 func (s *Server) runStatus(runID string) string {

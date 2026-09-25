@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,7 +127,7 @@ func startHumanConsole(listen string, plugins []string, workdir, runsDir string,
 	if err != nil {
 		return nil, err
 	}
-	go func() { _ = http.Serve(ln, srv.Routes()) }()
+	go func() { _ = srv.HTTPServer(ln.Addr().String()).Serve(ln) }()
 	base := "http://" + ln.Addr().String()
 	fmt.Fprintf(os.Stderr, "wedra mcp: консоль гейтов %s (ключ сессии — только в браузере человека)\n", base)
 	return &humanConsole{srv: srv, base: base, secret: secret, open: open, print: printLink}, nil
