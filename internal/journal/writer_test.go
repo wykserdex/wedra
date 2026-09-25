@@ -4,8 +4,10 @@ package journal
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"wedra/internal/runctx"
@@ -91,5 +93,56 @@ func TestSnapshotAtomic(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "context.json.tmp")); err == nil {
 		t.Fatal("остался context.json.tmp — rename не сработал")
+	}
+}
+
+func TestEventAndSnapshotReportSerializationErrors(t *testing.T) {
+	j, err := NewJournal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	if err := j.Event("bad", map[string]interface{}{"value": math.NaN()}); err == nil {
+		t.Fatal("Event должен вернуть ошибку сериализации")
+	}
+	if j.WriteErrors() != 1 {
+		t.Fatalf("write errors=%d, want 1", j.WriteErrors())
+	}
+	ctx := runctx.NewCtx(map[string]interface{}{"bad": math.Inf(1)})
+	if err := j.Snapshot(ctx); err == nil {
+		t.Fatal("Snapshot должен вернуть ошибку сериализации")
+	}
+	if j.WriteErrors() != 2 {
+		t.Fatalf("write errors=%d, want 2", j.WriteErrors())
+	}
+}
+
+func TestReaderAcceptsLargeEvent(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := strings.Repeat("x", 100*1024)
+	if err := j.Event("item_start", map[string]interface{}{"payload": payload}); err != nil {
+		t.Fatal(err)
+	}
+	j.Close()
+	events, err := NewReader(dir).Events()
+	if err != nil || len(events) != 1 {
+		t.Fatalf("large event: count=%d err=%v", len(events), err)
+	}
+	if events[0]["payload"] != payload {
+		t.Fatal("large event payload changed")
+	}
+}
+
+func TestReaderRejectsMalformedEvent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "journal.jsonl"), []byte("{bad\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewReader(dir).Events(); err == nil {
+		t.Fatal("malformed event must be reported")
 	}
 }
