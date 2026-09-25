@@ -1,7 +1,7 @@
 // v0.22 — консоль WEDRA: раны, live-терминал, контекст, DAG.
 // Без внешних зависимостей (офлайн: всё встроено).
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
 
 let state = {
   tab: 'runs',
@@ -87,14 +87,15 @@ function renderRuns() {
   const el = $('#runs-list');
   if (!state.runs.length) { el.innerHTML = '<div class="empty">ранов пока нет</div>'; return; }
   el.innerHTML = state.runs.slice(0, 60).map(r => {
-    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'failed' ? 'err' : 'skip'; // cancelled → skip
+    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'failed' ? 'err' : 'skip';
     const label = r.status === 'running' ? 'идёт…' : r.status;
     const t = (r.last || r.started || '').replace('T', ' ').replace('Z', '');
-    return `<div class="run-item ${state.currentRun === r.id ? 'active' : ''}" onclick="openRunDetail('${r.id}',true)">
-      <div class="top"><span class="pipeline">${esc(r.pipeline || '?')}</span><span class="badge ${st}">${label}</span></div>
-      <div class="meta">${esc(r.id)} · ${r.steps} ш. · ${esc(t)}</div>
+    return `<div class="run-item ${state.currentRun === r.id ? 'active' : ''}" data-run-id="${esc(r.id)}">
+      <div class="top"><span class="pipeline">${esc(r.pipeline || '?')}</span><span class="badge ${st}">${esc(label)}</span></div>
+      <div class="meta">${esc(r.id)} · ${esc(r.steps)} ш. · ${esc(t)}</div>
     </div>`;
   }).join('');
+  el.querySelectorAll('[data-run-id]').forEach(item => item.addEventListener('click', () => openRunDetail(item.dataset.runId, true)));
   $('#runs-count').textContent = `(${state.runs.length})`;
 }
 
@@ -105,7 +106,7 @@ async function loadPipelines() {
     const sel = $('#run-select');
     sel.innerHTML = state.pipelines
       .filter(p => !p.error)
-      .map(p => `<option value="${esc(p.file)}">${esc(p.name || p.file)} — ${p.steps} ш.${p.foreach ? ' · foreach' : ''}</option>`)
+      .map(p => `<option value="${esc(p.file)}">${esc(p.name || p.file)} — ${esc(p.steps)} ш.${p.foreach ? ' · foreach' : ''}</option>`)
       .join('');
     renderPipList();
   } catch (e) { console.error(e); }
@@ -114,9 +115,10 @@ async function loadPipelines() {
 function renderPipList() {
   const el = $('#pip-list');
   el.innerHTML = state.pipelines.map(p =>
-    `<div class="pitem ${state.currentPipe === p.file ? 'active' : ''}" onclick="openPipeline('${esc(p.file)}')">
-      ${esc(p.name || p.file)} <small>${p.steps} ш.${p.foreach ? ' · foreach ' + esc(p.foreach) : ''}${p.error ? ' · error' : ''}</small>
+    `<div class="pitem ${state.currentPipe === p.file ? 'active' : ''}" data-pipeline-file="${esc(p.file)}">
+      ${esc(p.name || p.file)} <small>${esc(p.steps)} ш.${p.foreach ? ' · foreach ' + esc(p.foreach) : ''}${p.error ? ' · error' : ''}</small>
     </div>`).join('');
+  el.querySelectorAll('[data-pipeline-file]').forEach(item => item.addEventListener('click', () => openPipeline(item.dataset.pipelineFile)));
   $('#pip-count').textContent = `(${state.pipelines.length})`;
 }
 
@@ -152,7 +154,7 @@ async function openRunDetail(id, force) {
   state.detailStatus = d.status;
   const st = d.status === 'ok' ? 'ok' : d.status === 'running' ? 'run' : d.status === 'cancelled' ? 'skip' : 'err';
   const label = d.status === 'running' ? 'идёт…' : d.status === 'cancelled' ? 'отменён' : d.status;
-  const cancelBtn = d.status === 'running' ? `<button class="btn" id="cancel-btn" onclick="cancelRun('${esc(id)}')">■ отменить</button>` : '';
+  const cancelBtn = d.status === 'running' ? `<button class="btn" id="cancel-btn" data-action="cancel" data-run-id="${esc(id)}">■ отменить</button>` : '';
   const ctx = d.context || {};
   const steps = (ctx.steps && Object.keys(ctx.steps).length) || 0;
   const inp = ctx.input ? Object.keys(ctx.input).length : 0;
@@ -160,9 +162,9 @@ async function openRunDetail(id, force) {
   $('#detail').innerHTML = `
     <div id="gate-card" style="display:none"></div>
     <div class="dhead">
-      <button class="btn" onclick="closeDetail()">←</button>
+      <button class="btn" data-action="close">←</button>
       <h2>${esc(d.pipeline || '?')}</h2>
-      <span class="badge ${st}">${label}</span>
+      <span class="badge ${st}">${esc(label)}</span>
       ${cancelBtn}
       <span class="sub">${esc(id)} · контекст: input ${inp} полей, steps ${steps}</span>
     </div>
@@ -175,18 +177,19 @@ async function openRunDetail(id, force) {
         <h3>
           Контекст / Журнал
           <span class="rtabs">
-            <button id="rt-ctx" class="active" onclick="showRTab('ctx')">контекст</button>
-            <button id="rt-jnl" onclick="showRTab('jnl')">журнал <span id="jnl-n"></span></button>
+            <button id="rt-ctx" class="active" data-action="tab" data-tab="ctx">контекст</button>
+            <button id="rt-jnl" data-action="tab" data-tab="jnl">журнал <span id="jnl-n"></span></button>
           </span>
         </h3>
         <div class="ctx" id="rt-ctx-body">${renderCtx(ctx)}</div>
         <div class="jnl" id="rt-jnl-body" style="display:none">
-          <div style="margin-bottom:8px"><span class="autochip on" id="autochip" onclick="toggleAuto()">авто-скролл</span>
+          <div style="margin-bottom:8px"><span class="autochip on" id="autochip" data-action="auto">авто-скролл</span>
           <span style="font-size:10px;color:var(--dim);margin-left:8px">live: обновление каждые 2 c</span></div>
           <div id="jnl-lines"></div>
         </div>
       </div>
     </div>`;
+  wireRunDetail(id);
   // журнал: полный прогон + polling хвоста
   state.journal = { events: d.events, since: d.events.length, total: d.events.length };
   renderJournal(d.events);
@@ -215,6 +218,17 @@ async function openRunDetail(id, force) {
   }, 2000);
 }
 
+function wireRunDetail(id) {
+  const root = $('#detail');
+  const close = root.querySelector('[data-action="close"]');
+  if (close) close.addEventListener('click', () => closeDetail());
+  const cancel = root.querySelector('[data-action="cancel"]');
+  if (cancel) cancel.addEventListener('click', () => cancelRun(id));
+  root.querySelectorAll('[data-action="tab"]').forEach(button => button.addEventListener('click', () => showRTab(button.dataset.tab)));
+  const auto = root.querySelector('[data-action="auto"]');
+  if (auto) auto.addEventListener('click', () => toggleAuto());
+}
+
 // v0.9: отмена рана (POST /cancel; требует сессию человека)
 window.cancelRun = async (id) => {
   const b = $('#cancel-btn'); if (b) { b.disabled = true; b.textContent = 'отмена…'; }
@@ -239,38 +253,38 @@ function renderTimeline(events) {
       if (inItem >= 0) html += '</div>';
       if (inPar) { html += '</div>'; inPar = false; }
       inItem = e.item_index;
-      html += `<div class="item"><div class="hd">элемент ${e.item_index}${e.item != null ? ' · ' + esc(JSON.stringify(e.item)) : ''}</div>`;
+      html += `<div class="item"><div class="hd">элемент ${esc(String(e.item_index))}${e.item != null ? ' · ' + esc(JSON.stringify(e.item)) : ''}</div>`;
       continue;
     }
     if (type === 'item_end' || type === 'item_aborted') {
       if (inItem >= 0) { html += '</div>'; inItem = -1; }
       const bad = type === 'item_aborted';
-      html += ev(t(e), bad ? 'err' : 'ok', `${bad ? 'элемент прерван' : 'элемент завершён'}`, e.status || '');
+      html += ev(t(e), bad ? 'err' : 'ok', `${bad ? 'элемент прерван' : 'элемент завершён'}`, esc(String(e.status || '')));
       continue;
     }
     if (type === 'parallel_start') { inPar = true; html += `<div class="par"><div class="hd">‖ параллельно: ${esc((e.steps || []).join(', '))}</div>`; continue; }
-    if (type === 'parallel_end') { if (inPar) html += '</div>'; inPar = false; html += ev(t(e), 'par', `‖ группа завершена за ${e.duration_ms ?? '?'} мс`, e.statuses ? esc(JSON.stringify(e.statuses)) : ''); continue; }
-    if (type === 'foreach_item_start') { html += ev(t(e), 'dim', `⤷ ${esc(e.step)} · элемент ${e.item_index}`, ''); continue; }
-    if (type === 'foreach_item_end') { html += ev(t(e), 'dim', `⤷ ${esc(e.step)} · элемент ${e.item_index} → ${esc(e.status)}`, e.duration_ms != null ? e.duration_ms + ' мс' : ''); continue; }
-    if (type === 'step_start') { html += ev(t(e), 'run', `▶ ${esc(e.step)}`, e.attempt > 1 ? `повтор ${e.attempt}` : ''); continue; }
+    if (type === 'parallel_end') { if (inPar) html += '</div>'; inPar = false; html += ev(t(e), 'par', `‖ группа завершена за ${esc(String(e.duration_ms ?? '?'))} мс`, e.statuses ? esc(JSON.stringify(e.statuses)) : ''); continue; }
+    if (type === 'foreach_item_start') { html += ev(t(e), 'dim', `⤷ ${esc(e.step)} · элемент ${esc(String(e.item_index))}`, ''); continue; }
+    if (type === 'foreach_item_end') { html += ev(t(e), 'dim', `⤷ ${esc(e.step)} · элемент ${esc(String(e.item_index))} → ${esc(e.status)}`, e.duration_ms != null ? esc(String(e.duration_ms)) + ' мс' : ''); continue; }
+    if (type === 'step_start') { html += ev(t(e), 'run', `▶ ${esc(e.step)}`, e.attempt > 1 ? `повтор ${esc(String(e.attempt))}` : ''); continue; }
     if (type === 'step_end') {
       const cls = e.status === 'ok' ? 'ok' : 'err';
-      html += ev(t(e), cls, `${e.status === 'ok' ? '✓' : '✗'} ${esc(e.step)}`, `${e.duration_ms ?? '?'} мс · exit ${e.exit_code}${e.error ? ' · ' + esc(e.error) : ''}`);
+      html += ev(t(e), cls, `${e.status === 'ok' ? '✓' : '✗'} ${esc(e.step)}`, `${esc(String(e.duration_ms ?? '?'))} мс · exit ${esc(String(e.exit_code))}${e.error ? ' · ' + esc(e.error) : ''}`);
       continue;
     }
     if (type === 'step_failed') { html += ev(t(e), 'err', `✗ ${esc(e.step)}: ${esc(e.error || 'ошибка')}`, ''); continue; }
     if (type === 'step_skipped') { html += ev(t(e), 'skip', `↷ ${esc(e.step)} пропущен`, e.reason ? `reason: ${esc(e.reason)}${e.condition ? ' · ' + esc(e.condition) : ''}` : ''); continue; }
-    if (type === 'gate_wait') { html += ev(t(e), 'run', `👤 гейт ${esc(e.step)}: ожидает решение (в браузере)`, (e.actions || []).join('/') ); continue; }
-    if (type === 'gate_retry') { html += ev(t(e), 'skip', `⚠ гейт ${esc(e.step)}: ${esc(e.reason || 'переспрос')}`, 'попытка ' + (e.attempt || '?')); continue; }
+    if (type === 'gate_wait') { html += ev(t(e), 'run', `👤 гейт ${esc(e.step)}: ожидает решение (в браузере)`, esc((e.actions || []).map(a => String(a)).join('/'))); continue; }
+    if (type === 'gate_retry') { html += ev(t(e), 'skip', `⚠ гейт ${esc(e.step)}: ${esc(e.reason || 'переспрос')}`, 'попытка ' + esc(String(e.attempt || '?'))); continue; }
     if (type === 'gate_decision') { html += ev(t(e), e.action === 'accept' ? 'ok' : 'skip', `👤 гейт ${esc(e.step)}: ${esc(e.action)}${e.auto ? ' (авто --yes)' : ''}${e.source ? ' · ' + esc(e.source) : ''}`, e.materialized ? esc(JSON.stringify(e.materialized)) : ''); continue; }
     if (type === 'run_start') { html += ev(t(e), 'dim', `ран: ${esc(e.pipeline || '?')}${e.foreach ? ' · foreach ' + esc(e.foreach) : ''}`, ''); continue; }
     if (type === 'run_resumed') { html += ev(t(e), 'par', `ран возобновлён (resume)`, ''); continue; }
-    if (type === 'run_end') { html += ev(t(e), (e.aborted || 0) ? 'err' : 'ok', `■ ран завершён: ok=${e.ok} aborted=${e.aborted || 0}`, ''); continue; }
+    if (type === 'run_end') { html += ev(t(e), (e.aborted || 0) ? 'err' : 'ok', `■ ран завершён: ok=${esc(String(e.ok || 0))} aborted=${esc(String(e.aborted || 0))}`, ''); continue; }
     if (type === 'run_failed') { html += ev(t(e), 'err', `■ ран упал${e.code ? ' [' + esc(e.code) + ']' : ''}: ${esc(e.error || '')}`, ''); continue; }
     if (type === 'run_cancelled') { html += ev(t(e), 'skip', '■ ран отменён (resume — продолжить с места остановки)', ''); continue; }
     if (type === 'post_phase_start') { html += ev(t(e), 'dim', 'post-фаза (после foreach)…', ''); continue; }
     if (type === 'post_phase_end') { html += ev(t(e), 'dim', 'post-фаза завершена', ''); continue; }
-    if (type === 'foreach_item_failed') { html += ev(t(e), 'err', `⤷ ${esc(e.step)} · элемент ${e.item_index}: ${esc(e.error || 'ошибка')}`, ''); continue; }
+    if (type === 'foreach_item_failed') { html += ev(t(e), 'err', `⤷ ${esc(e.step)} · элемент ${esc(String(e.item_index))}: ${esc(e.error || 'ошибка')}`, ''); continue; }
     if (type === 'file_ref_warning' || type === 'contract_warning') { html += ev(t(e), 'dim', '· ' + esc(e.message || e.warning || JSON.stringify(e)), ''); continue; }
   }
   if (inItem >= 0) html += '</div>';
@@ -359,7 +373,7 @@ async function openPipeline(file) {
   $('#pdetail').innerHTML = `
     <div class="dhead" style="margin-bottom:12px">
       <h2>${esc(p.name || file)}</h2>
-      <span class="sub">${p.steps} ш.${p.foreach ? ' · foreach ' + esc(p.foreach) : ''}</span>
+      <span class="sub">${esc(p.steps)} ш.${p.foreach ? ' · foreach ' + esc(p.foreach) : ''}</span>
       ${plan.errors && plan.errors.length ? `<span class="badge err">errors: ${plan.errors.length}</span>` : '<span class="badge ok">валиден</span>'}
     </div>
     ${plan.errors && plan.errors.length ? `<div style="color:var(--err);font-size:12px;margin-bottom:10px">${plan.errors.map(esc).join('<br>')}</div>` : ''}
@@ -483,16 +497,18 @@ function updateGateCard(id) {
     return `<div class="gfield"><label>${esc(f.field)}</label>
       <input readonly value="${esc(val)}"/></div>`;
   }).join('');
-  const btns = (gw.actions || ['accept', 'reject']).map(a => {
-    const cls = a === 'accept' ? 'ok' : (a === 'reject' ? 'err' : '');
-    const label = a === 'accept' ? '✓ принять' : a === 'reject' ? '✗ отклонить' : esc(a);
-    return `<button class="${cls}" onclick="submitGate('${id}','${esc(a)}')">${label}</button>`;
+  const actions = Array.isArray(gw.actions) ? gw.actions : ['accept', 'reject'];
+  const btns = actions.filter(a => a === 'accept' || a === 'reject').map(a => {
+    const cls = a === 'accept' ? 'ok' : 'err';
+    const label = a === 'accept' ? '✓ принять' : '✗ отклонить';
+    return `<button class="${cls}" data-gate-action="${esc(a)}">${label}</button>`;
   }).join('');
   card.innerHTML = `
     <h3>👤 human_gate · ${esc(gw.step)} — ран ждёт твоего решения</h3>
     ${fields || '<div class="gstatus">форма пуста</div>'}
     <div class="gactions">${btns}</div>
     <div class="gstatus" id="gate-status"></div>`;
+  card.querySelectorAll('[data-gate-action]').forEach(button => button.addEventListener('click', () => submitGate(id, button.dataset.gateAction)));
 }
 
 window.submitGate = async (id, action) => {

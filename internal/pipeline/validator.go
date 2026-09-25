@@ -1,15 +1,20 @@
 package pipeline
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"wedra/internal/common"
 )
 
 var formatRank = map[string]int{
@@ -146,7 +151,11 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile, st
 }
 
 func IsBuiltin(ref string) bool {
-	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+	return common.IsBuiltinRef(ref)
+}
+
+func IsBuiltinNamespace(ref string) bool {
+	return common.IsBuiltinNamespace(ref)
 }
 
 type Engine interface {
@@ -154,6 +163,10 @@ type Engine interface {
 }
 
 func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
+	return SplitIssues(ValidateIssues(pf, eng))
+}
+
+func validateLegacy(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	if pf.FormatVersion != "0.1" && pf.FormatVersion != "0.2" {
 		if pf.FormatVersion != "" {
 			errs = append(errs, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
@@ -174,8 +187,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	if p.Foreach != "" {
 		if strings.HasPrefix(p.Foreach, "input.") {
 			key := strings.TrimPrefix(p.Foreach, "input.")
-			if _, ok := p.Input[key]; !ok {
+			if value, ok := p.Input[key]; !ok {
 				errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
+			} else if arr, ok := value.([]interface{}); ok && len(arr) > MaxForeachItems {
+				errs = append(errs, fmt.Sprintf("foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems))
 			}
 		} else if strings.HasPrefix(p.Foreach, "steps.") {
 			parts := strings.Split(p.Foreach, ".")
@@ -209,6 +224,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			errs = append(errs, "шаг "+st.ID+": дублирующийся id")
 		}
 		seen[st.ID] = true
+		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
+			errs = append(errs, fmt.Sprintf("шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin))
+			continue
+		}
 		// v0.20: управляющий поток на уровне шага
 		if st.When.IsSet() {
 			if !WhenOps[st.When.Op] {
@@ -263,6 +282,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
 			errs = append(errs, "шаг "+st.ID+": retry.attempts < 1")
 		}
+		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
+			errs = append(errs, fmt.Sprintf("шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts))
+		}
 		if IsBuiltin(st.Plugin) {
 			if len(st.Bind) > 0 {
 				errs = append(errs, "шаг "+st.ID+": human_gate не принимает bind")
@@ -271,6 +293,11 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			case "", "stop", "continue":
 			default:
 				errs = append(errs, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
+			}
+			for _, action := range st.Actions {
+				if action != "accept" && action != "reject" {
+					errs = append(errs, "шаг "+st.ID+": actions="+action+", допустимы accept|reject")
+				}
 			}
 			bnSeen := map[string][]string{}
 			for _, f := range st.Form {
@@ -370,6 +397,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 		if n == 1 {
 			warns = append(warns, fmt.Sprintf("parallel_group %q: один шаг — параллелизм бессмыслен", g))
 		}
+		if n > MaxParallelWidth {
+			errs = append(errs, fmt.Sprintf("parallel_group %q: %d шагов, максимум %d", g, n, MaxParallelWidth))
+		}
 	}
 	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов
 	pluginSecrets := map[string]bool{}
@@ -431,42 +461,26 @@ func CheckPortFormats(pfx, name string, port Port, errs []string) []string {
 }
 
 func ValidatePluginDir(dir string) []string {
-	var errs []string
 	raw, err := os.ReadFile(filepath.Join(dir, "plugin.yaml"))
 	if err != nil {
-		return append(errs, err.Error())
+		return []string{err.Error()}
 	}
 	var m Manifest
 	if err := unmarshalYAML(raw, &m); err != nil {
-		return append(errs, err.Error())
+		return []string{err.Error()}
 	}
-	if m.Version == "" {
-		errs = append(errs, "нет version")
-	}
-	if m.PlatformAPI == "" {
-		errs = append(errs, "нет platform_api")
-	}
-	switch m.Runtime.Type {
-	case "python", "binary":
-	default:
-		errs = append(errs, "runtime.type неизвестен: "+m.Runtime.Type)
-	}
-	if m.Runtime.Entry == "" {
-		errs = append(errs, "runtime.entry пуст")
-	} else if _, err := os.Stat(filepath.Join(dir, m.Runtime.Entry)); err != nil {
-		errs = append(errs, "entry не найден: "+m.Runtime.Entry)
-	}
-	for name, port := range m.Input {
-		if port.Type == "" {
-			errs = append(errs, "input "+name+": нет type")
-		}
-		errs = CheckPortFormats("input", name, port, errs)
-	}
-	for name, port := range m.Output {
-		errs = CheckPortFormats("output", name, port, errs)
+	m.Dir = dir
+	var errs []string
+	if err := ValidateManifest(&m); err != nil {
+		errs = append(errs, err.Error())
 	}
 	if len(m.Output) == 0 {
 		errs = append(errs, "output пуст")
+	}
+	if safeManifestEntry(m.Runtime.Entry) {
+		if err := validateManifestEntryFile(dir, m.Runtime.Entry); err != nil {
+			errs = append(errs, "entry: "+err.Error())
+		}
 	}
 	return errs
 }
@@ -493,8 +507,357 @@ func Basename(p string) string {
 	return parts[len(parts)-1]
 }
 
+var (
+	manifestIDPattern          = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+	manifestNamePattern        = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	manifestVersionPattern     = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$|^0\.[0-9]+$`)
+	manifestHostPattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+	environmentNamePattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	manifestRequirementPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+-]*$`)
+)
+
+var manifestPortTypes = map[string]bool{
+	"string": true, "number": true, "boolean": true, "array": true, "object": true,
+}
+
+var manifestFormats = map[string]bool{
+	"text": true, "email": true, "url": true, "ip": true, "file_ref": true,
+}
+
+func ValidateManifest(m *Manifest) error {
+	if m == nil {
+		return fmt.Errorf("манифест пуст")
+	}
+	var problems []string
+	add := func(format string, args ...interface{}) {
+		problems = append(problems, fmt.Sprintf(format, args...))
+	}
+	if m.ID == "" {
+		add("id обязателен")
+	} else if !manifestIDPattern.MatchString(m.ID) {
+		add("id %q: допустимы только строчные буквы, цифры и _", m.ID)
+	}
+	if m.Version == "" {
+		add("version обязателен")
+	} else if !manifestVersionPattern.MatchString(m.Version) {
+		add("version %q: ожидается SemVer X.Y.Z", m.Version)
+	}
+	if m.PlatformAPI == "" {
+		add("platform_api обязателен")
+	} else if !platformAPICompatible(m.PlatformAPI) {
+		add("platform_api %q несовместим с текущим API %s", m.PlatformAPI, PlatformAPI)
+	}
+	if m.Runtime.Type != "python" && m.Runtime.Type != "binary" {
+		add("runtime.type %q: ожидается python или binary", m.Runtime.Type)
+	}
+	if !safeManifestEntry(m.Runtime.Entry) {
+		add("runtime.entry %q: нужен относительный путь внутри плагина без ..", m.Runtime.Entry)
+	} else if m.Dir != "" {
+		candidate := filepath.Join(m.Dir, filepath.FromSlash(m.Runtime.Entry))
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			if err := validateManifestEntryFile(m.Dir, m.Runtime.Entry); err != nil {
+				add("runtime.entry: %v", err)
+			}
+		} else if !os.IsNotExist(statErr) {
+			add("runtime.entry: %v", statErr)
+		}
+	}
+	for i, requirement := range m.Runtime.Requires {
+		if strings.TrimSpace(requirement) == "" {
+			add("runtime.requires[%d] пуст", i)
+		} else if !manifestRequirementPattern.MatchString(requirement) {
+			add("runtime.requires[%d] %q: ожидается package==version", i, requirement)
+		}
+	}
+	if len(m.Runtime.Requires) > 0 && m.Dir != "" {
+		if err := validateManifestRequirements(m.Dir, m.Runtime.Requires); err != nil {
+			add("runtime.requires: %v", err)
+		}
+	}
+	if err := validateManifestPorts("input", m.Input); err != nil {
+		problems = append(problems, strings.Split(err.Error(), "; ")...)
+	}
+	if err := validateManifestPorts("output", m.Output); err != nil {
+		problems = append(problems, strings.Split(err.Error(), "; ")...)
+	}
+	if m.Permissions.Filesystem != "" {
+		switch m.Permissions.Filesystem {
+		case "none", "read", "workspace", "write", "readwrite":
+		default:
+			add("permissions.filesystem %q: допустимы none|read|workspace|write|readwrite", m.Permissions.Filesystem)
+		}
+	}
+	seenSecrets := map[string]bool{}
+	for i, secret := range m.Permissions.Secrets {
+		if !environmentNamePattern.MatchString(secret) {
+			add("permissions.secrets[%d] %q: ожидается имя env-переменной", i, secret)
+		} else if seenSecrets[secret] {
+			add("permissions.secrets[%d] %q: дубликат", i, secret)
+		}
+		seenSecrets[secret] = true
+	}
+	seenNetwork := map[string]bool{}
+	for i, permission := range m.Permissions.Network {
+		if permission.Port < 0 || permission.Port > 65535 {
+			add("permissions.network[%d].port %d: ожидается 0..65535", i, permission.Port)
+		}
+		if permission.AnyHost {
+			if permission.Host != "" {
+				add("permissions.network[%d]: any_host и host нельзя указывать вместе", i)
+			}
+		} else if !validManifestHost(permission.Host) {
+			add("permissions.network[%d].host %q: ожидается DNS-host или IP без схемы", i, permission.Host)
+		}
+		key := permission.Host + ":" + strconv.Itoa(permission.Port) + ":" + strconv.FormatBool(permission.AnyHost)
+		if seenNetwork[key] {
+			add("permissions.network[%d]: дубликат разрешения", i)
+		}
+		seenNetwork[key] = true
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func validateManifestRequirements(dir string, requirements []string) error {
+	raw, err := os.ReadFile(filepath.Join(dir, "requirements.lock"))
+	if err != nil {
+		return fmt.Errorf("требуется requirements.lock с exact pins")
+	}
+	expected := map[string]bool{}
+	for _, requirement := range requirements {
+		expected[requirement] = true
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !expected[line] {
+			return fmt.Errorf("requirements.lock содержит незаявленную зависимость %q", line)
+		}
+		seen[line] = true
+	}
+	for requirement := range expected {
+		if !seen[requirement] {
+			return fmt.Errorf("requirements.lock не содержит %q", requirement)
+		}
+	}
+	return nil
+}
+
+func validateManifestPorts(kind string, ports map[string]Port) error {
+	var problems []string
+	for name, port := range ports {
+		if !manifestNamePattern.MatchString(name) {
+			problems = append(problems, fmt.Sprintf("%s %q: имя должно быть строчными буквами, цифрами и _", kind, name))
+		}
+		if port.Type == "" {
+			problems = append(problems, fmt.Sprintf("%s %s: type обязателен", kind, name))
+		} else if !manifestPortTypes[port.Type] {
+			problems = append(problems, fmt.Sprintf("%s %s: type %q неизвестен", kind, name, port.Type))
+		}
+		if port.Format != "" {
+			if !manifestFormats[port.Format] {
+				problems = append(problems, fmt.Sprintf("%s %s: format %q неизвестен", kind, name, port.Format))
+			}
+			if port.Type != "string" {
+				problems = append(problems, fmt.Sprintf("%s %s: format применим только к string", kind, name))
+			}
+		}
+		if port.From != "" && !validManifestSource(port.From) {
+			problems = append(problems, fmt.Sprintf("%s %s: from %q должен быть input.<field> или steps.<id>.<field>", kind, name, port.From))
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.Join(problems, "; "))
+}
+
+func validManifestSource(source string) bool {
+	parts := strings.Split(source, ".")
+	if len(parts) < 2 || parts[0] != "input" {
+		if len(parts) < 3 || parts[0] != "steps" {
+			return false
+		}
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validManifestHost(host string) bool {
+	if host == "" || host == "*" || strings.ContainsAny(host, "/\\?#@ \t\r\n") {
+		return false
+	}
+	if net.ParseIP(strings.Trim(host, "[]")) != nil {
+		return true
+	}
+	return manifestHostPattern.MatchString(host)
+}
+
+func safeManifestEntry(entry string) bool {
+	if entry == "" || strings.ContainsRune(entry, 0) {
+		return false
+	}
+	normalized := strings.ReplaceAll(entry, "\\", "/")
+	if strings.HasPrefix(normalized, "/") || regexp.MustCompile(`^[A-Za-z]:[\\/]`).MatchString(normalized) {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(normalized)))
+	return clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
+}
+
+func validateManifestEntryFile(dir, entry string) error {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	candidate := filepath.Join(root, filepath.FromSlash(entry))
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("путь выходит за пределы каталога плагина")
+	}
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return fmt.Errorf("файл не найден: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("entry указывает на каталог")
+	}
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	candidateReal, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return err
+	}
+	realRel, err := filepath.Rel(rootReal, candidateReal)
+	if err != nil || realRel == ".." || strings.HasPrefix(realRel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("symlink выходит за пределы каталога плагина")
+	}
+	return nil
+}
+
+func parseManifestVersion(value string) ([3]int, bool) {
+	value = strings.TrimSpace(value)
+	value = strings.SplitN(value, "+", 2)[0]
+	value = strings.SplitN(value, "-", 2)[0]
+	parts := strings.Split(value, ".")
+	if len(parts) == 2 {
+		parts = append(parts, "0")
+	}
+	if len(parts) != 3 {
+		return [3]int{}, false
+	}
+	var parsed [3]int
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return [3]int{}, false
+		}
+		parsed[i] = n
+	}
+	return parsed, true
+}
+
+func compareManifestVersions(a, b [3]int) int {
+	for i := range a {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+func platformAPICompatible(spec string) bool {
+	current, ok := parseManifestVersion(PlatformAPI + ".0")
+	if !ok {
+		return false
+	}
+	spec = strings.TrimSpace(spec)
+	if strings.HasPrefix(spec, "^") {
+		required, ok := parseManifestVersion(strings.TrimPrefix(spec, "^"))
+		if !ok {
+			return false
+		}
+		if required[0] == 0 {
+			return current[0] == 0 && current[1] == required[1]
+		}
+		return current[0] == required[0]
+	}
+	terms := strings.Fields(spec)
+	if len(terms) == 0 {
+		return false
+	}
+	for _, term := range terms {
+		op := "="
+		for _, candidate := range []string{">=", "<=", ">", "<", "="} {
+			if strings.HasPrefix(term, candidate) {
+				op = candidate
+				term = strings.TrimSpace(strings.TrimPrefix(term, candidate))
+				break
+			}
+		}
+		required, ok := parseManifestVersion(term)
+		if !ok {
+			return false
+		}
+		comparison := compareManifestVersions(current, required)
+		switch op {
+		case ">=":
+			if comparison < 0 {
+				return false
+			}
+		case ">":
+			if comparison <= 0 {
+				return false
+			}
+		case "<=":
+			if comparison > 0 {
+				return false
+			}
+		case "<":
+			if comparison >= 0 {
+				return false
+			}
+		case "=":
+			if comparison != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func DecodeManifest(raw []byte, m *Manifest) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(m); err != nil {
+		return err
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("манифест содержит несколько YAML-документов")
+		}
+		return err
+	}
+	return nil
+}
+
 func unmarshalYAML(raw []byte, m *Manifest) error {
-	return yaml.Unmarshal(raw, m)
+	return DecodeManifest(raw, m)
 }
 
 func Lint(pf *PipelineFile, eng Engine, projectRoot string) (errs, warns []string) {

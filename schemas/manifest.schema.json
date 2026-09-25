@@ -3,26 +3,30 @@
   "title": "Manifest v0.2",
   "type": "object",
   "required": ["id", "version", "platform_api", "runtime", "output"],
+  "additionalProperties": false,
   "properties": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-    "version": {"type": "string"},
-    "platform_api": {"type": "string"},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$|^0\\.[0-9]+$"},
+    "platform_api": {"type": "string", "minLength": 1},
     "description": {"type": "string"},
     "author": {"type": "string"},
     "runtime": {
       "type": "object",
       "required": ["type", "entry"],
+      "additionalProperties": false,
       "properties": {
         "type": {"type": "string", "enum": ["python", "binary"]},
-        "entry": {"type": "string"},
-        "requires": {"type": "array", "items": {"type": "string"}}
+        "entry": {"type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:|[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+"},
+        "requires": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+-]*$"}}
       }
     },
     "input": {
       "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
       "additionalProperties": {
         "type": "object",
         "required": ["type"],
+        "additionalProperties": false,
         "properties": {
           "from": {"type": "string"},
           "type": {"type": "string", "enum": ["string", "number", "boolean", "array", "object"]},
@@ -34,9 +38,11 @@
     "output": {
       "type": "object",
       "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
       "additionalProperties": {
         "type": "object",
         "required": ["type"],
+        "additionalProperties": false,
         "properties": {
           "type": {"type": "string", "enum": ["string", "number", "boolean", "array", "object"]},
           "format": {"type": "string", "enum": ["text", "email", "url", "ip", "file_ref"]},
@@ -46,10 +52,23 @@
     },
     "permissions": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "network": {"type": "array"},
-        "filesystem": {"type": "string"},
-        "secrets": {"type": "array", "items": {"type": "string"}}
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": {"type": "string"},
+              "port": {"type": "integer", "minimum": 0, "maximum": 65535},
+              "any_host": {"type": "boolean"},
+              "note": {"type": "string"}
+            }
+          }
+        },
+        "filesystem": {"type": "string", "enum": ["none", "read", "workspace", "write", "readwrite"]},
+        "secrets": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}}
       }
     }
   }

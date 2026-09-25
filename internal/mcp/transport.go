@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 )
 
 // Request — JSON-RPC 2.0 запрос (stdio, по одному сообщению на строку).
@@ -38,6 +39,7 @@ type RPCError struct {
 type Transport struct {
 	in  *bufio.Scanner
 	out *bufio.Writer
+	mu  sync.Mutex
 }
 
 func NewTransport(r io.Reader, w io.Writer) *Transport {
@@ -65,6 +67,8 @@ func (t *Transport) Read() (*Request, error) {
 }
 
 func (t *Transport) Write(resp *Response) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if resp.JSONRPC == "" {
 		resp.JSONRPC = "2.0"
 	}

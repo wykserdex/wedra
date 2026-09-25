@@ -1,12 +1,17 @@
-//go:build windows || js
+//go:build js
 
 package plugin
 
 import "os/exec"
 
-// v0.23: под Windows process group не ставим — честное ограничение:
-// командная группа/Job Object не реализуется в первом срезе; CommandContext
-// всё равно режет прямой процесс. Дочерние под Windows — в бэклог.
-func setProcGroup(cmd *exec.Cmd) {}
+func prepareProcessGroup(cmd *exec.Cmd) error { return nil }
 
-func killProcessGroup(cmd *exec.Cmd) {}
+func attachProcessGroup(cmd *exec.Cmd) error { return nil }
+
+func cleanupProcessGroup(cmd *exec.Cmd) {}
+
+func killProcessGroup(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}

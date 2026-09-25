@@ -2,8 +2,7 @@
 # Это то, что получают пользователи: скачать и запустить без Go.
 name: release
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
 
 permissions:
   contents: write
@@ -21,6 +20,20 @@ jobs:
           set -eu
           file_version=$(tr -d '\r\n' < VERSION)
           test "${GITHUB_REF_NAME#v}" = "$file_version"
+      - name: dependency integrity
+        run: go mod verify
+      - name: vulnerability scan
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          "$RUNNER_TEMP/bin/govulncheck" ./...
+      - name: static checks
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l $(find cmd internal -name '*.go' -type f))"
+      - name: tests
+        run: go test ./... -count=1
+      - name: registry pin validation
+        run: go run ./cmd/wedra registry validate --registry=registry.yaml
       - name: conformance
         run: go test ./internal/core -run TestConformance -count=1
       - name: build all platforms
@@ -49,6 +62,7 @@ jobs:
           unzip -q "dist/wedra-conformance-v${VER}.zip" -d "$smoke_dir"
           ./dist/wedra-linux-amd64 plugin test --conformance --fixtures="$smoke_dir/conformance/fixtures/v0.2" --json
           rm -rf "$smoke_dir" dist/conformance-package
+          sha256sum dist/wedra-* dist/tool-* dist/wedragui-* > dist/SHA256SUMS
           ls -la dist/
       - name: release
         uses: softprops/action-gh-release@v2

@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -164,5 +165,79 @@ func TestRegistryRejectsEscapingPath(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  bad:\n    source: x\n    path: ../outside\n")
 	if _, err := Load(tmp); err == nil {
 		t.Fatal("escaping registry path должен быть отвергнут")
+	}
+}
+
+func TestRefToDirRejectsReservedBuiltin(t *testing.T) {
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+		if _, err := RefToDir(ref, t.TempDir()); err == nil {
+			t.Fatalf("reserved builtin %q was accepted", ref)
+		}
+	}
+}
+
+func TestRegistryRejectsUnsafeNamesAndCommits(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  ../../escape:\n    source: x\n    path: .\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("unsafe registry name was accepted")
+	}
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  good:\n    source: x\n    path: .\n    commit: short\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("short commit was accepted")
+	}
+}
+
+func TestValidateComponent(t *testing.T) {
+	for _, name := range []string{"plugin", "plugin-1", "plugin.name"} {
+		if err := ValidateComponent(name); err != nil {
+			t.Fatalf("valid component %q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "../x", `..\\x`, "C:x", "x/y"} {
+		if err := ValidateComponent(name); err == nil {
+			t.Fatalf("unsafe component accepted: %q", name)
+		}
+	}
+}
+
+func TestRegistryEntryRequiresRemotePin(t *testing.T) {
+	entry := Entry{Source: "https://example.com/repo.git", Path: ".", Version: "main"}
+	if err := ValidateEntry(entry, true); err == nil {
+		t.Fatal("remote registry entry without commit pin was accepted")
+	}
+	entry.Commit = "0123456789abcdef0123456789abcdef01234567"
+	if err := ValidateEntry(entry, true); err != nil {
+		t.Fatalf("valid pinned entry rejected: %v", err)
+	}
+}
+
+func TestRegistryRejectsUnknownFields(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nunknown: true\nplugins: {}\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("unknown registry field was accepted")
+	}
+}
+
+func TestCopyDirPreservesExecutableMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix executable bits")
+	}
+	src := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "copy")
+	path := filepath.Join(src, "run.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dst, "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("executable bit was lost: %v", info.Mode())
 	}
 }

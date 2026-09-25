@@ -53,6 +53,7 @@
 | E_PLUGIN_LOAD | плагин не загрузился | проверьте путь и `plugin.yaml` |
 | E_BIND_UNKNOWN_PORT | `bind` на несуществующий порт | `fix.candidates: порты плагина` |
 | E_NETWORK_DENIED | плагин заявил сеть, а `network: deny` | уберите сеть или deny |
+| E_NETWORK_VALUE | `pipeline.network` не allow/deny | `fix.candidates: [allow,deny]` |
 | E_PORT_UNBOUND | обязательный порт без привязки | `fix.candidates: input.* + steps.*` |
 | E_PORT_SOURCE | источник не резолвится (`в input нет поля`, `шаг не найден выше`, `плагин не объявляет выход`) | `fix.candidates: input.* + совместимые steps.*` |
 | E_TYPE_MISMATCH | тип источника ≠ типу порта | `fix.candidates: совместимые steps.*` |
@@ -95,6 +96,8 @@
 | foreach_path | `foreach` путь не найден / не массив | ран остановлен |
 | secrets_missing | нет env из `pipeline.secrets` | ран не стартует |
 | network_denied | `network: deny` нарушен в рантайме | ран не стартует |
+| network_policy | `pipeline.network` имеет недопустимое значение | ран не стартует |
+| validation_failed | pre-run validation не пройдена | ран не стартует |
 | run_error | прочее (резолв, resume, параллельная группа) | ран остановлен |
 | cancelled | отмена: Ctrl+C, `POST /api/runs/<id>/cancel`, MCP `cancel_run` | `run_cancelled`, затем snapshot, процесс плагина убит, retry нет; `--resume` продолжит |
 

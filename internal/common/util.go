@@ -6,6 +6,26 @@ import (
 	"unicode/utf8"
 )
 
+const HumanGatePluginRef = "core/human_gate"
+
+func CanonicalBuiltinRef(ref string) (string, bool) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(ref), `\`, "/")
+	if normalized == HumanGatePluginRef {
+		return normalized, true
+	}
+	return "", false
+}
+
+func IsBuiltinRef(ref string) bool {
+	_, ok := CanonicalBuiltinRef(ref)
+	return ok
+}
+
+func IsBuiltinNamespace(ref string) bool {
+	normalized := strings.ReplaceAll(strings.TrimSpace(ref), `\`, "/")
+	return normalized == "core" || strings.HasPrefix(normalized, "core/")
+}
+
 func KindOf(v interface{}) string {
 	switch v.(type) {
 	case string:
