@@ -14,13 +14,25 @@ import (
 
 const maxJournalPayloadSize = 16 << 20
 
+// maxSnapshotPayloadSize — потолок context.json (снапшота контекста).
+// Тесты понижают его, чтобы проверить отказ по размеру без 16 МБ данных —
+// тот же приём, что metaScanByteBudget в reader.go.
+var maxSnapshotPayloadSize = maxJournalPayloadSize
+
 // Journal — append-only журнал прогона: var/runs/<run_id>/journal.jsonl
 type Journal struct {
 	// v0.23: счётчик потерянных событий (write-ошибки)
 	writeErrs int
-	mu        sync.Mutex
-	f         *os.File
-	Dir       string
+	// P2 F-04: счётчик потерянных СНАПШОТОВ (context.json) считается
+	// отдельно от потерянных событий: потерянный снапшот ломает resume
+	// (состояние на диске устарело), и терминальный статус рана обязан
+	// отличать её от потери пары строк журнала.
+	snapshotErrs int
+	// snapErr — отказ первой потери снапшота (nil, если потерь не было).
+	snapErr error
+	mu      sync.Mutex
+	f       *os.File
+	Dir     string
 }
 
 func NewJournal(dir string) (*Journal, error) {
@@ -90,43 +102,99 @@ func (j *Journal) Event(kind string, kv map[string]interface{}) error {
 
 // Snapshot — context.json. v0.23: атомарно (temp+rename) — краш в середине
 // больше не даёт битый файл, из-за которого resume отвалился бы.
+//
+// P2 F-04: потерянный снапшот больше не «ничего страшного». Ошибка
+// возвращается как раньше, но потеря теперь видна и в самом журнале:
+// событие snapshot_lost, счётчик SnapshotLosses() и stderr. Раньше ошибка
+// уходила в пустоту — вызывающий её игнорировал, и журнал об устаревшем
+// context.json умалчивал.
 func (j *Journal) Snapshot(ctx *runctx.Ctx) error {
 	if ctx == nil {
 		return nil
 	}
+	reason, size, err := j.writeSnapshot(ctx)
+	if err == nil {
+		return nil
+	}
+	j.noteSnapshotLoss(reason, size, err)
+	return err
+}
+
+// writeSnapshot — атомарная запись context.json под локом журнала. Возвращает
+// короткую причину отказа (для журнала) и, когда он известен, размер
+// несохранённого снапшота. Ни данных контекста, ни секретов в отказе нет:
+// только «почему» и «сколько байт».
+func (j *Journal) writeSnapshot(ctx *runctx.Ctx) (reason string, size int, err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.f == nil {
-		j.writeErrs++
-		return os.ErrClosed
+		return "journal_closed", 0, os.ErrClosed
 	}
 	b, err := json.MarshalIndent(ctx.Data, "", "  ")
 	if err != nil {
-		j.writeErrs++
-		fmt.Fprintf(os.Stderr, "journal: snapshot marshal: %v\n", err)
-		return err
+		return "serialize", 0, fmt.Errorf("context snapshot: %w", err)
 	}
-	if len(b) > maxJournalPayloadSize {
-		j.writeErrs++
-		err := fmt.Errorf("context snapshot exceeds %d bytes", maxJournalPayloadSize)
-		fmt.Fprintf(os.Stderr, "journal: %v\n", err)
-		return err
+	if len(b) > maxSnapshotPayloadSize {
+		return "too_large", len(b), fmt.Errorf("context snapshot exceeds %d bytes", maxSnapshotPayloadSize)
 	}
 	tmp := filepath.Join(j.Dir, "context.json.tmp")
 	if werr := os.WriteFile(tmp, b, 0o644); werr != nil {
-		j.writeErrs++
-		fmt.Fprintf(os.Stderr, "journal: snapshot: %v\n", werr)
-		return werr
+		return "write", 0, fmt.Errorf("context snapshot: %w", werr)
 	}
 	if rerr := os.Rename(tmp, filepath.Join(j.Dir, "context.json")); rerr != nil {
-		j.writeErrs++
-		fmt.Fprintf(os.Stderr, "journal: snapshot rename: %v\n", rerr)
-		return rerr
+		// temp не переименовался — он не состояние, а мусор: следующий
+		// снапшот перезапишет его сам, но оставлять битый хвост нельзя.
+		_ = os.Remove(tmp)
+		return "rename", 0, fmt.Errorf("context snapshot rename: %w", rerr)
 	}
-	return nil
+	return "", len(b), nil
 }
 
-// WriteErrors — сколько событий не записалось (для честного финального отчёта).
+// noteSnapshotLoss — счётчики + событие snapshot_lost. Событие пишется на
+// ПЕРВУЮ потерю: повторы того же отказа (например контекст больше потолка на
+// каждом элементе) не засоряют append-only журнал, их видно по счётчику в
+// терминальном событии рана. Само событие может не записаться (диск полон) —
+// тогда это уже потеря события, её считает Event.
+func (j *Journal) noteSnapshotLoss(reason string, size int, cause error) {
+	j.mu.Lock()
+	j.writeErrs++
+	j.snapshotErrs++
+	n := j.snapshotErrs
+	if j.snapErr == nil {
+		j.snapErr = cause
+	}
+	j.mu.Unlock()
+	fmt.Fprintf(os.Stderr, "journal: снапшот контекста потерян (%s): context.json не записан\n", reason)
+	if n > 1 {
+		return
+	}
+	kv := map[string]interface{}{"reason": reason}
+	if size > 0 {
+		kv["bytes"] = size
+	}
+	_ = j.Event("snapshot_lost", kv)
+}
+
+// SnapshotLosses — сколько снапшотов контекста не записалось. Resume после
+// такого рана поднимается с устаревшим состоянием, поэтому терминальный
+// статус рана обязан это отражать.
+func (j *Journal) SnapshotLosses() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.snapshotErrs
+}
+
+// SnapshotLossError — ошибка первой потери снапшота (nil, если потерь нет).
+// Текст отказа безопасен: причина записи и размер, без данных контекста.
+func (j *Journal) SnapshotLossError() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.snapErr
+}
+
+// WriteErrors — сколько записей не удалось (для честного финального отчёта):
+// потерянные события журнала и потерянные снапшоты вместе, разложение —
+// SnapshotLosses().
 func (j *Journal) WriteErrors() int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -136,11 +204,15 @@ func (j *Journal) WriteErrors() int {
 func (j *Journal) Close() {
 	j.mu.Lock()
 	n := j.writeErrs
+	snaps := j.snapshotErrs
 	f := j.f
 	j.f = nil
 	j.mu.Unlock()
-	if n > 0 {
-		fmt.Fprintf(os.Stderr, "journal: %d ошибок записи за ран (журнал неполный!)\n", n)
+	if snaps > 0 {
+		fmt.Fprintf(os.Stderr, "journal: потеряно снапшотов контекста: %d (context.json за ран неполон, --resume восстановит не всё)\n", snaps)
+	}
+	if n > snaps {
+		fmt.Fprintf(os.Stderr, "journal: %d ошибок записи за ран (журнал неполный!)\n", n-snaps)
 	}
 	if f != nil {
 		_ = f.Close()
