@@ -91,6 +91,16 @@ func failEvent(j *journal.Journal, ctx *runctx.Ctx, err error, extra map[string]
 	}
 }
 
+func journalWriteError(j *journal.Journal) error {
+	if j == nil {
+		return nil
+	}
+	if n := j.WriteErrors(); n > 0 {
+		return runErr("journal_write", "журнал неполный: потеряно событий: %d", n)
+	}
+	return nil
+}
+
 func (o RunOptions) cancelled() bool {
 	return o.Ctx != nil && o.Ctx.Err() != nil
 }
@@ -107,77 +117,38 @@ type RunStats struct {
 	RunDir  string
 }
 
-func resumeItemIndex(v interface{}) (int, bool) {
-	switch n := v.(type) {
-	case float64:
-		return int(n), true
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case json.Number:
-		i, err := n.Int64()
-		return int(i), err == nil
-	default:
-		return 0, false
-	}
-}
-
 func resumeCursor(dir string) (int, RunStats, error) {
 	events, err := journal.NewReader(dir).Events()
 	if err != nil {
 		return 0, RunStats{}, err
 	}
 	latest := map[int]string{}
-	seen := map[int]bool{}
-	maxSeen := -1
 	for _, ev := range events {
 		typ, _ := ev["type"].(string)
 		if typ != "item_start" && typ != "item_end" {
 			continue
 		}
-		idx, ok := resumeItemIndex(ev["item_index"])
+		idx, ok := journal.ParseItemIndex(ev["item_index"])
 		if !ok {
 			continue
-		}
-		seen[idx] = true
-		if idx > maxSeen {
-			maxSeen = idx
 		}
 		if typ == "item_end" {
 			status, _ := ev["status"].(string)
 			latest[idx] = status
 		}
 	}
-	count := func(before int) RunStats {
-		var stats RunStats
-		for idx := 0; idx < before; idx++ {
-			if !seen[idx] {
-				continue
-			}
-			status, ended := latest[idx]
-			if ended && (status == "" || status == "ok") {
-				stats.OK++
-			} else if ended && status == "aborted" {
-				stats.Aborted++
-			}
-		}
-		return stats
-	}
-	for idx := 0; idx <= maxSeen; idx++ {
+	var stats RunStats
+	for idx := 0; ; idx++ {
 		status, ended := latest[idx]
-		if ended && (status == "" || status == "ok") {
+		if !ended {
+			return idx, stats, nil
+		}
+		if status == "" || status == "ok" {
+			stats.OK++
 			continue
 		}
-		if idx < maxSeen {
-			return 0, RunStats{}, nil
-		}
-		return idx, count(idx), nil
+		return idx, stats, nil
 	}
-	if maxSeen < 0 {
-		return 0, RunStats{}, nil
-	}
-	return maxSeen + 1, count(maxSeen + 1), nil
 }
 
 func writeAggregates(ctx *runctx.Ctx, agg map[string][]interface{}, steps []*pipeline.Step) {
@@ -264,6 +235,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			st := &pf.Pipeline.Steps[i]
 			if plugin.IsBuiltin(st.Plugin) {
 				continue
+			}
+			if plugin.IsBuiltinNamespace(st.Plugin) {
+				return stats, runErr("E_PLUGIN_LOAD", "шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin)
 			}
 			m, err := eng.LoadManifest(st.Plugin)
 			if err != nil {
@@ -426,6 +400,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	} else {
 		return stats, runErr("foreach_path", "foreach: путь должен начинаться с input. или steps., got %s", pf.Pipeline.Foreach)
 	}
+	if len(items) > pipeline.MaxForeachItems {
+		return stats, runErr("resource_limit", "foreach: %d элементов, максимум %d", len(items), pipeline.MaxForeachItems)
+	}
 
 	itemKey := pf.Pipeline.ForeachItem
 	if itemKey == "" {
@@ -433,6 +410,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	}
 
 	agg := map[string][]interface{}{}
+	aggregateCount := 0
 	if startItemIdx > 0 {
 		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
 			for _, st := range loopSteps {
@@ -448,6 +426,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			}
 		}
 	}
+	for _, values := range agg {
+		aggregateCount += len(values)
+	}
+	if aggregateCount > pipeline.MaxAggregateItems {
+		return stats, runErr("resource_limit", "resume aggregate exceeds %d items", pipeline.MaxAggregateItems)
+	}
 
 	if startItemIdx > 0 {
 		if startItemIdx >= len(items) {
@@ -462,6 +446,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				}
 			}
 			j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted, "resumed": true})
+			if err := journalWriteError(j); err != nil {
+				return stats, err
+			}
 			return stats, nil
 		}
 		opts.logf("  resume: пропускаем %d элементов, продолжаем с %d/%d", startItemIdx, startItemIdx+1, len(items))
@@ -515,6 +502,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			}
 			if v, ok := ctx.Data["steps"].(map[string]interface{})[srcKey]; ok {
 				agg[st.ID] = append(agg[st.ID], v)
+				aggregateCount++
+				if aggregateCount > pipeline.MaxAggregateItems {
+					err := runErr("resource_limit", "aggregate exceeds %d items", pipeline.MaxAggregateItems)
+					failEvent(j, ctx, err, nil)
+					return stats, err
+				}
 			}
 		}
 		if pf.Pipeline.Foreach != "" {
@@ -554,6 +547,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 
 	j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted})
 	opts.logf("\n■ ран завершён: ok=%d aborted=%d → %s", stats.OK, stats.Aborted, j.Dir)
+	if err := journalWriteError(j); err != nil {
+		return stats, err
+	}
 	return stats, nil
 }
 
@@ -624,6 +620,9 @@ func runParallelSegments(eng Engine, pf *pipeline.PipelineFile, steps []*pipelin
 // любой ветке останавливает ран. human_gate и foreach в группах запрещены
 // валидатором.
 func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) ([]string, error) {
+	if len(seg.steps) > pipeline.MaxParallelWidth {
+		return nil, runErr("resource_limit", "parallel_group %q: %d шагов, максимум %d", seg.group, len(seg.steps), pipeline.MaxParallelWidth)
+	}
 	ids := make([]string, 0, len(seg.steps))
 	for _, st := range seg.steps {
 		ids = append(ids, st.ID)
@@ -644,7 +643,11 @@ func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ct
 		wg.Add(1)
 		go func(i int, st *pipeline.Step) {
 			defer wg.Done()
-			bctx := cloneCtx(ctx)
+			bctx, err := cloneCtx(ctx)
+			if err != nil {
+				outs[i] = branchOut{st: st, err: runErr("context_serialization", "параллельная группа %q, шаг %s: %v", seg.group, st.ID, err)}
+				return
+			}
 			action, err := runStepFlow(eng, pf, st, bctx, j, opts)
 			bo := branchOut{st: st, action: action, err: err}
 			if err == nil {
@@ -686,16 +689,19 @@ func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ct
 
 // cloneCtx — глубокая копия контекста (JSON-roundtrip; значения контекста
 // всегда JSON-безопасны).
-func cloneCtx(ctx *runctx.Ctx) *runctx.Ctx {
+func cloneCtx(ctx *runctx.Ctx) (*runctx.Ctx, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context: nil")
+	}
 	b, err := json.Marshal(ctx.Data)
 	if err != nil {
-		panic("context: не сериализуется: " + err.Error())
+		return nil, fmt.Errorf("context: не сериализуется: %w", err)
 	}
 	var data map[string]interface{}
 	if err := json.Unmarshal(b, &data); err != nil {
-		panic("context: не десериализуется: " + err.Error())
+		return nil, fmt.Errorf("context: не десериализуется: %w", err)
 	}
-	return &runctx.Ctx{Data: data}
+	return &runctx.Ctx{Data: data}, nil
 }
 
 // runStepFlow — обёртка над runStep с управляющим потоком v0.20:
@@ -732,6 +738,9 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 	arr, ok := v.([]interface{})
 	if !ok {
 		return "", runErr("foreach_path", "foreach: %s не массив (шаг %s)", st.Foreach, st.ID)
+	}
+	if len(arr) > pipeline.MaxForeachItems {
+		return "", runErr("resource_limit", "шаг %s: foreach: %d элементов, максимум %d", st.ID, len(arr), pipeline.MaxForeachItems)
 	}
 	itemKey := st.ForeachItem
 	if itemKey == "" {
@@ -783,6 +792,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		}
 		return action, nil
 	}
+	if plugin.IsBuiltinNamespace(st.Plugin) {
+		return "", runErr("E_PLUGIN_LOAD", "шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin)
+	}
 	m, err := eng.LoadManifest(st.Plugin)
 	if err != nil {
 		return "", err
@@ -810,7 +822,11 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		opts.logf("    ⚠ %s", w)
 		j.Event("file_ref_warning", map[string]interface{}{"step": st.ID, "message": w})
 	}
-	rawIn, _ := json.Marshal(input)
+	rawIn, err := json.Marshal(input)
+	if err != nil {
+		j.Event("step_failed", map[string]interface{}{"step": st.ID, "code": "context_serialization", "message": err.Error()})
+		return "", runErr("context_serialization", "шаг %s: input не сериализуется: %w", st.ID, err)
+	}
 	timeout := st.Timeout.Duration
 	if timeout == 0 {
 		timeout = 60 * time.Second
@@ -821,6 +837,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		if st.Retry != nil && st.Retry.Attempts > 0 {
 			attempts = st.Retry.Attempts
 		}
+	}
+	if attempts > pipeline.MaxRetryAttempts {
+		attempts = pipeline.MaxRetryAttempts
 	}
 	// v0.17: declare-now — subprocess получает контракт сети (deny → честный плагин откажется от сети)
 	netEnv := "allow"
@@ -934,8 +953,17 @@ func retryDelay(st *pipeline.Step, attempt int) time.Duration {
 		if st.Retry.Delay.Duration > 0 {
 			d = st.Retry.Delay.Duration
 		}
+		if d > pipeline.MaxRetryDelay {
+			d = pipeline.MaxRetryDelay
+		}
 		if st.Retry.Backoff == "exponential" {
-			d = d << (attempt - 1)
+			for i := 1; i < attempt; i++ {
+				if d >= pipeline.MaxRetryDelay/2 {
+					d = pipeline.MaxRetryDelay
+					break
+				}
+				d *= 2
+			}
 		}
 	}
 	return d

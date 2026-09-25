@@ -97,3 +97,10 @@ func TestPinLegacyNoCommit(t *testing.T) {
 		t.Fatalf("legacy (без пина): %v", err)
 	}
 }
+
+func TestPinRejectsShortCommit(t *testing.T) {
+	src, _, _ := pinRepo(t, false)
+	if err := CloneToPinned(src, "v1", "abc123", filepath.Join(t.TempDir(), "plug")); err == nil {
+		t.Fatal("short commit was accepted")
+	}
+}
