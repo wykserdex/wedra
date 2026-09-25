@@ -59,6 +59,17 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	}
 }
 
+func TestPipelinePutRejectsInvalidPolicy(t *testing.T) {
+	handler, _ := secServer(t)
+	body := []byte("format_version: \"0.2\"\npipeline:\n  name: bad_policy\n  gates: typo_policy\n  steps:\n    - id: review\n      plugin: core/human_gate\n")
+	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/policy.yaml", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("invalid policy PUT: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCSRFRejected(t *testing.T) {
 	handler, _ := secServer(t)
 	body := []byte(`{"name":"t","input":[],"steps":[],"unsupported":[]}`)
