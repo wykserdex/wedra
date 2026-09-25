@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,11 +56,41 @@ type wireResponse struct {
 
 func pythonInterpreter() (string, error) {
 	for _, name := range []string{"python3", "python"} {
-		if p, err := exec.LookPath(name); err == nil {
-			return p, nil
+		p, err := exec.LookPath(name)
+		if err != nil {
+			continue
 		}
+		if runtime.GOOS == "windows" {
+			out, probeErr := exec.Command(p, "-X", "utf8", "-c", "import sys; print(sys.executable)").Output()
+			candidate := strings.TrimSpace(string(out))
+			if probeErr == nil {
+				if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+					return candidate, nil
+				}
+			}
+		}
+		return p, nil
 	}
 	return "", fmt.Errorf("не найден интерпретатор python (python3/python)")
+}
+
+func markContextResult(parent, ctx context.Context, res *ExecResult) bool {
+	if parent.Err() != nil {
+		res.Platform, res.Cancelled, res.ErrCode, res.ErrMsg = true, true, "cancelled", "ран отменён"
+		res.ExitCode = 2
+		return true
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		res.Platform, res.ErrCode, res.ErrMsg = true, "timeout", "плагин превысил таймаут"
+		res.ExitCode = 2
+		return true
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		res.Platform, res.Cancelled, res.ErrCode, res.ErrMsg = true, true, "cancelled", "плагин отменён"
+		res.ExitCode = 2
+		return true
+	}
+	return false
 }
 
 func Exec(m *Manifest, inputJSON []byte, timeout time.Duration) *ExecResult {
@@ -133,7 +164,15 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// Убийство группы — в момент таймаута (goroutine): Wait ждёт закрытия
 	// пайпов, унаследованных дочерними, и без group kill «замрёт» до их
 	// естественной смерти (sleep 30 = 30 секунд).
-	setProcGroup(cmd)
+	if err := prepareProcessGroup(cmd); err != nil {
+		res.Platform, res.ErrCode, res.ErrMsg = true, "process_group", err.Error()
+		res.ExitCode = 2
+		return res
+	}
+	cmd.Cancel = func() error {
+		killProcessGroup(cmd)
+		return nil
+	}
 	// v0.23: stdout/stderr с лимитом (гигантский вывод = не вся память процесса)
 	stdoutCap, stderrCap := 16<<20, 1<<20
 	stdout := &cappedWriter{buf: &bytes.Buffer{}, limit: stdoutCap}
@@ -144,10 +183,26 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// Start отдельно от Wait: после Start() cmd.Process уже установлена,
 	// и гоорутина group-kill читает её без data race (проверено -race).
 	if serr := cmd.Start(); serr != nil {
+		cleanupProcessGroup(cmd)
+		if markContextResult(parent, ctx, res) {
+			return res
+		}
 		res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", serr.Error()
 		res.ExitCode = 2
 		return res
 	}
+	if aerr := attachProcessGroup(cmd); aerr != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		cleanupProcessGroup(cmd)
+		if markContextResult(parent, ctx, res) {
+			return res
+		}
+		res.Platform, res.ErrCode, res.ErrMsg = true, "process_group", aerr.Error()
+		res.ExitCode = 2
+		return res
+	}
+	defer cleanupProcessGroup(cmd)
 	go func() {
 		<-ctx.Done()
 		killProcessGroup(cmd)
