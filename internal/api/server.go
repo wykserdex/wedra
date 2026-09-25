@@ -78,6 +78,17 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 	}
 }
 
+func (s *Server) HTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           s.Routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+}
+
 // runEngine — свежий движок для рана (без кэша манифестов прошлых ранов).
 func (s *Server) runEngine() *core.Engine {
 	eng := core.NewEngine()

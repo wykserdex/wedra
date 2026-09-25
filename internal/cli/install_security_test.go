@@ -72,7 +72,7 @@ pipeline:
     - id: review
       plugin: core/human_gate
 `)
-	if _, err := installPipelinePreset(raw, "invalid", ""); err == nil {
+	if _, err := installPipelinePreset(raw, "invalid", "", presetProvenance{}); err == nil {
 		t.Fatal("invalid preset was accepted")
 	}
 	if _, err := os.Stat(filepath.Join("examples", "invalid.yaml")); !os.IsNotExist(err) {
@@ -127,7 +127,7 @@ pipeline:
       bind:
         text: input.text
 `)
-	result, err := installPipelinePreset(raw, "pinned", filepath.Join(root, "registry.yaml"))
+	result, err := installPipelinePreset(raw, "pinned", filepath.Join(root, "registry.yaml"), presetProvenance{})
 	if err != nil {
 		t.Fatal(err)
 	}

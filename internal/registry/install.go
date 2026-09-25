@@ -125,7 +125,7 @@ func cloneRef(source, ref, dir string) error {
 		return err
 	}
 	cmd := exec.Command("git", "-c", "core.autocrlf=false",
-		"clone", "--depth", "1", "--branch", ref, "--quiet", source, dir)
+		"clone", "--depth", "1", "--branch", ref, "--quiet", "--", source, dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone %s@%s: %s: %s", source, ref, err, string(out))

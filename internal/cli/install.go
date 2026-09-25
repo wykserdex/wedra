@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -196,7 +199,16 @@ type pipelineInstallResult struct {
 	OutFile    string
 	Installed  int
 	Present    int
+	Digest     string // sha256 установленного пресета (провенанс)
 	Warnings   []string
+}
+
+// presetProvenance — откуда взяты байты пресета. Пишется sidecar'ом рядом с
+// установленным файлом, чтобы «что именно лежит в examples/» можно было
+// сверить позже, а не верить на слово.
+type presetProvenance struct {
+	Source    string // URL без userinfo/query, либо путь/источник реестра
+	SourceSum string // "sha256:<hex>" исходных байт (пусто, если не считали)
 }
 
 func commitPresetFile(staged, target string) error {
@@ -230,7 +242,7 @@ func commitPresetFile(staged, target string) error {
 	return os.Remove(backupName)
 }
 
-func installPipelinePreset(raw []byte, fallbackName, registrySrc string) (pipelineInstallResult, error) {
+func installPipelinePreset(raw []byte, fallbackName, registrySrc string, prov presetProvenance) (pipelineInstallResult, error) {
 	pf, err := pipeline.LoadPipelineFileFromBytes(raw)
 	if err != nil {
 		return pipelineInstallResult{}, fmt.Errorf("пресет не распарсился как пайплайн: %w", err)
@@ -318,10 +330,22 @@ func installPipelinePreset(raw []byte, fallbackName, registrySrc string) (pipeli
 	if len(errs) > 0 {
 		return result, fmt.Errorf("валидация пресета: %s", strings.Join(errs, "; "))
 	}
+	// Провенанс: sidecar есть, а файл после установки разошёлся — предупреждаем
+	// (не блокируем: examples/ правят руками), но факт фиксируем.
+	if _, err := os.Stat(outFile + presetProvenanceExt); err == nil {
+		if err := verifyPresetProvenance(outFile); err != nil {
+			result.Warnings = append(result.Warnings, "провенанс: "+err.Error())
+		}
+	}
 	if err := commitPresetFile(stagedName, outFile); err != nil {
 		return result, err
 	}
 	committed = true
+	digest, err := writePresetProvenance(outFile, prov)
+	if err != nil {
+		return result, err
+	}
+	result.Digest = digest
 	return result, nil
 }
 
@@ -339,76 +363,341 @@ func RunPipelineInstall(args []string) {
 		os.Exit(2)
 	}
 
-	raw, name, err := fetchPreset(preset, registrySrc, "")
+	raw, name, prov, err := fetchPreset(preset, registrySrc, "")
 	if err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
-	result, err := installPipelinePreset(raw, name, registrySrc)
+	result, err := installPipelinePreset(raw, name, registrySrc, prov)
 	if err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
 	fmt.Printf("▶ пресет %q → %s\n", result.PresetName, result.OutFile)
 	fmt.Printf("  плагины: %d установлено, %d уже на месте\n", result.Installed, result.Present)
+	fmt.Printf("  провенанс: %s %s\n", result.Digest, result.OutFile+presetProvenanceExt)
 	for _, warning := range result.Warnings {
 		fmt.Println("  · предупреждение:", warning)
 	}
 	fmt.Printf("■ пресет %q готов: %s --yes\n", result.PresetName, result.OutFile)
 }
 
-// fetchPreset — имя из реестра, локальный .yaml или http(s) URL.
-func fetchPreset(preset, registrySrc, localSource string) ([]byte, string, error) {
+// fetchPreset — имя из реестра, локальный .yaml или https-URL.
+func fetchPreset(preset, registrySrc, localSource string) ([]byte, string, presetProvenance, error) {
 	// 1) локальный файл
 	if strings.HasSuffix(preset, ".yaml") || strings.HasSuffix(preset, ".yml") {
 		if _, e := os.Stat(preset); e == nil {
 			raw, e2 := os.ReadFile(preset)
+			if e2 != nil {
+				return nil, "", presetProvenance{}, e2
+			}
 			name := strings.TrimSuffix(filepath.Base(preset), filepath.Ext(preset))
-			return raw, name, e2
+			return raw, name, presetProvenance{Source: filepath.Clean(preset), SourceSum: sha256Hex(raw)}, nil
 		}
 	}
-	// 2) URL
-	if strings.HasPrefix(preset, "http://") || strings.HasPrefix(preset, "https://") {
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, e2 := client.Get(preset)
-		if e2 != nil {
-			return nil, "", fmt.Errorf("загрузка %s: %w", preset, e2)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			return nil, "", fmt.Errorf("%s: HTTP %d", preset, resp.StatusCode)
-		}
-		raw, e2 := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		if e2 != nil {
-			return nil, "", e2
-		}
-		name := strings.TrimSuffix(filepath.Base(preset), filepath.Ext(preset))
-		return raw, name, nil
+	// 2) URL — только https, без cleartext и без уходов на чужой host
+	if isPresetURLRef(preset) {
+		return downloadPresetHTTPS(preset)
 	}
 	// 3) реестр
 	h, e2 := registry.Load(registrySrc)
 	if e2 != nil {
-		return nil, "", e2
+		return nil, "", presetProvenance{}, e2
 	}
 	defer h.Close()
 	entry, ok := h.GetPreset(preset)
 	if !ok {
 		names := h.PresetNames()
 		sort.Strings(names)
-		return nil, "", fmt.Errorf("пресет %q нет в реестре (доступно: %s)", preset, strings.Join(names, ", "))
+		return nil, "", presetProvenance{}, fmt.Errorf("пресет %q нет в реестре (доступно: %s)", preset, strings.Join(names, ", "))
 	}
 	if err := registry.ValidateEntry(entry, true); err != nil {
-		return nil, "", err
+		return nil, "", presetProvenance{}, err
 	}
 	// для пресета src — путь к самому файлу
 	src, tmp, e2 := pluginSourceDir(entry, h.Dir, entry.Version, localSource)
 	if e2 != nil {
-		return nil, "", e2
+		return nil, "", presetProvenance{}, e2
 	}
 	defer os.RemoveAll(tmp)
 	raw, e2 := os.ReadFile(src)
 	if e2 != nil {
-		return nil, "", fmt.Errorf("пресет %s: %w", preset, e2)
+		return nil, "", presetProvenance{}, fmt.Errorf("пресет %s: %w", preset, e2)
 	}
-	return raw, preset, nil
+	return raw, preset, presetProvenance{Source: redactProvenanceSource(entry.Source), SourceSum: sha256Hex(raw)}, nil
+}
+
+// ── загрузка пресета по URL ────────────────────────────────────────────────
+//
+// Прямой URL — это недоверенный вход наравне с реестром: цепочку «имя пресета →
+// байты → исполняемый конвейер» нельзя ронять до явной проверки источника.
+//   - только https: cleartext http:// отклоняется (пресет = исполняемый код);
+//   - редирект проверяется на каждом ходу: та же схема и тот же host, иначе отказ;
+//   - опциональный пин «#sha256=<hex>» сверяется с полученными байтами;
+//   - побочка: рядом с установленным пресетом пишется .sha256 sidecar.
+
+const (
+	presetFetchTimeout  = 15 * time.Second
+	presetMaxRedirects  = 5
+	presetMaxBytes      = 1 << 20
+	presetProvenanceExt = ".sha256"
+)
+
+// presetHTTPClient — фабрика клиента загрузки (тесты подменяют транспорт).
+var presetHTTPClient = newPresetClient
+
+// newPresetClient — https-only клиент: редирект допускается только внутри того
+// же источника (та же схема + тот же host). Смена схемы/host, cleartext в
+// редиректе и длинная цепочка — отказ, а не тихая смена того, что ставим.
+func newPresetClient() *http.Client {
+	c := &http.Client{Timeout: presetFetchTimeout}
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= presetMaxRedirects {
+			return fmt.Errorf("больше %d редиректов", presetMaxRedirects)
+		}
+		if err := checkPresetURL(req.URL); err != nil {
+			return fmt.Errorf("редирект отклонён: %w", err)
+		}
+		origin := via[0].URL
+		if !strings.EqualFold(req.URL.Scheme, origin.Scheme) || !strings.EqualFold(req.URL.Host, origin.Host) {
+			return fmt.Errorf("редирект на другой источник: %s → %s", origin.Redacted(), req.URL.Redacted())
+		}
+		return nil
+	}
+	return c
+}
+
+// isPresetURLRef — ref похож на URL (любая схема). Ветка загрузки сама решает,
+// что схема не https: отказ с внятной ошибкой вместо «пресет не найден».
+func isPresetURLRef(ref string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(ref)), "://")
+}
+
+// checkPresetURL — только https и только с host. Redacted(): креды в лог не идут.
+func checkPresetURL(u *url.URL) error {
+	if u == nil {
+		return fmt.Errorf("пустой URL пресета")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+	case "http":
+		return fmt.Errorf("cleartext http:// запрещён (%s) — только https://", u.Redacted())
+	case "":
+		return fmt.Errorf("URL пресета без схемы: %s", u.Redacted())
+	default:
+		return fmt.Errorf("неподдерживаемая схема %q — только https://", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL пресета без host: %s", u.Redacted())
+	}
+	return nil
+}
+
+// parsePresetRef — разбирает ref: снимает фрагмент-пин (#sha256=…),
+// требует https. Возвращает чистый URL, ожидаемый digest ("" — пин не задан).
+func parsePresetRef(ref string) (*url.URL, string, error) {
+	u, err := url.Parse(strings.TrimSpace(ref))
+	if err != nil {
+		return nil, "", fmt.Errorf("некорректный URL пресета %q: %w", ref, err)
+	}
+	want, err := presetDigestPin(u.Fragment)
+	if err != nil {
+		return nil, "", fmt.Errorf("URL пресета %q: %w", ref, err)
+	}
+	u.Fragment = ""
+	u.RawFragment = ""
+	if err := checkPresetURL(u); err != nil {
+		return nil, "", err
+	}
+	return u, want, nil
+}
+
+// presetDigestPin — «sha256=<64 hex>» из фрагмента URL. Любой другой фрагмент —
+// ошибка: молча выкинуть нельзя, иначе пин «не сработал» и это не видно.
+func presetDigestPin(fragment string) (string, error) {
+	f := strings.TrimSpace(fragment)
+	if f == "" {
+		return "", nil
+	}
+	v, ok := strings.CutPrefix(strings.ToLower(f), "sha256=")
+	if !ok {
+		return "", fmt.Errorf("нераспознанный фрагмент %q (ожидается sha256=<hex>)", f)
+	}
+	v = strings.TrimSpace(v)
+	if len(v) != 64 {
+		return "", fmt.Errorf("пин sha256 должен быть 64 hex-символа, got %d", len(v))
+	}
+	if _, err := hex.DecodeString(v); err != nil {
+		return "", fmt.Errorf("пин sha256 не hex: %q", v)
+	}
+	return "sha256:" + v, nil
+}
+
+// downloadPresetHTTPS — загрузка пресета: https, редиректы внутри host,
+// тело ограничено, пин (если задан) сверяется с полученными байтами.
+func downloadPresetHTTPS(ref string) ([]byte, string, presetProvenance, error) {
+	var none presetProvenance
+	u, want, err := parsePresetRef(ref)
+	if err != nil {
+		return nil, "", none, err
+	}
+	name := strings.TrimSuffix(filepath.Base(u.Path), filepath.Ext(u.Path))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return nil, "", none, fmt.Errorf("URL пресета без имени файла: %s", u.Redacted())
+	}
+	target := u.String()
+	resp, err := presetHTTPClient().Get(target)
+	if err != nil {
+		return nil, "", none, fmt.Errorf("загрузка %s: %w", target, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, "", none, fmt.Errorf("%s: HTTP %d", target, resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, presetMaxBytes))
+	if err != nil {
+		return nil, "", none, err
+	}
+	got := sha256Hex(raw)
+	if want != "" && !strings.EqualFold(want, got) {
+		return nil, "", none, fmt.Errorf("пресет %s: sha256 не совпал (ожидали %s, получили %s)", target, want, got)
+	}
+	// Провенанс — фактический адрес, откуда пришли байты (тот же host: редиректы
+	// проверены), без userinfo/query.
+	final := u
+	if resp.Request != nil && resp.Request.URL != nil {
+		final = resp.Request.URL
+	}
+	return raw, name, presetProvenance{Source: redactPresetURL(final), SourceSum: got}, nil
+}
+
+// redactPresetURL — источник для sidecar: без userinfo и query (там токены),
+// только схема+host+путь — этого хватает, чтобы понять, откуда файл.
+func redactPresetURL(u *url.URL) string {
+	clean := *u
+	clean.User = nil
+	clean.RawQuery = ""
+	clean.Fragment = ""
+	clean.RawFragment = ""
+	return clean.String()
+}
+
+// redactProvenanceSource — то же для источника из реестра: URL-вид без
+// userinfo/query, локальный путь как есть.
+func redactProvenanceSource(source string) string {
+	trimmed := strings.TrimSpace(source)
+	if !strings.Contains(trimmed, "://") {
+		return trimmed
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return trimmed
+	}
+	return redactPresetURL(u)
+}
+
+func sha256Hex(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// ── провенанс пресета (sidecar) ────────────────────────────────────────────
+
+// writePresetProvenance — пишет <preset>.yaml.sha256 рядом с установленным
+// пресетом и сразу сверяет записанное с файлом на диске. Формат первой строки
+// совпадает с sha256sum, поэтому sidecar проверяется и им:
+//
+//	cd examples && sha256sum -c foo.yaml.sha256
+//
+// Возвращает digest установленного файла.
+func writePresetProvenance(outFile string, prov presetProvenance) (string, error) {
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		return "", fmt.Errorf("провенанс %s: %w", outFile, err)
+	}
+	digest := sha256Hex(raw)
+	body := strings.TrimPrefix(digest, "sha256:") + "  " + filepath.Base(outFile) + "\n"
+	if prov.Source != "" {
+		body += "# source: " + prov.Source + "\n"
+	}
+	if prov.SourceSum != "" {
+		body += "# source_sha256: " + prov.SourceSum + "\n"
+	}
+	sidecar := outFile + presetProvenanceExt
+	if err := writeFileAtomic(sidecar, []byte(body), 0o644); err != nil {
+		return "", fmt.Errorf("провенанс %s: %w", sidecar, err)
+	}
+	if err := verifyPresetProvenance(outFile); err != nil {
+		return "", err
+	}
+	return digest, nil
+}
+
+// verifyPresetProvenance — sidecar против файла на диске. Нет sidecar —
+// os.ErrNotExist (вызывающий сам решает, это ошибка или повод промолчать).
+func verifyPresetProvenance(outFile string) error {
+	raw, err := os.ReadFile(outFile + presetProvenanceExt)
+	if err != nil {
+		return err
+	}
+	sum, name := "", ""
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		sum = fields[0]
+		if len(fields) > 1 {
+			name = fields[1]
+		}
+		break
+	}
+	if len(sum) != 64 {
+		return fmt.Errorf("провенанс %s%s: нечитаемая сумма %q", outFile, presetProvenanceExt, sum)
+	}
+	if _, err := hex.DecodeString(sum); err != nil {
+		return fmt.Errorf("провенанс %s%s: сумма не hex: %q", outFile, presetProvenanceExt, sum)
+	}
+	if name != "" && name != filepath.Base(outFile) {
+		return fmt.Errorf("провенанс %s%s: записан для %q, а лежит %q", outFile, presetProvenanceExt, name, filepath.Base(outFile))
+	}
+	content, err := os.ReadFile(outFile)
+	if err != nil {
+		return err
+	}
+	if got := strings.TrimPrefix(sha256Hex(content), "sha256:"); !strings.EqualFold(got, sum) {
+		return fmt.Errorf("пресет %s изменён после установки: %s ≠ %s", outFile, got, sum)
+	}
+	return nil
+}
+
+// writeFileAtomic — запись через temp + rename в том же каталоге.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	staged, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := staged.Name()
+	if _, err := staged.Write(data); err != nil {
+		staged.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := staged.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }

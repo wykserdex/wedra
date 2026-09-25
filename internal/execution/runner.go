@@ -345,6 +345,13 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: %w", opts.Resume, err)
 		}
+		// context.json приходит с диска: проверяем форму до любого исполнения.
+		// Без этого steps: 5 (или отсутствующий input) роняли ран panic'ом в
+		// SetStep/SetInput — вместо типизированной ошибки.
+		data, err = runctx.Normalize(data)
+		if err != nil {
+			return stats, fmt.Errorf("--resume %s: context.json не той формы: %w", opts.Resume, err)
+		}
 		ctx = &runctx.Ctx{Data: data}
 		j, err = store.OpenAppend(opts.Resume)
 		if err != nil {
@@ -576,7 +583,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			if st.Foreach != "" {
 				srcKey = st.ID + "_all"
 			}
-			if v, ok := ctx.Data["steps"].(map[string]interface{})[srcKey]; ok {
+			if v, ok := ctx.Steps()[srcKey]; ok {
 				agg[st.ID] = append(agg[st.ID], v)
 				aggregateCount++
 				if aggregateCount > pipeline.MaxAggregateItems {
@@ -835,7 +842,7 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 			j.Event("foreach_item_failed", map[string]interface{}{"step": st.ID, "index": i, "reason": "on_error=stop"})
 			return "", fmt.Errorf("foreach шаг %s: элемент %d/%d упал (on_error=stop) — ран остановлен", st.ID, i+1, len(arr))
 		}
-		if out, ok := ctx.Data["steps"].(map[string]interface{})[st.ID]; ok {
+		if out, ok := ctx.Steps()[st.ID]; ok {
 			results = append(results, out)
 		}
 		j.Event("foreach_item_end", map[string]interface{}{"step": st.ID, "index": i})

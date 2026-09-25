@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+func TestPruneRunsKeepsBoundedCompletedState(t *testing.T) {
+	srv := &Server{runs: map[string]*runState{}}
+	for i := 0; i < maxRetainedRuns; i++ {
+		done := make(chan struct{})
+		close(done)
+		srv.runs[strconv.Itoa(i)] = &runState{done: done}
+	}
+	active := make(chan struct{})
+	srv.runs["active"] = &runState{done: active}
+	srv.pruneRunsLocked()
+	if len(srv.runs) >= maxRetainedRuns+1 {
+		t.Fatalf("completed runs were not pruned: %d", len(srv.runs))
+	}
+	if _, ok := srv.runs["active"]; !ok {
+		t.Fatal("active run was pruned")
+	}
+}
+
 func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]interface{}) {
 	t.Helper()
 	d := filepath.Join(dir, id)

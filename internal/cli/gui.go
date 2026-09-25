@@ -3,12 +3,10 @@ package cli
 import (
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 
 	"wedra/internal/api"
 	"wedra/internal/guidirs"
@@ -62,8 +60,6 @@ func RunGUI(args []string) {
 		}
 		srv.EnableSession(secret)
 	}
-	handler := srv.Routes()
-
 	ver := api.Version
 	if raw, err := os.ReadFile("VERSION"); err == nil {
 		ver = strings.TrimSpace(string(raw))
@@ -101,14 +97,7 @@ func RunGUI(args []string) {
 		}()
 	}
 
-	server := &http.Server{
-		Addr:              listen,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
+	server := srv.HTTPServer(listen)
 	if err := server.ListenAndServe(); err != nil {
 		fmt.Println("ошибка сервера:", err)
 		os.Exit(1)

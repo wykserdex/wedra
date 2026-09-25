@@ -129,16 +129,23 @@ func Load(source string) (*Handle, error) {
 		return &Handle{Registry: reg, Dir: filepath.Dir(source)}, nil
 	}
 
-	// git-URL (или путь к bare-репо)
-	tmp, err := os.MkdirTemp("", "wedra-registry-*")
-	if err != nil {
-		return nil, err
-	}
+	// git-URL (или путь к bare-репо).
+	// Источник валидируется ДО exec: ref вида --upload-pack=... иначе станет
+	// опцией git (и выполнит произвольную команду от нашего имени). Аргумент-
+	// разделитель -- закрывает класс инъекции для всего, что валидатор пропустит;
+	// на Windows-пути и URL он безвреден (exec не проходит через shell).
 	ref := source
 	if strings.HasSuffix(source, "/") {
 		ref = strings.TrimSuffix(source, "/")
 	}
-	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", ref, tmp)
+	if err := ValidateSource(ref); err != nil {
+		return nil, fmt.Errorf("источник реестра: %w", err)
+	}
+	tmp, err := os.MkdirTemp("", "wedra-registry-*")
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", "--", ref, tmp)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		os.RemoveAll(tmp)
