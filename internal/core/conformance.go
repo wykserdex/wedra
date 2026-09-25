@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,8 +62,8 @@ func defaultConformanceFixturesDir(fixturesDir string) string {
 
 // RunConformance — батарея ядра по фикстурам fixturesDir
 // (по умолчанию conformance/fixtures/v0.2, затем development testdata):
-// handshake, big_stdout 17MB→protocol_violation, big_stderr 2MB→ok,
-// cancel (sleeper+отмена → cancelled, не timeout), error_codes (golden Issue).
+// строгая загрузка всех fixture manifests, handshake, big_stdout 17MB→protocol_violation,
+// big_stderr 2MB→ok, cancel (sleeper+отмена → cancelled, не timeout), error_codes (golden Issue).
 func RunConformance(fixturesDir string) ConformanceReport {
 	fixturesDir = defaultConformanceFixturesDir(fixturesDir)
 	var checks []ConformanceCheck
@@ -74,6 +75,34 @@ func RunConformance(fixturesDir string) ConformanceReport {
 			return nil
 		}
 		return m
+	}
+
+	entries, readErr := os.ReadDir(fixturesDir)
+	loadedFixtures := 0
+	var fixtureErrors []string
+	if readErr != nil {
+		fixtureErrors = append(fixtureErrors, readErr.Error())
+	} else {
+		manifestEngine := NewEngine()
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			dir := filepath.Join(fixturesDir, entry.Name())
+			if _, err := os.Stat(filepath.Join(dir, "plugin.yaml")); err != nil {
+				continue
+			}
+			if _, err := manifestEngine.LoadManifest(dir); err != nil {
+				fixtureErrors = append(fixtureErrors, entry.Name()+": "+err.Error())
+				continue
+			}
+			loadedFixtures++
+		}
+	}
+	if len(fixtureErrors) == 0 && loadedFixtures > 0 {
+		checks = append(checks, confPass("fixture_manifests_"+strconv.Itoa(loadedFixtures)))
+	} else {
+		checks = append(checks, confFail("fixture_manifests", strings.Join(fixtureErrors, "; ")))
 	}
 
 	// 1. handshake: echo_ok

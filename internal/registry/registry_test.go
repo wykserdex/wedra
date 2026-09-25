@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -216,5 +217,27 @@ func TestRegistryRejectsUnknownFields(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nunknown: true\nplugins: {}\n")
 	if _, err := Load(tmp); err == nil {
 		t.Fatal("unknown registry field was accepted")
+	}
+}
+
+func TestCopyDirPreservesExecutableMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix executable bits")
+	}
+	src := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "copy")
+	path := filepath.Join(src, "run.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dst, "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("executable bit was lost: %v", info.Mode())
 	}
 }

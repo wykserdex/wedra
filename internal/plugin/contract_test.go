@@ -153,6 +153,13 @@ func TestValidateManifestRejectsInvalidContract(t *testing.T) {
 	}
 }
 
+func TestEnvelopeUsesCanonicalProtocolVersion(t *testing.T) {
+	env := NewEnvelope("req", map[string]string{"ok": "yes"})
+	if env.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("unexpected envelope protocol version: %q", env.ProtocolVersion)
+	}
+}
+
 func TestDecodeManifestRejectsUnknownFields(t *testing.T) {
 	raw := []byte("id: safe_plugin\nversion: 0.1.0\nplatform_api: ^0.1\nruntime:\n  type: python\n  entry: main.py\noutput:\n  result:\n    type: string\nunknown: true\n")
 	var m pipeline.Manifest
