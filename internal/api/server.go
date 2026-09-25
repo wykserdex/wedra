@@ -355,9 +355,15 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "read body: "+err.Error(), 400)
 			return
 		}
-		// валидация YAML перед сохранением
-		if _, err := pipeline.LoadPipelineFileFromBytes(data); err != nil {
+		pf, err := pipeline.LoadPipelineFileFromBytes(data)
+		if err != nil {
 			http.Error(w, "invalid yaml: "+err.Error(), 400)
+			return
+		}
+		issues := pipeline.ValidateIssues(pf, s.Engine)
+		errs, _ := pipeline.SplitIssues(issues)
+		if len(errs) > 0 {
+			writeJSON(w, 400, map[string]interface{}{"ok": false, "issues": issues, "errors": errs})
 			return
 		}
 		if err := os.WriteFile(path, data, 0644); err != nil {
