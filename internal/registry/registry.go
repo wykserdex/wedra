@@ -1,10 +1,14 @@
 package registry
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -155,8 +159,20 @@ func Load(source string) (*Handle, error) {
 
 func parseRegistry(raw []byte) (*Registry, error) {
 	var reg Registry
-	if err := yaml.Unmarshal(raw, &reg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&reg); err != nil {
 		return nil, fmt.Errorf("registry.yaml: некорректный YAML: %w", err)
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("registry.yaml: несколько YAML-документов")
+		}
+		return nil, fmt.Errorf("registry.yaml: некорректный YAML: %w", err)
+	}
+	if reg.Version != FormatVersion {
+		return nil, fmt.Errorf("registry.yaml: version %q, ожидается %q", reg.Version, FormatVersion)
 	}
 	reg.Plugins = normalizeEntries(reg.Plugins)
 	reg.Presets = normalizeEntries(reg.Presets)
@@ -164,10 +180,7 @@ func parseRegistry(raw []byte) (*Registry, error) {
 		if err := ValidateComponent(name); err != nil {
 			return nil, fmt.Errorf("registry.yaml: плагин: %w", err)
 		}
-		if !safeEntryPath(entry.Path) {
-			return nil, fmt.Errorf("registry.yaml: плагин %q: небезопасный path %q", name, entry.Path)
-		}
-		if err := ValidateCommit(entry.Commit); err != nil {
+		if err := ValidateEntry(entry, false); err != nil {
 			return nil, fmt.Errorf("registry.yaml: плагин %q: %w", name, err)
 		}
 	}
@@ -175,10 +188,7 @@ func parseRegistry(raw []byte) (*Registry, error) {
 		if err := ValidateComponent(name); err != nil {
 			return nil, fmt.Errorf("registry.yaml: пресет: %w", err)
 		}
-		if !safeEntryPath(entry.Path) {
-			return nil, fmt.Errorf("registry.yaml: пресет %q: небезопасный path %q", name, entry.Path)
-		}
-		if err := ValidateCommit(entry.Commit); err != nil {
+		if err := ValidateEntry(entry, false); err != nil {
 			return nil, fmt.Errorf("registry.yaml: пресет %q: %w", name, err)
 		}
 	}
@@ -194,8 +204,79 @@ func safeEntryPath(path string) bool {
 	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
+var componentNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+
+func ValidateEntry(entry Entry, requirePin bool) error {
+	if !safeEntryPath(entry.Path) {
+		return fmt.Errorf("небезопасный path %q", entry.Path)
+	}
+	if err := ValidateSource(entry.Source); err != nil {
+		return err
+	}
+	if err := validateSourceVersion(entry.Version); err != nil {
+		return err
+	}
+	if err := ValidateCommit(entry.Commit); err != nil {
+		return err
+	}
+	if requirePin && isRemoteSource(entry.Source) && entry.Commit == "" {
+		return fmt.Errorf("удалённый source %q требует полный commit pin", entry.Source)
+	}
+	return nil
+}
+
+func ValidateSource(source string) error {
+	source = strings.TrimSpace(source)
+	if source == "" || source != strings.TrimSpace(source) || strings.ContainsAny(source, "\x00\r\n\t ") || strings.HasPrefix(source, "-") || strings.Contains(source, "::") {
+		return fmt.Errorf("небезопасный source %q", source)
+	}
+	if len(source) >= 2 && source[1] == ':' {
+		return nil
+	}
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return fmt.Errorf("некорректный source %q: %w", source, err)
+	}
+	if parsed.Scheme == "" {
+		if strings.HasPrefix(source, "git@") && !strings.Contains(source, ":") {
+			return fmt.Errorf("некорректный git source %q", source)
+		}
+		return nil
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		if parsed.Host == "" {
+			return fmt.Errorf("source %q: отсутствует host", source)
+		}
+	case "ssh", "git":
+		if parsed.Host == "" {
+			return fmt.Errorf("source %q: отсутствует host", source)
+		}
+	case "file":
+		if parsed.Path == "" {
+			return fmt.Errorf("source %q: отсутствует путь", source)
+		}
+	default:
+		return fmt.Errorf("source %q: неподдерживаемая схема %q", source, parsed.Scheme)
+	}
+	return nil
+}
+
+func validateSourceVersion(version string) error {
+	version = strings.TrimSpace(version)
+	if version == "" || version != strings.TrimSpace(version) || strings.ContainsAny(version, "\x00\r\n\t ") || strings.HasPrefix(version, "-") || strings.Contains(version, "..") || strings.Contains(version, "@{") || strings.Contains(version, "\\") || strings.Contains(version, "//") {
+		return fmt.Errorf("небезопасный version %q", version)
+	}
+	return nil
+}
+
+func isRemoteSource(source string) bool {
+	lower := strings.ToLower(strings.TrimSpace(source))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "ssh://") || strings.HasPrefix(lower, "git://") || strings.HasPrefix(lower, "file://") || strings.HasPrefix(lower, "git@")
+}
+
 func ValidateComponent(name string) error {
-	if name == "" || strings.TrimSpace(name) != name || name == "." || name == ".." || strings.ContainsAny(name, `/\:`) || strings.ContainsRune(name, 0) || filepath.IsAbs(name) || filepath.Clean(name) != name {
+	if name == "" || strings.TrimSpace(name) != name || name == "." || name == ".." || strings.ContainsAny(name, `/\:`) || strings.ContainsRune(name, 0) || filepath.IsAbs(name) || filepath.Clean(name) != name || !componentNamePattern.MatchString(name) {
 		return fmt.Errorf("небезопасное имя компонента %q", name)
 	}
 	return nil

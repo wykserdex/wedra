@@ -59,6 +59,9 @@ func doPluginInstall(name, ver, registrySrc, dest string) error {
 		sort.Strings(names)
 		return fmt.Errorf("плагин %q нет в реестре (доступно: %s)", name, strings.Join(names, ", "))
 	}
+	if err := registry.ValidateEntry(entry, true); err != nil {
+		return err
+	}
 	version := ver
 	if version == "" {
 		version = entry.Version
@@ -336,6 +339,9 @@ func fetchPreset(preset, registrySrc, localSource string) ([]byte, string, error
 		names := h.PresetNames()
 		sort.Strings(names)
 		return nil, "", fmt.Errorf("пресет %q нет в реестре (доступно: %s)", preset, strings.Join(names, ", "))
+	}
+	if err := registry.ValidateEntry(entry, true); err != nil {
+		return nil, "", err
 	}
 	// для пресета src — путь к самому файлу
 	src, tmp, e2 := pluginSourceDir(entry, h.Dir, entry.Version, localSource)

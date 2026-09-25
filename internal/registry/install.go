@@ -140,6 +140,9 @@ func CopyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink в plugin source запрещён: %s", path)
+		}
 		if d.IsDir() {
 			base := filepath.Base(path)
 			if base == ".git" || base == ".wedra" {

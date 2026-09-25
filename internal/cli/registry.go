@@ -49,8 +49,17 @@ func RunRegistryValidate(args []string) {
 		entry, _ := h.GetPlugin(name)
 		ok := true
 		detail := ""
-		root, err := resolveRoot(entry, h.Dir, localSource, cache, &tmpRoots)
-		if err != nil {
+		if err := registry.ValidateEntry(entry, true); err != nil {
+			ok, detail = false, err.Error()
+		}
+		var root *srcRoot
+		var err error
+		if ok {
+			root, err = resolveRoot(entry, h.Dir, localSource, cache, &tmpRoots)
+		}
+		if !ok {
+			detail = "pin: " + detail
+		} else if err != nil {
 			ok, detail = false, "source: "+err.Error()
 		} else {
 			dir := filepath.Join(root.root, entry.Path)

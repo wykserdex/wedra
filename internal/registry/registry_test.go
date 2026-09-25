@@ -199,3 +199,22 @@ func TestValidateComponent(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryEntryRequiresRemotePin(t *testing.T) {
+	entry := Entry{Source: "https://example.com/repo.git", Path: ".", Version: "main"}
+	if err := ValidateEntry(entry, true); err == nil {
+		t.Fatal("remote registry entry without commit pin was accepted")
+	}
+	entry.Commit = "0123456789abcdef0123456789abcdef01234567"
+	if err := ValidateEntry(entry, true); err != nil {
+		t.Fatalf("valid pinned entry rejected: %v", err)
+	}
+}
+
+func TestRegistryRejectsUnknownFields(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nunknown: true\nplugins: {}\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("unknown registry field was accepted")
+	}
+}
