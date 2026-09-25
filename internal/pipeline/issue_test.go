@@ -173,6 +173,10 @@ func TestIssueCodesTable(t *testing.T) {
 			pf.Pipeline.Steps[0].Plugin = "core/human_gate"
 			pf.Pipeline.Steps[0].Bind = map[string]string{"x": "input.email"}
 		}, E_GATE_BIND},
+		{"gate_actions", func(pf *PipelineFile) {
+			pf.Pipeline.Steps[0].Plugin = "core/human_gate"
+			pf.Pipeline.Steps[0].Actions = []string{"<img src=x onerror=alert(1)>"}
+		}, E_GATE_ACTIONS},
 		{"plugin_load", func(pf *PipelineFile) { pf.Pipeline.Steps[0].Plugin = "fake/nope" }, E_PLUGIN_LOAD},
 		{"format_input", func(pf *PipelineFile) {
 			pf.Pipeline.Input["email"] = "bad-email"
