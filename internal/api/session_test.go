@@ -5,12 +5,26 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestSessionCookieSecureBehindTLSProxy(t *testing.T) {
+	srv := NewServer("plugins", "pipelines", "runs")
+	srv.EnableSession("proxy-secret")
+	req := httptest.NewRequest("GET", "http://preview.example/?k=proxy-secret", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure {
+		t.Fatalf("session cookie must be Secure behind TLS proxy: %#v", cookies)
+	}
+}
 
 // sessionTestServer — сервер с включённой сессией.
 func sessionTestServer(t *testing.T) (string, *Server) {
