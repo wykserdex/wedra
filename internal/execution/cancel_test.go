@@ -42,6 +42,12 @@ type mapEngine struct {
 	dirs map[string]string
 }
 
+type permissiveEngine struct{}
+
+func (permissiveEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
+	return &pipeline.Manifest{ID: ref}, nil
+}
+
 func (m *mapEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	// ref — абсолютный путь к директории
 	raw, err := os.ReadFile(filepath.Join(ref, "plugin.yaml"))
@@ -134,4 +140,19 @@ func contains(s, sub string) bool {
 		}
 		return false
 	}())
+}
+
+func TestRunRejectsReservedBuiltin(t *testing.T) {
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:  "reserved",
+			Input: map[string]interface{}{},
+			Steps: []pipeline.Step{{ID: "s", Plugin: "core/does_not_exist"}},
+		},
+	}
+	_, err := Run(pf, permissiveEngine{}, RunOptions{Yes: true, Quiet: true, RunsDir: t.TempDir()})
+	if err == nil || !contains(err.Error(), "неизвестный встроенный модуль") {
+		t.Fatalf("expected reserved builtin error, got %v", err)
+	}
 }

@@ -234,3 +234,24 @@ func TestIssueJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestReservedBuiltinRejectedByValidators(t *testing.T) {
+	eng := &stubEngine{mans: map[string]*Manifest{
+		"core/does_not_exist": {ID: "core/does_not_exist"},
+	}}
+	pf := &PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: Pipeline{
+			Name:  "reserved",
+			Steps: []Step{{ID: "s", Plugin: "core/does_not_exist"}},
+		},
+	}
+	errs, _ := Validate(pf, eng)
+	if len(errs) != 1 || !strings.Contains(errs[0], "неизвестный встроенный модуль") {
+		t.Fatalf("Validate errors: %v", errs)
+	}
+	issues := ValidateIssues(pf, eng)
+	if got := FilterCode(issues, E_PLUGIN_LOAD); len(got) != 1 {
+		t.Fatalf("ValidateIssues errors: %+v", issues)
+	}
+}

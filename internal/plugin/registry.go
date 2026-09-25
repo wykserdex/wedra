@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -27,15 +26,18 @@ func NewEngine() *Engine {
 }
 
 func IsBuiltin(ref string) bool {
-	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+	return pipeline.IsBuiltin(ref)
+}
+
+func IsBuiltinNamespace(ref string) bool {
+	return pipeline.IsBuiltinNamespace(ref)
 }
 
 func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if IsBuiltin(ref) {
-		switch ref {
-		case "core/human_gate":
-			return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
-		}
+		return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
+	}
+	if IsBuiltinNamespace(ref) {
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
 	e.mu.Lock()

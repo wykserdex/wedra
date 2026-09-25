@@ -162,9 +162,9 @@ func (m *multiEngine) loadLocal(ref string) (*pipeline.Manifest, error) {
 
 func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if pipeline.IsBuiltin(ref) {
-		if ref == "core/human_gate" {
-			return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
-		}
+		return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
+	}
+	if pipeline.IsBuiltinNamespace(ref) {
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
 	if registry.IsLocalRef(ref) {
@@ -194,6 +194,9 @@ func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 func (s *Server) checkPluginRef(ref string) error {
 	if pipeline.IsBuiltin(ref) {
 		return nil
+	}
+	if pipeline.IsBuiltinNamespace(ref) {
+		return fmt.Errorf("E_PLUGIN_LOAD: неизвестный встроенный модуль: %s", ref)
 	}
 	if strings.Contains(ref, "..") {
 		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: путь %q выходит за корни плагинов", ref)
