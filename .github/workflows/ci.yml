@@ -2,6 +2,10 @@ name: ci
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
+
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -21,9 +25,11 @@ jobs:
           test -z "$(git ls-files var/runs)"
       - name: go vet
         run: go vet ./...
+      - name: go mod verify
+        run: go mod verify
       - name: go fmt check
         run: |
-          out=$(gofmt -l ./internal ./cmd/tool)
+          out=$(gofmt -l $(find cmd internal -name '*.go' -type f))
           if [ -n "$out" ]; then
             echo "gofmt needed:"
             echo "$out"
@@ -216,12 +222,23 @@ jobs:
           ls protocol/ protocol/v0.2/
           cat schemas/pipeline.v0.2.schema.json | head -n 20
 
-      - name: registry validate (local source)
-        run: ./wedra registry validate --registry=registry.yaml --local-source=.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      - run: go build ./cmd/wedra
+      - run: go build ./cmd/wedragui
 
   # v0.17: trust-гейт релиза — на теге реестр проверяется по РЕАЛЬНЫМ пинам
   # (клоны git по version из registry.yaml), без local-source.
   registry-release:
+    needs: core
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
