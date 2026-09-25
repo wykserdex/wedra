@@ -170,7 +170,8 @@ func (s *FilesystemStore) LoadContext(runID string) (map[string]interface{}, err
 func ParseItemIndex(v interface{}) (int, bool) {
 	switch n := v.(type) {
 	case float64:
-		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < 0 {
+		maxInt := int64(^uint(0) >> 1)
+		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < 0 || n >= float64(maxInt) {
 			return 0, false
 		}
 		i := int(n)
