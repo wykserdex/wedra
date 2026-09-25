@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -99,7 +98,7 @@ func main() {
 	fmt.Println("  Закрыть окно (или Ctrl+C) — остановить WEDRA.")
 
 	httpErr := make(chan error, 1)
-	go func() { httpErr <- http.Serve(ln, srv.Routes()) }()
+	go func() { httpErr <- srv.HTTPServer(ln.Addr().String()).Serve(ln) }()
 
 	// окно (Windows) или браузер + ожидание (остальные ОС / фолбэк)
 	desktop(url+"/?k="+secret, debug, logf)

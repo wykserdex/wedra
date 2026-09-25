@@ -5,7 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestHTTPServerAppliesConnectionTimeouts(t *testing.T) {
+	srv := NewServer("plugins", "pipelines", "runs")
+	httpSrv := srv.HTTPServer("127.0.0.1:0")
+	if httpSrv.ReadHeaderTimeout != 10*time.Second || httpSrv.ReadTimeout != 30*time.Second ||
+		httpSrv.WriteTimeout != 60*time.Second || httpSrv.IdleTimeout != 2*time.Minute {
+		t.Fatalf("unexpected server timeouts: %+v", httpSrv)
+	}
+}
 
 const badPipeYAML = `format_version: "0.2"
 pipeline:

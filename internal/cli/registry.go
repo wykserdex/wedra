@@ -100,7 +100,7 @@ func RunRegistryValidate(args []string) {
 	for _, name := range snames {
 		ok := true
 		detail := ""
-		raw, _, err := fetchPreset(name, regSrc, localSource)
+		raw, _, _, err := fetchPreset(name, regSrc, localSource)
 		if err != nil {
 			ok, detail = false, err.Error()
 		} else if pf, yerr := pipeline.LoadPipelineFileFromBytes(raw); yerr != nil {
