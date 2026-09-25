@@ -310,6 +310,9 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 		}
 		return 0, 0, fmt.Errorf("%s: %w", specPath, err)
 	}
+	if len(spec.Tests) == 0 {
+		return 0, 0, fmt.Errorf("%s: ни одного теста", specPath)
+	}
 	for i, tc := range spec.Tests {
 		if !hasExpectation(tc.Expect) {
 			return 0, 0, fmt.Errorf("%s: тест %d не содержит expect", specPath, i+1)
