@@ -158,6 +158,11 @@ async function openRunDetail(id, force) {
   const ctx = d.context || {};
   const steps = (ctx.steps && Object.keys(ctx.steps).length) || 0;
   const inp = ctx.input ? Object.keys(ctx.input).length : 0;
+  // деталка отдаёт окно журнала (хвост, если журнал больше потолка ответа)
+  const total = (typeof d.total === 'number') ? d.total : d.events.length;
+  const trunc = d.truncated
+    ? `<span class="sub">журнал обрезан: показаны последние ${d.events.length} из ${total} событий</span>`
+    : '';
 
   $('#detail').innerHTML = `
     <div id="gate-card" style="display:none"></div>
@@ -167,6 +172,7 @@ async function openRunDetail(id, force) {
       <span class="badge ${st}">${esc(label)}</span>
       ${cancelBtn}
       <span class="sub">${esc(id)} · контекст: input ${inp} полей, steps ${steps}</span>
+      ${trunc}
     </div>
     <div class="cols">
       <div class="card">
@@ -190,8 +196,8 @@ async function openRunDetail(id, force) {
       </div>
     </div>`;
   wireRunDetail(id);
-  // журнал: полный прогон + polling хвоста
-  state.journal = { events: d.events, since: d.events.length, total: d.events.length };
+  // журнал: окно событий + polling хвоста по курсору next/total
+  state.journal = { events: d.events, since: total, total: total, truncated: !!d.truncated };
   renderJournal(d.events);
   updateGateCard(id);
   clearInterval(state.timers.journal);
@@ -200,7 +206,8 @@ async function openRunDetail(id, force) {
     try {
       const tail = await api(`/api/runs/${id}/journal?since=${state.journal.since}`);
       if (tail.events.length) {
-        state.journal.since = tail.total;
+        // курсор: next — точное место конца окна (truncated=true), иначе total
+        state.journal.since = (typeof tail.next === 'number') ? tail.next : tail.total;
         state.journal.events = state.journal.events.concat(tail.events);
         const tl = $('#tl'); if (tl) tl.innerHTML = renderTimeline(state.journal.events);
         renderJournal(tail.events, true);

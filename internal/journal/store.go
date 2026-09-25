@@ -235,36 +235,37 @@ func ParseItemIndex(v interface{}) (int, bool) {
 	}
 }
 
-func maxCompletedItemIndex(events []map[string]interface{}) int {
-	maxIdx := -1
-	for _, ev := range events {
-		if ev["type"] != "item_end" {
-			continue
-		}
-		if status, ok := ev["status"].(string); ok && status != "ok" {
-			continue
-		}
-		if idx, ok := ParseItemIndex(ev["item_index"]); ok && idx > maxIdx {
-			maxIdx = idx
-		}
-	}
-	return maxIdx
-}
-
+// P2 F-03: max index нужен по ВСЕМ item_end, поэтому Events() (полное
+// чтение в память) здесь не годится — потоковый проход ScanMeta держит O(1)
+// памяти и читает те же поля журнала.
 func (s *FilesystemStore) MaxItemIndex(runID string) (int, error) {
 	dir, err := s.runDir(runID)
 	if err != nil {
 		return -1, err
 	}
-	rd := NewReader(dir)
-	events, err := rd.Events()
+	maxIdx := -1
+	_, err = NewReader(dir).ScanMeta(func(meta EventMeta) error {
+		if meta.Type != "item_end" {
+			return nil
+		}
+		if meta.Status != "" && meta.Status != "ok" {
+			return nil
+		}
+		if meta.ItemIndex == nil {
+			return nil
+		}
+		if idx, ok := ParseItemIndex(*meta.ItemIndex); ok && idx > maxIdx {
+			maxIdx = idx
+		}
+		return nil
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return -1, nil
 		}
 		return -1, err
 	}
-	return maxCompletedItemIndex(events), nil
+	return maxIdx, nil
 }
 
 func (s *FilesystemStore) Load(runID string) (map[string]interface{}, error) {

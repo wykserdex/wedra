@@ -117,6 +117,133 @@ func TestEventAndSnapshotReportSerializationErrors(t *testing.T) {
 	}
 }
 
+// P2 F-04: потеря снапшота — не «ничего страшного». Отказ по размеру обязан
+// попасть в журнал (событие snapshot_lost) и в счётчик потерь: иначе ран
+// рапортует об успехе, а --resume поднимается с устаревшим context.json.
+func TestOversizedSnapshotIsRecordedInJournal(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := maxSnapshotPayloadSize
+	maxSnapshotPayloadSize = 512
+	defer func() { maxSnapshotPayloadSize = prev }()
+
+	ctx := runctx.NewCtx(map[string]interface{}{"payload": strings.Repeat("x", 4096)})
+	err = j.Snapshot(ctx)
+	if err == nil {
+		t.Fatal("oversized snapshot обязан вернуть ошибку")
+	}
+	if j.SnapshotLosses() != 1 {
+		t.Fatalf("snapshot losses=%d, want 1", j.SnapshotLosses())
+	}
+	if j.SnapshotLossError() == nil {
+		t.Fatal("журнал обязан помнить причину первой потери")
+	}
+	// в ошибке — причина и потолок, но не данные контекста
+	msg := err.Error()
+	if !contains(msg, "exceeds") {
+		t.Fatalf("в ошибке нет потолка: %v", err)
+	}
+	if contains(msg, "xxxx") {
+		t.Fatalf("в ошибке снапшота утекли данные контекста: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "context.json")); statErr == nil {
+		t.Fatal("context.json создан, хотя снапшот превысил потолок")
+	}
+	// потеря засчитана и в общем счётчике записей
+	if j.WriteErrors() != 1 {
+		t.Fatalf("write errors=%d, want 1", j.WriteErrors())
+	}
+
+	// повторная потеря того же отказа не засоряет append-only журнал:
+	// событие одно, но потерь уже две.
+	if err := j.Snapshot(ctx); err == nil {
+		t.Fatal("повторный oversized snapshot обязан вернуть ошибку")
+	}
+	if j.SnapshotLosses() != 2 {
+		t.Fatalf("snapshot losses=%d, want 2", j.SnapshotLosses())
+	}
+	j.Close()
+
+	lost := eventsOfType(t, dir, "snapshot_lost")
+	if len(lost) != 1 {
+		t.Fatalf("событий snapshot_lost=%d, want 1: %v", len(lost), lost)
+	}
+	if reason, _ := lost[0]["reason"].(string); reason != "too_large" {
+		t.Fatalf("reason=%q, want too_large: %v", lost[0]["reason"], lost[0])
+	}
+	if size, _ := lost[0]["bytes"].(float64); size <= 512 {
+		t.Fatalf("событие не несёт размер снапшота: %v", lost[0])
+	}
+	if contains(string(mustJSON(t, lost[0])), "xxxx") {
+		t.Fatalf("событие snapshot_lost утекает данные контекста: %v", lost[0])
+	}
+}
+
+// P2 F-04: отказ записи (context.json.tmp занят каталогом) — тот же класс
+// потерь, только не по размеру: состояние на диске устарело, ран обязан
+// знать об этом.
+func TestSnapshotWriteFailureIsRecordedInJournal(t *testing.T) {
+	dir := t.TempDir()
+	j, err := NewJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// каталог на месте context.json.tmp: os.WriteFile по этому пути падает
+	// на любой ОС (EISDIR/Access denied), а не только на read-only каталоге.
+	if err := os.Mkdir(filepath.Join(dir, "context.json.tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := runctx.NewCtx(map[string]interface{}{"x": "y"})
+	if err := j.Snapshot(ctx); err == nil {
+		t.Fatal("Snapshot обязан вернуть ошибку записи")
+	}
+	if j.SnapshotLosses() != 1 {
+		t.Fatalf("snapshot losses=%d, want 1", j.SnapshotLosses())
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "context.json")); statErr == nil {
+		t.Fatal("context.json создан при провале записи")
+	}
+	j.Close()
+
+	lost := eventsOfType(t, dir, "snapshot_lost")
+	if len(lost) != 1 {
+		t.Fatalf("событий snapshot_lost=%d, want 1: %v", len(lost), lost)
+	}
+	if reason, _ := lost[0]["reason"].(string); reason != "write" {
+		t.Fatalf("reason=%q, want write: %v", lost[0]["reason"], lost[0])
+	}
+}
+
+// contains — подстрока без импорта strings ради одного сравнения.
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+func eventsOfType(t *testing.T, dir, typ string) []map[string]interface{} {
+	t.Helper()
+	events, err := NewReader(dir).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]interface{}
+	for _, e := range events {
+		if e["type"] == typ {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func mustJSON(t *testing.T, v interface{}) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func TestReaderAcceptsLargeEvent(t *testing.T) {
 	dir := t.TempDir()
 	j, err := NewJournal(dir)

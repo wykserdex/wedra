@@ -29,6 +29,17 @@ var Version = "dev" // фолбэк без VERSION-файла (реальный 
 
 const maxRequestBodySize = 8 << 20
 
+// P2 F-03: стабильные потолки ответов /api/runs и /api/runs/<id>. Журнал
+// рана ничем не ограничен, а эндпоинты читали его целиком и кодировали в
+// ответ без предела: RAM и тело ответа росли вместе с журналом. Теперь тело
+// ограничено по событиям и байтам, а обрезание честно помечается
+// truncated=true (старые поля ответа сохранены).
+const (
+	maxRunResponseEvents = 20000    // событий журнала в ответе
+	maxRunResponseBytes  = 16 << 20 // байт событий журнала в ответе
+	maxRunsListed        = 200      // ранов в /api/runs
+)
+
 type Server struct {
 	PluginsDir   string
 	PipelinesDir string
@@ -495,37 +506,79 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func summarizeRun(dir string, events []map[string]interface{}) map[string]interface{} {
-	pipelineName, status, started, last := "", "running", "", ""
-	steps := 0
+	acc := newRunSummary()
 	for _, e := range events {
-		if ts, ok := e["ts"].(string); ok {
-			if started == "" {
-				started = ts
-			}
-			last = ts
-		}
-		switch e["type"] {
-		case "run_start":
-			pipelineName, _ = e["pipeline"].(string)
-		case "run_resumed":
-			status = "running"
-		case "step_end", "step_skipped", "step_failed":
-			steps++
-		case "run_end":
-			status = "ok"
-			if ab, ok := e["aborted"].(float64); ok && ab > 0 {
-				status = "aborted"
-			}
-		case "run_failed":
-			status = "failed"
-		case "run_cancelled":
-			status = "cancelled"
-		}
+		acc.add(eventMetaOf(e))
 	}
+	return acc.summary(dir, len(events), false)
+}
+
+func newRunSummary() *runSummaryAcc {
+	return &runSummaryAcc{status: "running"}
+}
+
+// eventMetaOf — проекция разобранного события в EventMeta, чтобы summary по
+// срезу и по потоку считались одним кодом.
+func eventMetaOf(e map[string]interface{}) journal.EventMeta {
+	meta := journal.EventMeta{}
+	if ts, ok := e["ts"].(string); ok {
+		meta.TS = ts
+	}
+	if typ, ok := e["type"].(string); ok {
+		meta.Type = typ
+	}
+	if pipeline, ok := e["pipeline"].(string); ok {
+		meta.Pipeline = pipeline
+	}
+	if status, ok := e["status"].(string); ok {
+		meta.Status = status
+	}
+	if aborted, ok := e["aborted"].(float64); ok {
+		meta.Aborted = &aborted
+	}
+	return meta
+}
+
+// runSummaryAcc — накопитель summary рана по событиям журнала.
+type runSummaryAcc struct {
+	pipeline string
+	status   string
+	started  string
+	last     string
+	steps    int
+}
+
+func (a *runSummaryAcc) add(meta journal.EventMeta) {
+	if meta.TS != "" {
+		if a.started == "" {
+			a.started = meta.TS
+		}
+		a.last = meta.TS
+	}
+	switch meta.Type {
+	case "run_start":
+		a.pipeline = meta.Pipeline
+	case "run_resumed":
+		a.status = "running"
+	case "step_end", "step_skipped", "step_failed":
+		a.steps++
+	case "run_end":
+		a.status = "ok"
+		if meta.Aborted != nil && *meta.Aborted > 0 {
+			a.status = "aborted"
+		}
+	case "run_failed":
+		a.status = "failed"
+	case "run_cancelled":
+		a.status = "cancelled"
+	}
+}
+
+func (a *runSummaryAcc) summary(dir string, total int, truncated bool) map[string]interface{} {
 	return map[string]interface{}{
-		"id": filepath.Base(dir), "dir": dir, "pipeline": pipelineName,
-		"status": status, "steps": steps, "events": len(events),
-		"started": started, "last": last,
+		"id": filepath.Base(dir), "dir": dir, "pipeline": a.pipeline,
+		"status": a.status, "steps": a.steps, "events": total,
+		"started": a.started, "last": a.last, "truncated": truncated,
 	}
 }
 
@@ -559,9 +612,20 @@ func (s *Server) cachedRunSummary(dir string) map[string]interface{} {
 	return summary
 }
 
+// runSummary — summary рана потоковым проходом по журналу (P2 F-03): память
+// O(1), поэтому список ранов не материализует журнал каждого рана. Статус и
+// счётчики считаются по ВСЕМ событиям; truncated=true означает, что проход
+// упёрся в потолок ScanMeta (журнал вырожденно большой).
 func runSummary(dir string) map[string]interface{} {
-	events, _ := journal.NewReader(dir).Events()
-	return summarizeRun(dir, events)
+	acc := newRunSummary()
+	res, err := journal.NewReader(dir).ScanMeta(func(meta journal.EventMeta) error {
+		acc.add(meta)
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return acc.summary(dir, res.Total, true)
+	}
+	return acc.summary(dir, res.Total, res.Truncated)
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -591,6 +655,12 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sortStringsDesc(ids)
+	// P2 F-03: стабильный потолок ответа — самые новые раны. Форма ответа
+	// (массив) не меняется, факт обрезания отдаётся заголовком.
+	truncated := len(ids) > maxRunsListed
+	if truncated {
+		ids = ids[:maxRunsListed]
+	}
 	var list []map[string]interface{}
 	for _, id := range ids {
 		m := s.cachedRunSummary(filepath.Join(s.RunsDir, id))
@@ -603,6 +673,9 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		list = []map[string]interface{}{}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if truncated {
+		w.Header().Set("X-Wedra-Runs-Truncated", "true")
+	}
 	json.NewEncoder(w).Encode(list)
 }
 
@@ -637,22 +710,24 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid run id", 400)
 			return
 		}
-		rd := journal.NewReader(dir)
-		events, err := rd.Events()
-		if err != nil {
-			http.Error(w, err.Error(), 404)
-			return
-		}
 		since := 0
 		if v := r.URL.Query().Get("since"); v != "" {
 			fmt.Sscanf(v, "%d", &since)
 		}
-		if since < 0 || since > len(events) {
-			since = len(events)
+		if since < 0 {
+			since = 0
+		}
+		// P2 F-03: окно ответа ограничено; курсор next продолжает поллинг
+		// с того места, где окно оборвалось (total — для клиентов без next).
+		res, err := journal.NewReader(dir).EventsBounded(since, runJournalLimits(false))
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"total": len(events), "events": events[since:],
+			"total": res.Total, "events": res.Events,
+			"first": res.First, "next": res.Next, "truncated": res.Truncated,
 		})
 		return
 	}
@@ -662,7 +737,10 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rd := journal.NewReader(dir)
-	events, err := rd.Events()
+	// P2 F-03: деталка отдаёт хвост журнала в пределах потолка ответа.
+	// total/first/truncated описывают окно, поэтому курсор since для
+	// поллинга остаётся точным.
+	res, err := rd.EventsBounded(0, runJournalLimits(true))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -677,12 +755,29 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		store := journal.NewFilesystemStore(s.RunsDir)
 		arts, _ = store.ListArtifacts(id)
 	}
-	summary := summarizeRun(dir, events)
+	summary := runSummary(dir)
+	if !res.Truncated {
+		// журнал поместился в окно целиком — summary считаем по уже
+		// разобранным событиям, без второго прохода по файлу
+		summary = summarizeRun(dir, res.Events)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id": id, "events": events, "context": snap, "artifacts": arts,
+		"id": id, "events": res.Events, "context": snap, "artifacts": arts,
 		"status": summary["status"], "pipeline": summary["pipeline"],
+		"total": res.Total, "first": res.First, "truncated": res.Truncated,
 	})
+}
+
+// runJournalLimits — потолок ответа с журналом рана (P2 F-03). tail=true —
+// окно последних событий (деталка рана и статус гейта), иначе окно от
+// позиции since (live-хвост с курсором).
+func runJournalLimits(tail bool) journal.ReadLimits {
+	return journal.ReadLimits{
+		MaxBytes:  maxRunResponseBytes,
+		MaxEvents: maxRunResponseEvents,
+		Tail:      tail,
+	}
 }
 
 func (s *Server) resolvePipelineFile(name string) (string, error) {
@@ -847,15 +942,16 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 	}
 	switch r.Method {
 	case "GET":
-		rd := journal.NewReader(dir)
-		events, err := rd.Events()
+		// P2 F-03: состояние гейта определяется последними gate_wait/gate_
+		// decision, поэтому хватает хвоста журнала в пределах потолка.
+		res, err := journal.NewReader(dir).EventsBounded(0, runJournalLimits(true))
 		if err != nil {
 			http.Error(w, err.Error(), 404)
 			return
 		}
 		pending := false
 		var lastWait map[string]interface{}
-		for _, e := range events {
+		for _, e := range res.Events {
 			switch e["type"] {
 			case "gate_wait":
 				pending, lastWait = true, e
