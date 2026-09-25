@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/runctx"
 )
 
 func writeSleeper(t *testing.T, dir string) string {
@@ -154,5 +156,63 @@ func TestRunRejectsReservedBuiltin(t *testing.T) {
 	_, err := Run(pf, permissiveEngine{}, RunOptions{Yes: true, Quiet: true, RunsDir: t.TempDir()})
 	if err == nil || !contains(err.Error(), "неизвестный встроенный модуль") {
 		t.Fatalf("expected reserved builtin error, got %v", err)
+	}
+}
+
+func TestCloneCtxRejectsNaN(t *testing.T) {
+	ctx := &runctx.Ctx{Data: map[string]interface{}{"value": math.NaN()}}
+	if _, err := cloneCtx(ctx); err == nil {
+		t.Fatal("cloneCtx accepted NaN")
+	}
+}
+
+func TestRunParallelRejectsNaNContext(t *testing.T) {
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:  "nan_context",
+			Input: map[string]interface{}{"value": math.NaN()},
+			Steps: []pipeline.Step{
+				{ID: "a", Plugin: "fake", ParallelGroup: "g"},
+				{ID: "b", Plugin: "fake", ParallelGroup: "g"},
+			},
+		},
+	}
+	_, err := Run(pf, permissiveEngine{}, RunOptions{Quiet: true, RunsDir: t.TempDir()})
+	if err == nil || !contains(err.Error(), "context") {
+		t.Fatalf("expected context serialization error, got %v", err)
+	}
+}
+
+func TestResumeCursorDoesNotLoopOnHugeIndex(t *testing.T) {
+	dir := t.TempDir()
+	j, err := journal.NewJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Event("item_end", map[string]interface{}{"item_index": 1 << 30, "status": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	j.Close()
+	result := make(chan struct {
+		idx   int
+		stats RunStats
+		err   error
+	}, 1)
+	go func() {
+		idx, stats, err := resumeCursor(dir)
+		result <- struct {
+			idx   int
+			stats RunStats
+			err   error
+		}{idx, stats, err}
+	}()
+	select {
+	case got := <-result:
+		if got.err != nil || got.idx != 0 {
+			t.Fatalf("resumeCursor: idx=%d stats=%+v err=%v", got.idx, got.stats, got.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("resumeCursor did not stop on a sparse huge index")
 	}
 }
