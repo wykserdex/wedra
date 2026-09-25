@@ -67,7 +67,7 @@
 ```yaml
 on_error: stop | skip | retry
 retry: { attempts: 3, delay: 5s, backoff: fixed|exponential }
-timeout: 30s   # обязателен по смыслу, дефолт 60s
+timeout: 30s   # дефолт 60s, максимум 30m
 ```
 
 - retry повторяет: таймауты и доменные ошибки с `retryable: true`. Остальное — сразу на политику.
@@ -98,7 +98,7 @@ timeout: 30s   # обязателен по смыслу, дефолт 60s
 ## 8. Журнал прогона
 
 `runs/<timestamp>-<pipeline>/`:
-- `pos: [x y]` (v0.25) — мета-поле редактора в YAML: позиции узлов. Ядро игнорирует (yaml без KnownFields), редактор читает обратно.
+- `pos: [x y]` (v0.25) — сохранённая позиция узла в YAML. При загрузке ядро принимает это поле, а редактор читает его обратно; runtime-полем оно не является.
 - `journal.jsonl` — append-only события: `run_start`, `item_start`, `step_start`, `step_end` (exit_code, ms, stderr), `step_skipped`, `gate_wait` (v0.24), `gate_retry` (v0.24), `gate_decision`, `item_aborted`, `item_end`, `run_end`
 - `context.json` — снапшот контекста после каждого элемента/шага
 

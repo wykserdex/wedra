@@ -17,6 +17,9 @@ func toolDefs() []Tool {
 	num := func(desc string) map[string]interface{} {
 		return map[string]interface{}{"type": "number", "description": desc}
 	}
+	wait := num("сколько секунд ждать завершения (0 — вернуть сразу)")
+	wait["minimum"] = 0
+	wait["maximum"] = maxWaitSeconds
 	return []Tool{
 		{
 			Name:        "list_plugins",
@@ -50,7 +53,7 @@ func toolDefs() []Tool {
 			InputSchema: obj(map[string]interface{}{
 				"yaml":         str("YAML пайплайна (или path)"),
 				"path":         str("путь к YAML в workdir"),
-				"wait_seconds": num("сколько секунд ждать завершения (0 — вернуть сразу)"),
+				"wait_seconds": wait,
 			}),
 		},
 		{

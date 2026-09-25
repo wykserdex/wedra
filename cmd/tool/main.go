@@ -9,6 +9,7 @@ import (
 
 	"wedra/internal/api"
 	"wedra/internal/core"
+	"wedra/internal/journal"
 )
 
 func usage() {
@@ -122,7 +123,11 @@ func runsListCmd() {
 }
 
 func runsShowCmd(id string) {
-	dir := "var/runs/" + id
+	dir, err := journal.SafeRunDir("var/runs", id)
+	if err != nil {
+		fmt.Println("ошибка:", err)
+		os.Exit(1)
+	}
 	raw, err := os.ReadFile(dir + "/journal.jsonl")
 	if err != nil {
 		fmt.Println("ошибка:", err)

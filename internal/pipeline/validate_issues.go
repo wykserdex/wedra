@@ -232,6 +232,9 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
 			v.err(E_RETRY_LIMIT, st.ID, "", "pipeline.steps."+st.ID+".retry.attempts", "слишком много попыток", &Fix{Op: "set", Target: "steps." + st.ID + ".retry.attempts", Candidates: []string{"1", "3", "5"}}, "шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts)
 		}
+		if st.Timeout.Duration < 0 || st.Timeout.Duration > MaxStepTimeout {
+			v.err(E_TIMEOUT_LIMIT, st.ID, "", "pipeline.steps."+st.ID+".timeout", "укажите timeout от 0 до 30m", nil, "шаг %s: timeout=%s, допустимо 0..%s", st.ID, st.Timeout.Duration, MaxStepTimeout)
+		}
 		if st.Approval != "" && st.Approval != "human" && st.Approval != "any" {
 			v.err(E_APPROVAL_VALUE, st.ID, "", "pipeline.steps."+st.ID+".approval", "допускаются: human, any", &Fix{Op: "set", Target: "steps." + st.ID + ".approval", Candidates: []string{"human", "any"}}, "шаг %s: approval=%s, ожидается human|any", st.ID, st.Approval)
 		}

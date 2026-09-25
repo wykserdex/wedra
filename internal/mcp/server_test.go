@@ -211,6 +211,51 @@ func TestMCPToolsListAndRun(t *testing.T) {
 	}
 }
 
+func TestMCPGetRunRejectsUnsafeRunID(t *testing.T) {
+	srv := testServer(t)
+	outside := filepath.Join(srv.runsDir, "..", "outside")
+	if err := os.MkdirAll(outside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "journal.jsonl"), []byte("{\"type\":\"run_end\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name  string
+		runID string
+	}{
+		{"forward-parent", "../outside"},
+		{"backslash-parent", `..\outside`},
+		{"forward-child", "safe/child"},
+		{"backslash-child", `safe\child`},
+		{"forward-absolute", "/outside"},
+		{"backslash-absolute", `\outside`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, _, rpcErr := srv.callTool("get_run", map[string]interface{}{"run_id": tc.runID})
+			if rpcErr == nil {
+				t.Fatalf("get_run accepted unsafe run_id %q: %s", tc.runID, result)
+			}
+			if !strings.Contains(rpcErr.Message, "небезопасный run_id") {
+				t.Fatalf("get_run error for %q = %q", tc.runID, rpcErr.Message)
+			}
+			if result != "" {
+				t.Fatalf("get_run returned data for rejected run_id %q: %s", tc.runID, result)
+			}
+		})
+	}
+}
+
+func TestMCPRejectsUnboundedWait(t *testing.T) {
+	srv := testServer(t)
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: bounded_wait\n  input:\n    text: hello\n  steps:\n    - id: s\n      plugin: " + srv.pluginsDirs[0] + "/echoer\n      bind:\n        text: input.text\n"
+	_, _, rpcErr := srv.callTool("run_pipeline", map[string]interface{}{"yaml": yamlStr, "wait_seconds": float64(maxWaitSeconds) + 1})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "wait_seconds") {
+		t.Fatalf("unbounded wait accepted: %v", rpcErr)
+	}
+}
+
 func TestMCPResolvesRelativePluginFromWorkDir(t *testing.T) {
 	root := t.TempDir()
 	work := filepath.Join(root, "work")
@@ -301,6 +346,65 @@ func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(res), &out); err != nil || !out.OK {
 		t.Fatalf("inside file_ref validation: %s", res)
+	}
+}
+
+func TestMCPRejectsDynamicForeachFileRef(t *testing.T) {
+	srv := testServer(t)
+	inside := filepath.Join(srv.workDir, "inside.txt")
+	if err := os.WriteFile(inside, []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: dynamic_file_read\n  input:\n    paths:\n      - " + strconv.Quote(inside) + "\n  foreach: input.paths\n  foreach_item: path\n  steps:\n    - id: read\n      plugin: " + strconv.Quote(pluginDir) + "\n      bind:\n        path: input.path\n"
+	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_UNCHECKED") {
+		t.Fatalf("dynamic file_ref was accepted: %v", rpcErr)
+	}
+}
+
+func TestMCPRejectsForeachItemLeakIntoFileRef(t *testing.T) {
+	srv := testServer(t)
+	inside := filepath.Join(srv.workDir, "inside.txt")
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(inside, []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: foreach_leak\n  input:\n    path: " + strconv.Quote(inside) + "\n    paths:\n      - " + strconv.Quote(outside) + "\n  steps:\n    - id: iterate\n      plugin: " + strconv.Quote(filepath.Join(srv.pluginsDirs[0], "echoer")) + "\n      foreach: input.paths\n      foreach_item: path\n      bind:\n        text: input.path\n    - id: read\n      plugin: " + strconv.Quote(pluginDir) + "\n      bind:\n        path: input.path\n"
+	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_UNCHECKED") {
+		t.Fatalf("leaked foreach file_ref was accepted: %v", rpcErr)
+	}
+}
+
+func TestMCPRejectsPluginSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	plugins := filepath.Join(work, "plugins")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(plugins, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakePlugin(t, outside, "escape",
+		map[string]interface{}{"text": map[string]interface{}{"type": "string", "from": "input.text"}},
+		map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}})
+	link := filepath.Join(plugins, "escape")
+	if err := os.Symlink(filepath.Join(outside, "escape"), link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	srv, err := NewServer(Options{PluginsDirs: []string{plugins}, WorkDir: work})
+	if err != nil {
+		t.Fatal(err)
+	}
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: symlink_escape\n  input:\n    text: hello\n  steps:\n    - id: s\n      plugin: " + strconv.Quote(filepath.Join("plugins", "escape")) + "\n      bind:\n        text: input.text\n"
+	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
+		t.Fatalf("plugin symlink escape was accepted: %v", rpcErr)
 	}
 }
 

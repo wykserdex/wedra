@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"wedra/internal/journal"
@@ -38,7 +37,10 @@ func RunRunsList(args []string) {
 	}
 	fmt.Printf("Прогоны в %s (store=%s):\n", runsDir, storeType)
 	for _, id := range ids {
-		dir := filepath.Join(runsDir, id)
+		dir, err := journal.SafeRunDir(runsDir, id)
+		if err != nil {
+			continue
+		}
 		rd := journal.NewReader(dir)
 		events, _ := rd.Events()
 		pipelineName := ""
@@ -78,7 +80,11 @@ func RunRunsShow(args []string) {
 	} else {
 		store = journal.NewFilesystemStore(runsDir)
 	}
-	dir := filepath.Join(runsDir, id)
+	dir, err := journal.SafeRunDir(runsDir, id)
+	if err != nil {
+		fmt.Println("ошибка чтения прогона:", err)
+		os.Exit(1)
+	}
 	rd := journal.NewReader(dir)
 	events, err := rd.Events()
 	if err != nil {
@@ -112,6 +118,10 @@ func RunRunsResume(args []string) {
 		os.Exit(2)
 	}
 	runID := args[0]
+	if err := journal.ValidateRunID(runID); err != nil {
+		fmt.Println("ошибка resume:", err)
+		os.Exit(1)
+	}
 	pipelineFile := ""
 	yes := false
 	noAuto := false

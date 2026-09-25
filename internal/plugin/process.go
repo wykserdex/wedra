@@ -34,6 +34,13 @@ type ExecResult struct {
 }
 
 func (r *ExecResult) OK() bool { return !r.Platform && r.ExitCode == 0 && r.ErrCode == "" }
+
+// ShouldRetry — PROTOCOL §3/§6: retry повторяет таймауты и доменные ошибки
+// с retryable: true. Всё остальное — сразу на политику шага. Платформенная
+// ошибка (exit>=2, таймаут, невалидный stdout) останавливает ран всегда и
+// политикой не переопределяется, поэтому просьба плагина retryable: true на
+// exit>=2 ран не ретраит (иначе плагин мог бы заставить ядро бесконечно
+// перезапускать то, что стопит по протоколу).
 func (r *ExecResult) ShouldRetry() bool {
 	if r.Cancelled {
 		return false
@@ -41,7 +48,24 @@ func (r *ExecResult) ShouldRetry() bool {
 	if r.ErrCode == "timeout" {
 		return true
 	}
+	if r.Platform {
+		return false
+	}
 	return r.Retryable
+}
+
+// PlatformErrCode — код платформенной ошибки в форме `platform:<code>`
+// (PROTOCOL §3, ERRORS.md). Префикс добавляется ровно один раз: плагин,
+// приславший код, уже с `platform:`, не должен размножать его до
+// `platform:platform:<code>`.
+func PlatformErrCode(code string) string {
+	if code == "" {
+		return ""
+	}
+	if strings.HasPrefix(code, "platform:") {
+		return code
+	}
+	return "platform:" + code
 }
 
 type wireResponse struct {
@@ -281,7 +305,11 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	default:
 		res.Platform = true
 		if wr.Error != nil && wr.Error.Code != "" {
-			res.ErrCode = "platform:" + wr.Error.Code
+			// PROTOCOL §3: на exit>=2 error.code сохраняется как
+			// platform:<code> (fallback — crash). Retryable из конверта
+			// пишется в step_end для триажа, но ран не ретраит:
+			// ShouldRetry() для платформенных ошибок = false.
+			res.ErrCode = PlatformErrCode(wr.Error.Code)
 			res.ErrMsg = wr.Error.Message
 			if res.ErrMsg == "" {
 				res.ErrMsg = fmt.Sprintf("exit %d: %s", res.ExitCode, common.Truncate(string(outTrim), 200))

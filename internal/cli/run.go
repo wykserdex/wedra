@@ -130,7 +130,20 @@ func RunPipelineRun(args []string) {
 		fmt.Println("ран упал:", err)
 		os.Exit(1)
 	}
-	if stats.Aborted > 0 {
-		os.Exit(1)
+	if code := runExitCode(pf.Pipeline.Foreach, stats); code != 0 {
+		os.Exit(code)
 	}
+}
+
+// runExitCode — PROTOCOL §6: `0` — ран дошёл до конца (per-item итоги в
+// журнале), `1` — рановая неудача: платформенная ошибка (сюда не доходит,
+// её обрабатывает вызывающий по err) либо, в одиночном режиме без foreach,
+// stop/reject. В батче (foreach) частичные aborts — это per-item результат
+// (`item_aborted` в журнале), а не рановая неудача: список из 10 000 строк,
+// где три битые, дошёл до конца, и CI не должен видеть по нему отказ.
+func runExitCode(foreach string, stats execution.RunStats) int {
+	if stats.Aborted > 0 && foreach == "" {
+		return 1
+	}
+	return 0
 }

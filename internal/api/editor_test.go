@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -81,6 +82,35 @@ func TestEditorParseSingleCheck(t *testing.T) {
 	}
 }
 
+func TestEditorParsePreservesStepPos(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: positioned
+  steps:
+    - id: review
+      plugin: core/human_gate
+      pos: [17, 23]
+      actions: [accept]
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, doc)
+	}
+	steps, ok := doc["steps"].([]interface{})
+	if !ok || len(steps) != 1 {
+		t.Fatalf("steps=%v", doc["steps"])
+	}
+	step, ok := steps[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("step=%v", steps[0])
+	}
+	pos, ok := step["pos"].([]interface{})
+	if !ok || len(pos) != 2 || pos[0] != float64(17) || pos[1] != float64(23) {
+		t.Fatalf("pos=%v, want [17, 23]", step["pos"])
+	}
+}
+
 func TestEditorParseUnsupported(t *testing.T) {
 	ts, _ := gateTestServer(t)
 	raw := []byte(`format_version: "0.1"
@@ -88,6 +118,9 @@ pipeline:
   name: tricky
   input:
     n: { type: number, required: true }
+    ordinary:
+      type: string
+      value: payload
   steps:
     - id: a
       plugin: core/human_gate
@@ -115,8 +148,18 @@ pipeline:
 			t.Fatalf("unsupported = %q (%s больше не unsupported)", text, gone)
 		}
 	}
-	if !strings.Contains(text, "input.n") {
-		t.Fatalf("unsupported = %q (ждём input.n)", text)
+	if len(unsup) != 1 || unsup[0] != "input.n (type-объявление, не значение)" {
+		t.Fatalf("unsupported = %q (ждём только descriptor input.n)", text)
+	}
+	var ordinary map[string]interface{}
+	for _, rawInput := range doc["input"].([]interface{}) {
+		input := rawInput.(map[string]interface{})
+		if input["name"] == "ordinary" {
+			ordinary = input["default"].(map[string]interface{})
+		}
+	}
+	if !reflect.DeepEqual(ordinary, map[string]interface{}{"type": "string", "value": "payload"}) {
+		t.Fatalf("ordinary object input=%v", ordinary)
 	}
 	// retry при этом — в doc (под управлением): attempts=3, без delay/backoff
 	ra, _ := doc["steps"].([]interface{})[0].(map[string]interface{})["retry"].(map[string]interface{})
@@ -371,11 +414,8 @@ func TestEditorForeachParse(t *testing.T) {
 
 	raw = fileToBytes(t, "../../examples/parallel_demo.yaml")
 	_, doc = postBytes(t, ts.URL+"/api/parse/pipeline", raw)
-	// input.data — объект: по честному скоупу редактора это type-объявление
-	// (модель input = name+default), но parallel_group должен быть в doc
-	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 1 ||
-		unsup[0].(string) != "input.data (type-объявление, не значение)" {
-		t.Fatalf("parallel_demo: unsupported = %v (ждём только input.data)", unsup)
+	if unsup, _ := doc["unsupported"].([]interface{}); len(unsup) != 0 {
+		t.Fatalf("parallel_demo: unsupported = %v (обычный object input редактируем)", unsup)
 	}
 	w := doc["steps"].([]interface{})[0].(map[string]interface{})
 	if w["parallel_group"] != "analyze" {
@@ -1046,6 +1086,11 @@ pipeline:
   input:
     values: [one, two]
     count: 3
+    zero: 0
+    disabled: false
+    object:
+      enabled: false
+      count: 0
   steps:
     - id: review
       plugin: core/human_gate
@@ -1065,18 +1110,23 @@ pipeline:
 		t.Fatalf("gates=%v", doc["gates"])
 	}
 	inputs := doc["input"].([]interface{})
-	if len(inputs) != 2 {
-		t.Fatalf("inputs=%v", inputs)
-	}
-	var values []interface{}
+	defaults := make(map[string]interface{}, len(inputs))
 	for _, rawInput := range inputs {
 		input := rawInput.(map[string]interface{})
-		if input["name"] == "values" {
-			values = input["default"].([]interface{})
-		}
+		defaults[input["name"].(string)] = input["default"]
 	}
-	if len(values) != 2 || values[0] != "one" || values[1] != "two" {
-		t.Fatalf("array input=%v", values)
+	expected := map[string]interface{}{
+		"values":   []interface{}{"one", "two"},
+		"count":    float64(3),
+		"zero":     float64(0),
+		"disabled": false,
+		"object": map[string]interface{}{
+			"enabled": false,
+			"count":   float64(0),
+		},
+	}
+	if !reflect.DeepEqual(defaults, expected) {
+		t.Fatalf("typed inputs=%v", defaults)
 	}
 	step := doc["steps"].([]interface{})[0].(map[string]interface{})
 	if step["approval"] != "human" {
@@ -1101,6 +1151,19 @@ pipeline:
 	}
 	if pf.Pipeline.Gates != "human_only" || pf.Pipeline.Steps[0].Approval != "human" || pf.Pipeline.Steps[0].Form[0].Format != "text" {
 		t.Fatalf("round-trip metadata=%+v", pf)
+	}
+	expectedCore := map[string]interface{}{
+		"values":   []interface{}{"one", "two"},
+		"count":    3,
+		"zero":     0,
+		"disabled": false,
+		"object": map[string]interface{}{
+			"enabled": false,
+			"count":   0,
+		},
+	}
+	if !reflect.DeepEqual(pf.Pipeline.Input, expectedCore) {
+		t.Fatalf("typed inputs after round-trip=%v", pf.Pipeline.Input)
 	}
 }
 

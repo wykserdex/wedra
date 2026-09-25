@@ -3,9 +3,11 @@ package plugin
 // v0.23: надёжность запуска плагина (лимит вывода, process-group kill).
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -135,5 +137,122 @@ func TestPluginOnlyReceivesDeclaredSecrets(t *testing.T) {
 	}
 	if res.Output["unrelated"] != "" {
 		t.Fatalf("unrelated environment leaked: %v", res.Output["unrelated"])
+	}
+}
+
+// ── retry-политика результата (PROTOCOL §3/§6) ──────────────────────────
+//
+// Платформенная ошибка (exit>=2, таймаут, невалидный stdout) останавливает
+// ран всегда: retryable от плагина на exit>=2 политикой не переопределяется.
+// Ретраится только таймаут и доменная ошибка с retryable: true.
+
+func TestShouldRetryResult(t *testing.T) {
+	cases := []struct {
+		name string
+		res  ExecResult
+		want bool
+	}{
+		{"timeout ретраится", ExecResult{Platform: true, ErrCode: "timeout", ExitCode: 2, Retryable: true}, true},
+		{"доменная retryable", ExecResult{Platform: false, ErrCode: "rate_limit", ExitCode: 1, Retryable: true}, true},
+		{"доменная без retryable", ExecResult{Platform: false, ErrCode: "bad_value", ExitCode: 1}, false},
+		{"exit>=2 с retryable:true — stop", ExecResult{Platform: true, ErrCode: "platform:bad_input", ExitCode: 2, Retryable: true}, false},
+		{"краш без кода — stop", ExecResult{Platform: true, ErrCode: "crash", ExitCode: 2, Retryable: true}, false},
+		{"нарушение протокола — stop", ExecResult{Platform: true, ErrCode: "protocol_violation", ExitCode: 2, Retryable: true}, false},
+		{"отмена — stop", ExecResult{Platform: true, Cancelled: true, ErrCode: "cancelled", ExitCode: 2, Retryable: true}, false},
+	}
+	for _, c := range cases {
+		if got := c.res.ShouldRetry(); got != c.want {
+			t.Errorf("%s: ShouldRetry()=%v, want %v (res=%+v)", c.name, got, c.want, c.res)
+		}
+	}
+}
+
+// PlatformErrCode ставит префикс `platform:` ровно один раз.
+func TestPlatformErrCode(t *testing.T) {
+	cases := []struct {
+		code string
+		want string
+	}{
+		{"bad_input", "platform:bad_input"},
+		{"platform:bad_input", "platform:bad_input"},
+		{"timeout", "platform:timeout"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := PlatformErrCode(c.code); got != c.want {
+			t.Errorf("PlatformErrCode(%q)=%q, want %q", c.code, got, c.want)
+		}
+	}
+}
+
+// manifestExitingWith — временный плагин: печатает конверт с error.code и
+// выходит с exitCode. Нужен для ветки exit>=2 в execPluginEnv.
+func manifestExitingWith(t *testing.T, code string, exitCode int, retryable bool) *pipeline.Manifest {
+	t.Helper()
+	envelope, err := json.Marshal(map[string]interface{}{
+		"status": "error",
+		"error":  map[string]interface{}{"code": code, "message": "boom", "retryable": retryable},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	script := "import json,sys\njson.load(sys.stdin)\n" +
+		"sys.stdout.write(" + strconv.Quote(string(envelope)) + ")\n" +
+		"sys.exit(" + strconv.Itoa(exitCode) + ")\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte(script), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return &pipeline.Manifest{
+		ID:      "exiting",
+		Runtime: pipeline.Runtime{Type: "python", Entry: "main.py"},
+		Dir:     dir,
+		Output:  map[string]pipeline.Port{"value": {Type: "string"}},
+	}
+}
+
+// exit>=2 + retryable:true → платформенная ошибка без повторов, с одним
+// префиксом `platform:` (PROTOCOL §3).
+func TestExecExit2WithRetryableIsPlatformAndNotRetried(t *testing.T) {
+	requirePythonT(t)
+	for _, c := range []struct {
+		pluginCode string
+		wantCode   string
+	}{
+		{"bad_input", "platform:bad_input"},
+		{"platform:bad_input", "platform:bad_input"},
+	} {
+		res := Exec(manifestExitingWith(t, c.pluginCode, 2, true), []byte("{}"), 15*time.Second)
+		if !res.Platform {
+			t.Fatalf("code=%q: exit>=2 обязан быть платформенной ошибкой: %+v", c.pluginCode, res)
+		}
+		if res.ErrCode != c.wantCode {
+			t.Fatalf("code=%q: ErrCode=%q, want %q (без двойного префикса)", c.pluginCode, res.ErrCode, c.wantCode)
+		}
+		if !strings.HasPrefix(res.ErrCode, "platform:") {
+			t.Fatalf("code=%q: платформенный код без префикса: %q", c.pluginCode, res.ErrCode)
+		}
+		if res.Retryable != true {
+			t.Fatalf("code=%q: retryable из конверта должен попасть в журнал для триажа: %+v", c.pluginCode, res)
+		}
+		if res.ShouldRetry() {
+			t.Fatalf("code=%q: exit>=2 с retryable=true обязан стопить ран, а не ретраиться", c.pluginCode)
+		}
+	}
+}
+
+// Доменная ошибка (exit 1) с retryable:true по-прежнему ретраится — граница
+// проходит по exit-коду, а не по флагу.
+func TestExecExit1RetryableStillRetried(t *testing.T) {
+	requirePythonT(t)
+	res := Exec(manifestExitingWith(t, "rate_limit", 1, true), []byte("{}"), 15*time.Second)
+	if res.OK() || res.Platform {
+		t.Fatalf("exit 1 — доменная ошибка, не платформенная: %+v", res)
+	}
+	if res.ErrCode != "rate_limit" || !res.Retryable {
+		t.Fatalf("конверт exit 1 не разобран: %+v", res)
+	}
+	if !res.ShouldRetry() {
+		t.Fatal("доменная ошибка с retryable:true обязана ретраиться")
 	}
 }

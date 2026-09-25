@@ -3,8 +3,10 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,6 +15,61 @@ import (
 	"wedra/internal/pipeline"
 	"wedra/internal/runctx"
 )
+
+func requirePython(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"python3", "python"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return
+		}
+	}
+	t.Skip("python не найден — пропускаю")
+}
+
+func runEvents(t *testing.T, dir string) []map[string]interface{} {
+	t.Helper()
+	events, err := journal.NewReader(dir).Events()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+func countRunEvents(events []map[string]interface{}, typ string) int {
+	n := 0
+	for _, e := range events {
+		if e["type"] == typ {
+			n++
+		}
+	}
+	return n
+}
+
+// writeScriptPlugin — временный плагин с одним входом item и выходом value.
+func writeScriptPlugin(t *testing.T, dir, id, script string) string {
+	t.Helper()
+	d := filepath.Join(dir, id)
+	if err := os.MkdirAll(d, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{
+		"id": id, "version": "0.1", "platform_api": "0.1",
+		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
+		"input":   map[string]interface{}{"item": map[string]interface{}{"type": "string", "from": "input.item"}},
+		"output":  map[string]interface{}{"value": map[string]interface{}{"type": "string"}},
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "plugin.yaml"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "main.py"), []byte(script), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
 
 func writeSleeper(t *testing.T, dir string) string {
 	t.Helper()
@@ -265,4 +322,129 @@ func TestResumeCursorDoesNotLoopOnHugeIndex(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("resumeCursor did not stop on a sparse huge index")
 	}
+}
+
+// ── retry-политика и коды платформенных ошибок (PROTOCOL §3/§6) ─────────
+
+// exit>=2 + retryable:true — платформенная ошибка: ран стопится на первой
+// попытке, несмотря на on_error: retry с retry.attempts: 3.
+func TestRunPlatformErrorWithRetryableFlagIsNotRetried(t *testing.T) {
+	requirePython(t)
+	dir := t.TempDir()
+	script := "import json,sys\njson.load(sys.stdin)\n" +
+		"print(json.dumps({'status':'error','error':{'code':'bad_input','message':'boom','retryable':True}}))\n" +
+		"sys.exit(2)\n"
+	pluginDir := writeScriptPlugin(t, filepath.Join(dir, "plugins"), "boom2", script)
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:  "platform_no_retry",
+			Input: map[string]interface{}{"item": "x"},
+			Steps: []pipeline.Step{{
+				ID: "boom", Plugin: pluginDir, OnError: "retry",
+				Timeout: pipeline.Duration{Duration: 15 * time.Second},
+				Retry:   &pipeline.Retry{Attempts: 3, Delay: pipeline.Duration{Duration: time.Millisecond}},
+			}},
+		},
+	}
+	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	if err == nil {
+		t.Fatal("платформенная ошибка обязана остановить ран")
+	}
+	if code := ErrorCode(err); code != "platform:bad_input" {
+		t.Fatalf("код рановой ошибки = %q, want platform:bad_input (один префикс, без platform:platform:)", code)
+	}
+	stats, statsErr := latestRunStats(t, filepath.Join(dir, "runs"))
+	if statsErr != nil {
+		t.Fatal(statsErr)
+	}
+	if n := countRunEvents(runEvents(t, stats.RunDir), "step_start"); n != 1 {
+		t.Fatalf("exit>=2 не ретраится (PROTOCOL §3), попыток в журнале: %d", n)
+	}
+}
+
+// exit>=2 без конверта → crash, но префикс `platform:` всё равно один.
+func TestRunPlatformErrorCodeHasSinglePrefix(t *testing.T) {
+	requirePython(t)
+	dir := t.TempDir()
+	script := "import json,sys\njson.load(sys.stdin)\nsys.exit(2)\n"
+	pluginDir := writeScriptPlugin(t, filepath.Join(dir, "plugins"), "bare_crash", script)
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:  "platform_crash",
+			Input: map[string]interface{}{"item": "x"},
+			Steps: []pipeline.Step{{
+				ID: "crash", Plugin: pluginDir, OnError: "skip",
+				Timeout: pipeline.Duration{Duration: 15 * time.Second},
+			}},
+		},
+	}
+	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	if err == nil {
+		t.Fatal("платформенная ошибка обязана остановить ран (on_error=skip не спасает)")
+	}
+	if code := ErrorCode(err); code != "platform:crash" {
+		t.Fatalf("код рановой ошибки = %q, want platform:crash", code)
+	}
+}
+
+// ── батч: частичные aborts не роняют ран (PROTOCOL §6, scope stop) ─────
+
+// foreach: доменный stop глушит только текущий элемент; ран доходит до конца
+// и возвращает nil — на этом и строит exit-код CLI (0 для завершённого батча).
+func TestRunBatchSurvivesPartialAborts(t *testing.T) {
+	requirePython(t)
+	dir := t.TempDir()
+	script := "import json,sys\nv=json.load(sys.stdin).get('item','')\n" +
+		"if v=='bad':\n" +
+		"    print(json.dumps({'status':'error','error':{'code':'bad_value','message':'nope','retryable':False}}))\n" +
+		"    sys.exit(1)\n" +
+		"print(json.dumps({'status':'ok','output':{'value':v}}))\n"
+	pluginDir := writeScriptPlugin(t, filepath.Join(dir, "plugins"), "itemcheck", script)
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:        "batch_partial",
+			Input:       map[string]interface{}{"values": []interface{}{"ok1", "bad", "ok2"}},
+			Foreach:     "input.values",
+			ForeachItem: "item",
+			Steps: []pipeline.Step{{
+				ID: "check", Plugin: pluginDir, OnError: "stop",
+				Timeout: pipeline.Duration{Duration: 15 * time.Second},
+			}},
+		},
+	}
+	stats, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	if err != nil {
+		t.Fatalf("частичный abort в батче не должен валить ран: %v", err)
+	}
+	if stats.OK != 2 || stats.Aborted != 1 {
+		t.Fatalf("ожидалось ok=2 aborted=1, got %+v", stats)
+	}
+	events := runEvents(t, stats.RunDir)
+	if n := countRunEvents(events, "item_aborted"); n != 1 {
+		t.Fatalf("ожидался один item_aborted, got %d", n)
+	}
+	if countRunEvents(events, "run_end") != 1 {
+		t.Fatal("батч дошёл до конца — должен быть run_end")
+	}
+	if countRunEvents(events, "run_failed") != 0 {
+		t.Fatal("батч с частичными abort не должен писать run_failed")
+	}
+}
+
+// latestRunStats — каталог единственного рана в runsDir.
+func latestRunStats(t *testing.T, runsDir string) (RunStats, error) {
+	t.Helper()
+	entries, err := os.ReadDir(runsDir)
+	if err != nil {
+		return RunStats{}, err
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].IsDir() {
+			return RunStats{RunDir: filepath.Join(runsDir, entries[i].Name())}, nil
+		}
+	}
+	return RunStats{}, errors.New("в runsDir нет ни одного рана")
 }

@@ -36,7 +36,7 @@ func TestCreatePluginSkeletonIsGreen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("стартовые тесты не запустились: %v", err)
 	}
-	if failed != 0 || passed != 2 {
+	if failed != 0 || passed != 3 {
 		t.Fatalf("скелет должен быть зелёным из коробки: passed=%d failed=%d", passed, failed)
 	}
 }
@@ -93,7 +93,7 @@ func TestCreatePluginNestedPath(t *testing.T) {
 	if err != nil || id != "my_new_tool" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
-	if passed, failed, _ := RunPluginTests(dir, "", true); failed != 0 || passed != 2 {
+	if passed, failed, _ := RunPluginTests(dir, "", true); failed != 0 || passed != 3 {
 		t.Fatalf("passed=%d failed=%d", passed, failed)
 	}
 }
