@@ -3,6 +3,7 @@ package plugin
 // v0.23: надёжность запуска плагина (лимит вывода, process-group kill).
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -39,6 +40,17 @@ func fixtureManifest(t *testing.T, name string) *pipeline.Manifest {
 	}
 	m.Dir = dir
 	return &m
+}
+
+func TestCappedWriterKeepsPrefixAtLimit(t *testing.T) {
+	var buf bytes.Buffer
+	w := &cappedWriter{buf: &buf, limit: 5}
+	if n, err := w.Write([]byte("abcdef")); err != nil || n != 6 {
+		t.Fatalf("Write=%d err=%v", n, err)
+	}
+	if !w.overflow || buf.String() != "abcde" {
+		t.Fatalf("capped writer=%q overflow=%v", buf.String(), w.overflow)
+	}
 }
 
 // Гигантский stdout (17MB) — не «всю память», а честная ошибка протокола.

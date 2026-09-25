@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"wedra/internal/gate"
 )
@@ -91,9 +92,11 @@ func (s *Server) sessionHandshake(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "неверный ключ сессии", 401)
 		return true
 	}
+	forwardedProto := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+	secure := r.TLS != nil || strings.EqualFold(forwardedProto, "https")
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: s.SessionSecret, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode,
 	})
 	q := r.URL.Query()
 	q.Del("k")

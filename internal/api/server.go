@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -47,8 +48,7 @@ type Server struct {
 	Engine       *plugin.Engine
 
 	// v0.22: in-process запуск из GUI — один ран за раз
-	runMu   sync.Mutex
-	running bool
+	runMu sync.Mutex
 
 	// v0.24: ожидающие браузерные гейты активных ранов: runID → ChannelUI.
 	// Заполняется лениво (когда ран доходит до gate-шага), чистится при выходе.
@@ -680,11 +680,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func sortStringsDesc(a []string) {
-	for i := 1; i < len(a); i++ {
-		for j := i; j > 0 && a[j] > a[j-1]; j-- {
-			a[j], a[j-1] = a[j-1], a[j]
-		}
-	}
+	sort.Slice(a, func(i, j int) bool { return a[i] > a[j] })
 }
 
 func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
@@ -863,7 +859,6 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.setCancel(runID, cancel)
-	s.running = true
 	writeJSON(w, 202, map[string]interface{}{"status": "started", "file": req.File, "run": runID, "issues": issues})
 
 	go func() {
