@@ -780,11 +780,7 @@ func (s *Server) resolvePipelineFile(name string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("нужно имя или путь к pipeline")
 	}
-	candidate := name
-	if !filepath.IsAbs(candidate) && !strings.HasPrefix(candidate, "/") && !(len(candidate) >= 2 && candidate[1] == ':') {
-		candidate = filepath.Join(s.PipelinesDir, candidate)
-	}
-	path, err := secureContainedPath(s.PipelinesDir, candidate)
+	path, err := secureContainedPath(s.PipelinesDir, name)
 	if err != nil {
 		return "", err
 	}
