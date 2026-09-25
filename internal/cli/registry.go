@@ -144,7 +144,7 @@ type srcRoot struct{ root string }
 func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[string]*srcRoot, tmpRoots *[]string) (*srcRoot, error) {
 	if localSource != "" && sameRepo(entry.Source, localSource) {
 		if entry.Commit != "" {
-			if err := registry.VerifyCheckoutCommit(localSource, entry.Commit); err != nil {
+			if err := registry.VerifyCheckoutPath(localSource, entry.Commit, entry.Path); err != nil {
 				return nil, fmt.Errorf("локальный source не соответствует pin: %w", err)
 			}
 		}
@@ -157,7 +157,7 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 	// 1) source — локальный каталог
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
 		if entry.Commit != "" {
-			if err := registry.VerifyCheckoutCommit(entry.Source, entry.Commit); err != nil {
+			if err := registry.VerifyCheckoutPath(entry.Source, entry.Commit, entry.Path); err != nil {
 				return nil, fmt.Errorf("локальный source не соответствует pin: %w", err)
 			}
 		}
