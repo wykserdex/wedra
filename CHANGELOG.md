@@ -1,5 +1,12 @@
 # Changelog — WEDRA
 
+## 0.31b — post-audit hardening (in progress)
+
+- Закрыты P0/P1/P2 findings аудита: traversal/CSRF/session, resume-валидация, journal limits/snapshot loss, registry и preset supply chain.
+- Добавлены HTTP timeouts, bounded MCP/API журналы, HTTPS-only preset ingestion, provenance sidecars и registry admission minimum.
+- CI/release actions закреплены по SHA; релиз получает SBOM и GitHub provenance attestations.
+- `0.31b` — рабочая версия после опубликованного `v0.31a`; `0.32` будет следующим релизом после завершения оставшихся sandbox/E2E задач.
+
 ## 0.31a — security and release baseline
 
 - Консолидированы hardening-изменения из веток `security/stage-1`…`security/stage-7b` в `main`.
