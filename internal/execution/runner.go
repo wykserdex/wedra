@@ -47,7 +47,7 @@ var ErrCancelled = errors.New("ран отменён (cancelled)")
 
 // RunError — ошибка рантайма с кодом из protocol/v0.2/ERRORS.md
 // (contract_output, platform:<code>, when_error, foreach_path, secrets_missing,
-// network_denied, cancelled, run_error). Код пишется в run_failed/step_failed.
+// network_denied, cancelled, validation_failed, run_error). Код пишется в run_failed/step_failed.
 type RunError struct {
 	Code string
 	Err  error
@@ -241,7 +241,34 @@ type Engine interface {
 	LoadManifest(ref string) (*pipeline.Manifest, error)
 }
 
+func validateRun(pf *pipeline.PipelineFile, eng Engine) error {
+	issues := pipeline.ValidateIssues(pf, eng)
+	var messages []string
+	for _, issue := range issues {
+		if issue.Severity != pipeline.SeverityError || runtimeDataIssue(issue.Code) {
+			continue
+		}
+		messages = append(messages, issue.Message)
+	}
+	if len(messages) > 0 {
+		return runErr("validation_failed", "pipeline validation failed: %s", strings.Join(messages, "; "))
+	}
+	return nil
+}
+
+func runtimeDataIssue(code string) bool {
+	switch code {
+	case pipeline.E_PORT_UNBOUND, pipeline.E_PORT_SOURCE, pipeline.E_TYPE_MISMATCH, pipeline.E_FORMAT_INPUT, pipeline.E_FORMAT_MISMATCH, pipeline.E_OPTIONAL_REQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
 func Run(pf *pipeline.PipelineFile, eng Engine, opts RunOptions) (RunStats, error) {
+	if err := validateRun(pf, eng); err != nil {
+		return RunStats{}, err
+	}
 	if opts.Store == "json" {
 		s := journal.NewJsonStore(opts.RunsDir, opts.DBPath)
 		return runWithStore(pf, eng, opts, s)

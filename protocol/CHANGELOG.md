@@ -60,5 +60,5 @@ current protocol source of truth is `protocol/VERSION`.
 
 - `platform_api` в plugin.yaml — semver-диапазон совместимости с ядром (`^0.1`)
 - `format_version` в pipeline.yaml — `0.1` или `0.2`
-- `protocol_version` в конверте — план v0.3 (сейчас не обязателен)
+- `protocol_version` в конверте — `0.2`; `0.3` принимается только как legacy input
 - Обратная совместимость: v0.2 ⊃ v0.1 (from остаётся дефолтом)

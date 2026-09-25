@@ -17,6 +17,7 @@
 - `big_stderr` — большой stderr без нарушения протокола
 
 Проверки:
+- загрузка и строгая проверка manifest каждой фикстуры
 - корректный handshake (stdin JSON → stdout JSON)
 - timeout и отмена
 - аварийное завершение (exit >=2) → platform:<code>

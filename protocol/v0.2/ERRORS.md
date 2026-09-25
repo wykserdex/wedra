@@ -97,6 +97,7 @@
 | secrets_missing | нет env из `pipeline.secrets` | ран не стартует |
 | network_denied | `network: deny` нарушен в рантайме | ран не стартует |
 | network_policy | `pipeline.network` имеет недопустимое значение | ран не стартует |
+| validation_failed | pre-run validation не пройдена | ран не стартует |
 | run_error | прочее (резолв, resume, параллельная группа) | ран остановлен |
 | cancelled | отмена: Ctrl+C, `POST /api/runs/<id>/cancel`, MCP `cancel_run` | `run_cancelled`, затем snapshot, процесс плагина убит, retry нет; `--resume` продолжит |
 

@@ -148,20 +148,36 @@ func CopyDir(src, dst string) error {
 			if base == ".git" || base == ".wedra" {
 				return filepath.SkipDir
 			}
-			if path == src {
-				return os.MkdirAll(dst, 0o755)
+			info, err := d.Info()
+			if err != nil {
+				return err
 			}
-			return os.MkdirAll(filepath.Join(dst, stringsRel(src, path)), 0o755)
+			mode := info.Mode().Perm()
+			if mode == 0 {
+				mode = 0o755
+			}
+			if path == src {
+				return os.MkdirAll(dst, mode)
+			}
+			return os.MkdirAll(filepath.Join(dst, stringsRel(src, path)), mode)
 		}
 		base := filepath.Base(path)
 		if base == ".wedra" {
 			return nil
 		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dst, stringsRel(src, path)), data, 0o644)
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		return os.WriteFile(filepath.Join(dst, stringsRel(src, path)), data, mode)
 	})
 }
 
