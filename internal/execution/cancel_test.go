@@ -144,6 +144,13 @@ func contains(s, sub string) bool {
 	}())
 }
 
+func TestRetryDelayIsBounded(t *testing.T) {
+	st := &pipeline.Step{Retry: &pipeline.Retry{Delay: pipeline.Duration{Duration: time.Hour}, Backoff: "exponential"}}
+	if got := retryDelay(st, 10); got != pipeline.MaxRetryDelay {
+		t.Fatalf("retry delay=%s, want cap %s", got, pipeline.MaxRetryDelay)
+	}
+}
+
 func TestRunRejectsReservedBuiltin(t *testing.T) {
 	pf := &pipeline.PipelineFile{
 		FormatVersion: "0.2",
