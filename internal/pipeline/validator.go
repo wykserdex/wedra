@@ -160,6 +160,10 @@ type Engine interface {
 }
 
 func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
+	return SplitIssues(ValidateIssues(pf, eng))
+}
+
+func validateLegacy(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	if pf.FormatVersion != "0.1" && pf.FormatVersion != "0.2" {
 		if pf.FormatVersion != "" {
 			errs = append(errs, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
