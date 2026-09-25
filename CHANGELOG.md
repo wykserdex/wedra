@@ -5,7 +5,7 @@
 - Консолидированы hardening-изменения из веток `security/stage-1`…`security/stage-7b` в `main`.
 - Единый canonical validator и pre-run проверки для CLI, API, MCP, install и `execution.Run`.
 - Усилены manifest/schema validation, registry SHA-pins, install atomicity, plugin environment, MCP boundaries и resource limits.
-- Добавлены Windows process-tree termination, journal/resume hardening, CSP/security headers, CI Windows job, `govulncheck` и release checksums.
+- Добавлены Windows process-tree termination, journal/resume hardening, CSP/security headers, CI Windows job, `govulncheck`, release checksums, SBOM и GitHub provenance attestations; actions закреплены по SHA.
 - README приведён к текущему CLI, security model и release workflow.
 
 ## 0.30.0-dev — maintenance baseline
