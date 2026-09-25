@@ -194,6 +194,21 @@ func TestRunRejectsInvalidNetworkPolicy(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidApprovalPolicy(t *testing.T) {
+	pf := &pipeline.PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: pipeline.Pipeline{
+			Name:  "approval",
+			Input: map[string]interface{}{},
+			Steps: []pipeline.Step{{ID: "gate", Plugin: "core/human_gate", Approval: "humn"}},
+		},
+	}
+	_, err := Run(pf, permissiveEngine{}, RunOptions{Yes: true, Quiet: true, RunsDir: t.TempDir()})
+	if err == nil || !contains(err.Error(), "approval") {
+		t.Fatalf("expected invalid approval policy error, got %v", err)
+	}
+}
+
 func TestCloneCtxRejectsNaN(t *testing.T) {
 	ctx := &runctx.Ctx{Data: map[string]interface{}{"value": math.NaN()}}
 	if _, err := cloneCtx(ctx); err == nil {

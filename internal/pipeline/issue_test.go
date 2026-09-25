@@ -284,3 +284,15 @@ func TestReservedBuiltinRejectedByValidators(t *testing.T) {
 		t.Fatalf("ValidateIssues errors: %+v", issues)
 	}
 }
+
+func FuzzValidateIssuesDoesNotPanic(f *testing.F) {
+	f.Add("format_version: \"0.2\"\npipeline:\n  name: fuzz\n  input: {}\n  steps: []\n")
+	f.Add("format_version: \"0.2\"\npipeline:\n  name: fuzz\n  input: {}\n  steps:\n    - id: s\n      plugin: fake/syntax\n      bind: {email: input.email}\n")
+	f.Fuzz(func(t *testing.T, raw string) {
+		pf, err := LoadPipelineFileFromBytes([]byte(raw))
+		if err != nil {
+			return
+		}
+		_ = ValidateIssues(pf, stubBase())
+	})
+}
