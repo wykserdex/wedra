@@ -157,7 +157,7 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 			return "", "", fmt.Errorf("запись %s: путь %s не найден в локальном source (--local-source=%s)", entry.Path, entry.Path, localSource)
 		}
 		if entry.Commit != "" {
-			if err := registry.VerifyCheckoutCommit(localSource, entry.Commit); err != nil {
+			if err := registry.VerifyCheckoutPath(localSource, entry.Commit, entry.Path); err != nil {
 				return "", "", fmt.Errorf("локальный source не соответствует pin: %w", err)
 			}
 		}
@@ -165,7 +165,7 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 	}
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
 		if entry.Commit != "" {
-			if err := registry.VerifyCheckoutCommit(entry.Source, entry.Commit); err != nil {
+			if err := registry.VerifyCheckoutPath(entry.Source, entry.Commit, entry.Path); err != nil {
 				return "", "", fmt.Errorf("локальный source не соответствует pin: %w", err)
 			}
 		}

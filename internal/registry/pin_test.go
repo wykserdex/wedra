@@ -105,6 +105,64 @@ func TestPinRejectsShortCommit(t *testing.T) {
 	}
 }
 
+func TestVerifyCheckoutPathAllowsUnrelatedLaterCommit(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	git(t, dir, "config", "user.email", "pin@test")
+	git(t, dir, "config", "user.name", "pin")
+	plugin := filepath.Join(dir, "plugins", "demo")
+	if err := os.MkdirAll(plugin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugin, "main.py"), []byte("print('ok')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "plugin")
+	pinned := git(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("later\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "docs")
+	if err := VerifyCheckoutPath(dir, pinned, "plugins/demo"); err != nil {
+		t.Fatalf("unrelated later commit must pass: %v", err)
+	}
+}
+
+func TestVerifyCheckoutPathRejectsChangedOrUntrackedPath(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	git(t, dir, "config", "user.email", "pin@test")
+	git(t, dir, "config", "user.name", "pin")
+	plugin := filepath.Join(dir, "plugins", "demo")
+	if err := os.MkdirAll(plugin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(plugin, "main.py")
+	if err := os.WriteFile(path, []byte("print('ok')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-q", "-m", "plugin")
+	pinned := git(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(path, []byte("print('changed')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCheckoutPath(dir, pinned, "plugins/demo"); err == nil {
+		t.Fatal("changed plugin path was accepted")
+	}
+	if err := os.WriteFile(path, []byte("print('ok')\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugin, "untracked.txt"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCheckoutPath(dir, pinned, "plugins/demo"); err == nil {
+		t.Fatal("untracked plugin path was accepted")
+	}
+}
+
 func TestVerifyCheckoutCommitRejectsMismatchedHead(t *testing.T) {
 	src, shaA, shaB := pinRepo(t, false)
 	checkout := filepath.Join(t.TempDir(), "plug")
