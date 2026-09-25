@@ -166,3 +166,36 @@ func TestRegistryRejectsEscapingPath(t *testing.T) {
 		t.Fatal("escaping registry path должен быть отвергнут")
 	}
 }
+
+func TestRefToDirRejectsReservedBuiltin(t *testing.T) {
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+		if _, err := RefToDir(ref, t.TempDir()); err == nil {
+			t.Fatalf("reserved builtin %q was accepted", ref)
+		}
+	}
+}
+
+func TestRegistryRejectsUnsafeNamesAndCommits(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  ../../escape:\n    source: x\n    path: .\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("unsafe registry name was accepted")
+	}
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  good:\n    source: x\n    path: .\n    commit: short\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("short commit was accepted")
+	}
+}
+
+func TestValidateComponent(t *testing.T) {
+	for _, name := range []string{"plugin", "plugin-1", "plugin.name"} {
+		if err := ValidateComponent(name); err != nil {
+			t.Fatalf("valid component %q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "../x", `..\\x`, "C:x", "x/y"} {
+		if err := ValidateComponent(name); err == nil {
+			t.Fatalf("unsafe component accepted: %q", name)
+		}
+	}
+}

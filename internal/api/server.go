@@ -27,6 +27,8 @@ import (
 // через ldflags -X из тега сборки; фолбэк — текущая версия для локальных сборок.
 var Version = "dev" // фолбэк без VERSION-файла (реальный — из CWD)/tag
 
+const maxRequestBodySize = 8 << 20
+
 type Server struct {
 	PluginsDir   string
 	PipelinesDir string
@@ -193,6 +195,13 @@ func (s *Server) Routes() http.Handler {
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		if s.sessionHandshake(w, r) {
 			return
 		}
@@ -355,9 +364,15 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "read body: "+err.Error(), 400)
 			return
 		}
-		// валидация YAML перед сохранением
-		if _, err := pipeline.LoadPipelineFileFromBytes(data); err != nil {
+		pf, err := pipeline.LoadPipelineFileFromBytes(data)
+		if err != nil {
 			http.Error(w, "invalid yaml: "+err.Error(), 400)
+			return
+		}
+		issues := pipeline.ValidateIssues(pf, s.Engine)
+		errs, _ := pipeline.SplitIssues(issues)
+		if len(errs) > 0 {
+			writeJSON(w, 400, map[string]interface{}{"ok": false, "issues": issues, "errors": errs})
 			return
 		}
 		if err := os.WriteFile(path, data, 0644); err != nil {

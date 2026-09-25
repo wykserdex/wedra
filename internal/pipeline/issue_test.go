@@ -173,6 +173,10 @@ func TestIssueCodesTable(t *testing.T) {
 			pf.Pipeline.Steps[0].Plugin = "core/human_gate"
 			pf.Pipeline.Steps[0].Bind = map[string]string{"x": "input.email"}
 		}, E_GATE_BIND},
+		{"gate_actions", func(pf *PipelineFile) {
+			pf.Pipeline.Steps[0].Plugin = "core/human_gate"
+			pf.Pipeline.Steps[0].Actions = []string{"<img src=x onerror=alert(1)>"}
+		}, E_GATE_ACTIONS},
 		{"plugin_load", func(pf *PipelineFile) { pf.Pipeline.Steps[0].Plugin = "fake/nope" }, E_PLUGIN_LOAD},
 		{"format_input", func(pf *PipelineFile) {
 			pf.Pipeline.Input["email"] = "bad-email"
@@ -232,5 +236,48 @@ func TestIssueJSON(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Fatalf("JSON без %s: %s", want, s)
 		}
+	}
+}
+
+func TestResourceLimitIssues(t *testing.T) {
+	arr := make([]interface{}, MaxForeachItems+1)
+	for i := range arr {
+		arr[i] = i
+	}
+	pf := &PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: Pipeline{
+			Name:    "limits",
+			Input:   map[string]interface{}{"items": arr},
+			Foreach: "input.items",
+			Steps:   []Step{{ID: "s", Plugin: "fake/syntax", OnError: "retry", Retry: &Retry{Attempts: MaxRetryAttempts + 1}}},
+		},
+	}
+	issues := ValidateIssues(pf, stubBase())
+	for _, code := range []string{E_FOREACH_LIMIT, E_RETRY_LIMIT} {
+		if len(FilterCode(issues, code)) != 1 {
+			t.Fatalf("missing %s in %+v", code, issues)
+		}
+	}
+}
+
+func TestReservedBuiltinRejectedByValidators(t *testing.T) {
+	eng := &stubEngine{mans: map[string]*Manifest{
+		"core/does_not_exist": {ID: "core/does_not_exist"},
+	}}
+	pf := &PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: Pipeline{
+			Name:  "reserved",
+			Steps: []Step{{ID: "s", Plugin: "core/does_not_exist"}},
+		},
+	}
+	errs, _ := Validate(pf, eng)
+	if len(errs) != 1 || !strings.Contains(errs[0], "неизвестный встроенный модуль") {
+		t.Fatalf("Validate errors: %v", errs)
+	}
+	issues := ValidateIssues(pf, eng)
+	if got := FilterCode(issues, E_PLUGIN_LOAD); len(got) != 1 {
+		t.Fatalf("ValidateIssues errors: %+v", issues)
 	}
 }

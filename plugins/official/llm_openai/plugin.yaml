@@ -28,4 +28,4 @@ output:
 permissions:
   network: [ { any_host: true, port: 443 } ]   # base_url настраивается пользователем
   filesystem: none
-  secrets: [ "LLM_OAI_API_KEY" ]
+  secrets: [ "LLM_OAI_API_KEY", "LLM_OAI_BASE_URL", "LLM_OAI_MODEL", "LLM_TIMEOUT", "LLM_MOCK" ]

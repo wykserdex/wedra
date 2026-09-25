@@ -3,6 +3,7 @@ package journal
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,17 +64,69 @@ func (s *FilesystemStore) LoadContext(runID string) (map[string]interface{}, err
 	return data, nil
 }
 
-func completedItemIndex(v interface{}) (int, bool) {
+func ParseItemIndex(v interface{}) (int, bool) {
 	switch n := v.(type) {
 	case float64:
-		return int(n), true
+		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < 0 {
+			return 0, false
+		}
+		i := int(n)
+		if i < 0 || float64(i) != n {
+			return 0, false
+		}
+		return i, true
+	case float32:
+		return ParseItemIndex(float64(n))
 	case int:
+		if n < 0 {
+			return 0, false
+		}
 		return n, true
+	case int8:
+		if n < 0 {
+			return 0, false
+		}
+		return int(n), true
+	case int16:
+		if n < 0 {
+			return 0, false
+		}
+		return int(n), true
+	case int32:
+		if n < 0 {
+			return 0, false
+		}
+		return int(n), true
 	case int64:
+		if n < 0 || int64(int(n)) != n {
+			return 0, false
+		}
+		return int(n), true
+	case uint:
+		if uint64(n) > uint64(^uint(0)>>1) {
+			return 0, false
+		}
+		return int(n), true
+	case uint8:
+		return int(n), true
+	case uint16:
+		return int(n), true
+	case uint32:
+		if uint64(n) > uint64(^uint(0)>>1) {
+			return 0, false
+		}
+		return int(n), true
+	case uint64:
+		if n > uint64(^uint(0)>>1) {
+			return 0, false
+		}
 		return int(n), true
 	case json.Number:
 		i, err := n.Int64()
-		return int(i), err == nil
+		if err != nil || i < 0 || int64(int(i)) != i {
+			return 0, false
+		}
+		return int(i), true
 	default:
 		return 0, false
 	}
@@ -88,7 +141,7 @@ func maxCompletedItemIndex(events []map[string]interface{}) int {
 		if status, ok := ev["status"].(string); ok && status != "ok" {
 			continue
 		}
-		if idx, ok := completedItemIndex(ev["item_index"]); ok && idx > maxIdx {
+		if idx, ok := ParseItemIndex(ev["item_index"]); ok && idx > maxIdx {
 			maxIdx = idx
 		}
 	}
@@ -333,7 +386,7 @@ func (s *JsonStore) MaxItemIndex(runID string) (int, error) {
 			continue
 		}
 		if v, ok := ev.Data["item_index"]; ok {
-			if idx, ok := completedItemIndex(v); ok && idx > maxIdx {
+			if idx, ok := ParseItemIndex(v); ok && idx > maxIdx {
 				maxIdx = idx
 			}
 		}

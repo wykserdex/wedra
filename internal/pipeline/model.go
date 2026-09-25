@@ -144,7 +144,14 @@ type Manifest struct {
 	Dir string `yaml:"-"`
 }
 
-const PlatformAPI = "0.1"
+const (
+	PlatformAPI       = "0.1"
+	MaxForeachItems   = 10000
+	MaxParallelWidth  = 32
+	MaxRetryAttempts  = 10
+	MaxRetryDelay     = 5 * time.Minute
+	MaxAggregateItems = 100000
+)
 
 // NetworkHosts — человекочитаемый список заявленной сети плагина ("host:port, ...").
 func NetworkHosts(m *Manifest) string {

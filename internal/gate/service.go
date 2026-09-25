@@ -24,6 +24,22 @@ type GateOptions struct {
 	RequireHuman bool
 }
 
+func gateActions(actions []string) []string {
+	out := make([]string, 0, 2)
+	seen := map[string]bool{}
+	for _, action := range actions {
+		normalized := strings.ToLower(strings.TrimSpace(action))
+		if (normalized == "accept" || normalized == "reject") && !seen[normalized] {
+			seen[normalized] = true
+			out = append(out, normalized)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"accept", "reject"}
+	}
+	return out
+}
+
 // Policy — кто вправе одобрять гейты без человека.
 // AllowAutoApprove=false (MCP-раны, нулевое значение) — --yes игнорируется,
 // гейт ждёт решения человека.
@@ -226,10 +242,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, op
 		edits[editKey(f, bnCountForEdits)] = v
 	}
 
-	actions := st.Actions
-	if len(actions) == 0 {
-		actions = []string{"accept", "reject"}
-	}
+	actions := gateActions(st.Actions)
 	keys := make([]string, len(actions))
 	for i, a := range actions {
 		if a != "" {
@@ -308,10 +321,7 @@ func editKey(f pipeline.FormField, bnCount map[string]int) string {
 // рендерит их), решение — один круг через WaitDecision.
 // Семантика v0.23 сохранена: EOF → стоп, нераспознанное действие (5 раз) → стоп.
 func (s *Service) runStructured(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, su StructuredUI) string {
-	actions := st.Actions
-	if len(actions) == 0 {
-		actions = []string{"accept", "reject"}
-	}
+	actions := gateActions(st.Actions)
 	formView := []map[string]interface{}{}
 	for _, f := range st.Form {
 		bv := "<нет данных>"

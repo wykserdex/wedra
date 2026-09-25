@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,43 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 404 {
 		t.Fatalf("GET отсутствующего: code=%d (want 404)", rec.Code)
+	}
+}
+
+func TestRequestBodyLimit(t *testing.T) {
+	handler, _ := secServer(t)
+	body := bytes.Repeat([]byte("x"), maxRequestBodySize+1)
+	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/large.yaml", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("oversized body: code=%d", rec.Code)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	handler, _ := secServer(t)
+	req, _ := http.NewRequest("GET", "http://x/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("CSP=%q", got)
+	}
+	for _, key := range []string{"X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"} {
+		if rec.Header().Get(key) == "" {
+			t.Fatalf("missing security header %s", key)
+		}
+	}
+}
+
+func TestPipelinePutRejectsInvalidPolicy(t *testing.T) {
+	handler, _ := secServer(t)
+	body := []byte("format_version: \"0.2\"\npipeline:\n  name: bad_policy\n  gates: typo_policy\n  steps:\n    - id: review\n      plugin: core/human_gate\n")
+	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/policy.yaml", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("invalid policy PUT: code=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

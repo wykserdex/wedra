@@ -44,6 +44,9 @@ func RunPluginInstall(args []string) {
 // doPluginInstall — ядро установки, общее для `plugin install`
 // и автоустановки из `pipeline install`.
 func doPluginInstall(name, ver, registrySrc, dest string) error {
+	if err := registry.ValidateComponent(name); err != nil {
+		return err
+	}
 	h, err := registry.Load(registrySrc)
 	if err != nil {
 		return err
@@ -72,27 +75,65 @@ func doPluginInstall(name, ver, registrySrc, dest string) error {
 	}
 
 	destDir := filepath.Join(dest, name)
-	if _, err := os.Stat(destDir); err == nil {
-		if err := os.RemoveAll(destDir); err != nil {
-			return err
-		}
+	if err := installPluginDir(srcDir, destDir, name, entry, version); err != nil {
+		return err
 	}
-	if err := registry.CopyDir(srcDir, destDir); err != nil {
+	fmt.Printf("  + %s (%s) → %s\n", name, version, destDir)
+	return nil
+}
+
+func installPluginDir(srcDir, destDir, name string, entry registry.Entry, version string) error {
+	parent := filepath.Dir(destDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(parent, "."+filepath.Base(destDir)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	if err := registry.CopyDir(srcDir, staging); err != nil {
 		return err
 	}
 	lock := registry.Lock{Name: name, Source: entry.Source, Path: entry.Path, Version: version}
-	if err := registry.WriteLock(destDir, lock); err != nil {
+	if err := registry.WriteLock(staging, lock); err != nil {
 		return err
 	}
+	if errs := core.ValidatePluginDir(staging); len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Println("  ✗ манифест:", e)
+		}
+		return fmt.Errorf("плагин %s не прошёл проверку манифеста", name)
+	}
 
-	errs := core.ValidatePluginDir(destDir)
-	for _, e := range errs {
-		fmt.Println("  ✗ манифест:", e)
+	backup := ""
+	if _, err := os.Stat(destDir); err == nil {
+		backup, err = os.MkdirTemp(parent, "."+filepath.Base(destDir)+".old-*")
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(backup); err != nil {
+			return err
+		}
+		if err := os.Rename(destDir, backup); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("плагин %s установлен, но манифест некорректен", name)
+	if err := os.Rename(staging, destDir); err != nil {
+		if backup != "" {
+			if restoreErr := os.Rename(backup, destDir); restoreErr != nil {
+				return fmt.Errorf("replace %s: %w; restore: %v", destDir, err, restoreErr)
+			}
+		}
+		return err
 	}
-	fmt.Printf("  + %s (%s) → %s\n", name, version, destDir)
+	if backup != "" {
+		if err := os.RemoveAll(backup); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -109,12 +150,22 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 		if _, e := os.Stat(p); e != nil {
 			return "", "", fmt.Errorf("запись %s: путь %s не найден в локальном source (--local-source=%s)", entry.Path, entry.Path, localSource)
 		}
+		if entry.Commit != "" {
+			if err := registry.VerifyCheckoutCommit(localSource, entry.Commit); err != nil {
+				return "", "", fmt.Errorf("локальный source не соответствует pin: %w", err)
+			}
+		}
 		return p, "", nil
 	}
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
+		if entry.Commit != "" {
+			if err := registry.VerifyCheckoutCommit(entry.Source, entry.Commit); err != nil {
+				return "", "", fmt.Errorf("локальный source не соответствует pin: %w", err)
+			}
+		}
 		return filepath.Join(entry.Source, entry.Path), "", nil
 	}
-	if localRegistryDir != "" {
+	if localRegistryDir != "" && entry.Commit == "" {
 		// плагин — каталог, пресет — файл
 		cand := filepath.Join(localRegistryDir, entry.Path)
 		if _, e := os.Stat(cand); e != nil {
@@ -175,6 +226,10 @@ func RunPipelineInstall(args []string) {
 	pname := pf.Pipeline.Name
 	if pname == "" {
 		pname = name
+	}
+	if err := registry.ValidateComponent(pname); err != nil {
+		fmt.Println("небезопасное имя пресета:", err)
+		os.Exit(1)
 	}
 	outFile := filepath.Join("examples", pname+".yaml")
 	if err := os.MkdirAll("examples", 0o755); err != nil {

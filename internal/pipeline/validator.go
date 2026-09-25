@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"wedra/internal/common"
 )
 
 var formatRank = map[string]int{
@@ -146,7 +148,11 @@ func resolveSource(path string, prior map[string]priorStep, pf *PipelineFile, st
 }
 
 func IsBuiltin(ref string) bool {
-	return strings.HasPrefix(ref, "core/") || strings.HasPrefix(ref, `core\`)
+	return common.IsBuiltinRef(ref)
+}
+
+func IsBuiltinNamespace(ref string) bool {
+	return common.IsBuiltinNamespace(ref)
 }
 
 type Engine interface {
@@ -174,8 +180,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	if p.Foreach != "" {
 		if strings.HasPrefix(p.Foreach, "input.") {
 			key := strings.TrimPrefix(p.Foreach, "input.")
-			if _, ok := p.Input[key]; !ok {
+			if value, ok := p.Input[key]; !ok {
 				errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
+			} else if arr, ok := value.([]interface{}); ok && len(arr) > MaxForeachItems {
+				errs = append(errs, fmt.Sprintf("foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems))
 			}
 		} else if strings.HasPrefix(p.Foreach, "steps.") {
 			parts := strings.Split(p.Foreach, ".")
@@ -209,6 +217,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			errs = append(errs, "шаг "+st.ID+": дублирующийся id")
 		}
 		seen[st.ID] = true
+		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
+			errs = append(errs, fmt.Sprintf("шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin))
+			continue
+		}
 		// v0.20: управляющий поток на уровне шага
 		if st.When.IsSet() {
 			if !WhenOps[st.When.Op] {
@@ -263,6 +275,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
 			errs = append(errs, "шаг "+st.ID+": retry.attempts < 1")
 		}
+		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
+			errs = append(errs, fmt.Sprintf("шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts))
+		}
 		if IsBuiltin(st.Plugin) {
 			if len(st.Bind) > 0 {
 				errs = append(errs, "шаг "+st.ID+": human_gate не принимает bind")
@@ -271,6 +286,11 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			case "", "stop", "continue":
 			default:
 				errs = append(errs, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
+			}
+			for _, action := range st.Actions {
+				if action != "accept" && action != "reject" {
+					errs = append(errs, "шаг "+st.ID+": actions="+action+", допустимы accept|reject")
+				}
 			}
 			bnSeen := map[string][]string{}
 			for _, f := range st.Form {
@@ -369,6 +389,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	for g, n := range groupSize {
 		if n == 1 {
 			warns = append(warns, fmt.Sprintf("parallel_group %q: один шаг — параллелизм бессмыслен", g))
+		}
+		if n > MaxParallelWidth {
+			errs = append(errs, fmt.Sprintf("parallel_group %q: %d шагов, максимум %d", g, n, MaxParallelWidth))
 		}
 	}
 	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов

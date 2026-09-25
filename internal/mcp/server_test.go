@@ -36,6 +36,31 @@ func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]inte
 	}
 }
 
+func writePolicyPlugin(t *testing.T, pluginsDir, id string, network []map[string]interface{}, input map[string]interface{}) string {
+	t.Helper()
+	dir := filepath.Join(pluginsDir, id)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{
+		"id": id, "version": "0.1", "platform_api": "0.1",
+		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
+		"input":   input,
+		"output":  map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}},
+		"permissions": map[string]interface{}{
+			"network": network, "filesystem": "workspace", "secrets": []string{},
+		},
+	}
+	raw, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.yaml"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte("import json,sys\njson.load(sys.stdin)\njson.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func testServer(t *testing.T) *Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -236,6 +261,60 @@ func TestMCPSandboxOutsideRoot(t *testing.T) {
 	}
 	if !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
 		t.Fatalf("want OUTSIDE_ROOT, got %v", rpcErr)
+	}
+}
+
+func TestMCPRejectsFileRefOutsideWorkdir(t *testing.T) {
+	srv := testServer(t)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + outside + "\n  steps:\n    - id: read\n      plugin: " + filepath.Join(srv.pluginsDirs[0], "filereader") + "\n      bind:\n        path: input.path\n"
+	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_OUTSIDE_ROOT") {
+		t.Fatalf("expected file_ref boundary error, got %v", rpcErr)
+	}
+}
+
+func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
+	srv := testServer(t)
+	inside := filepath.Join(srv.workDir, "inside.txt")
+	if err := os.WriteFile(inside, []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + inside + "\n  steps:\n    - id: read\n      plugin: " + pluginDir + "\n      bind:\n        path: input.path\n"
+	res, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr != nil {
+		t.Fatalf("inside file_ref rejected: %v", rpcErr)
+	}
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(res), &out); err != nil || !out.OK {
+		t.Fatalf("inside file_ref validation: %s", res)
+	}
+}
+
+func TestMCPRejectsPrivateAndAnyHostNetwork(t *testing.T) {
+	srv := testServer(t)
+	for _, network := range [][]map[string]interface{}{
+		{{"any_host": true, "port": 443}},
+		{{"host": "127.0.0.1", "port": 80}},
+		{{"host": "localhost", "port": 80}},
+	} {
+		pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "network-plugin", network, map[string]interface{}{})
+		yamlStr := "format_version: \"0.2\"\npipeline:\n  name: net\n  input: {}\n  steps:\n    - id: net\n      plugin: " + pluginDir + "\n"
+		_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+		if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_NETWORK_DENIED") {
+			t.Fatalf("network %v was accepted: %v", network, rpcErr)
+		}
 	}
 }
 
