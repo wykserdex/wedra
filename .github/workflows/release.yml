@@ -2,8 +2,7 @@
 # Это то, что получают пользователи: скачать и запустить без Go.
 name: release
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
 
 permissions:
   contents: write

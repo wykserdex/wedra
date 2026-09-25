@@ -3,6 +3,8 @@ package plugin
 // v0.23: контракт-тесты — типы и форматы проверяются после каждого запуска.
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -157,6 +159,29 @@ func TestEnvelopeUsesCanonicalProtocolVersion(t *testing.T) {
 	env := NewEnvelope("req", map[string]string{"ok": "yes"})
 	if env.ProtocolVersion != ProtocolVersion {
 		t.Fatalf("unexpected envelope protocol version: %q", env.ProtocolVersion)
+	}
+}
+
+func TestManifestRequirementsRequireExactLock(t *testing.T) {
+	m := &pipeline.Manifest{
+		ID:          "locked_plugin",
+		Version:     "0.1.0",
+		PlatformAPI: "^0.1",
+		Runtime:     pipeline.Runtime{Type: "python", Entry: "main.py", Requires: []string{"requests==2.32.3"}},
+		Output:      map[string]pipeline.Port{"result": {Type: "string"}},
+	}
+	if err := pipeline.ValidateManifest(m); err != nil {
+		t.Fatalf("requirement syntax should be valid without a directory: %v", err)
+	}
+	m.Dir = t.TempDir()
+	if err := pipeline.ValidateManifest(m); err == nil {
+		t.Fatal("missing requirements.lock was accepted")
+	}
+	if err := os.WriteFile(filepath.Join(m.Dir, "requirements.lock"), []byte("requests==2.32.3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := pipeline.ValidateManifest(m); err != nil {
+		t.Fatalf("valid requirements.lock rejected: %v", err)
 	}
 }
 
