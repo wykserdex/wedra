@@ -3,8 +3,10 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +36,31 @@ func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]inte
 	if err := os.WriteFile(filepath.Join(d, "main.py"), []byte(py), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writePolicyPlugin(t *testing.T, pluginsDir, id string, network []map[string]interface{}, input map[string]interface{}) string {
+	t.Helper()
+	dir := filepath.Join(pluginsDir, id)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{
+		"id": id, "version": "0.1", "platform_api": "0.1",
+		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
+		"input":   input,
+		"output":  map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}},
+		"permissions": map[string]interface{}{
+			"network": network, "filesystem": "workspace", "secrets": []string{},
+		},
+	}
+	raw, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.yaml"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.py"), []byte("import json,sys\njson.load(sys.stdin)\njson.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func testServer(t *testing.T) *Server {
@@ -239,6 +266,60 @@ func TestMCPSandboxOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestMCPRejectsFileRefOutsideWorkdir(t *testing.T) {
+	srv := testServer(t)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + outside + "\n  steps:\n    - id: read\n      plugin: " + filepath.Join(srv.pluginsDirs[0], "filereader") + "\n      bind:\n        path: input.path\n"
+	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_OUTSIDE_ROOT") {
+		t.Fatalf("expected file_ref boundary error, got %v", rpcErr)
+	}
+}
+
+func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
+	srv := testServer(t)
+	inside := filepath.Join(srv.workDir, "inside.txt")
+	if err := os.WriteFile(inside, []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "filereader", nil, map[string]interface{}{
+		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
+	})
+	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + inside + "\n  steps:\n    - id: read\n      plugin: " + pluginDir + "\n      bind:\n        path: input.path\n"
+	res, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	if rpcErr != nil {
+		t.Fatalf("inside file_ref rejected: %v", rpcErr)
+	}
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(res), &out); err != nil || !out.OK {
+		t.Fatalf("inside file_ref validation: %s", res)
+	}
+}
+
+func TestMCPRejectsPrivateAndAnyHostNetwork(t *testing.T) {
+	srv := testServer(t)
+	for _, network := range [][]map[string]interface{}{
+		{{"any_host": true, "port": 443}},
+		{{"host": "127.0.0.1", "port": 80}},
+		{{"host": "localhost", "port": 80}},
+	} {
+		pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "network-plugin", network, map[string]interface{}{})
+		yamlStr := "format_version: \"0.2\"\npipeline:\n  name: net\n  input: {}\n  steps:\n    - id: net\n      plugin: " + pluginDir + "\n"
+		_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+		if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_NETWORK_DENIED") {
+			t.Fatalf("network %v was accepted: %v", network, rpcErr)
+		}
+	}
+}
+
 func TestMCPCancelRun(t *testing.T) {
 	srv := testServer(t)
 	// sleeper-плагин
@@ -289,6 +370,85 @@ func TestMCPCancelRun(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+func TestMCPServeHandlesCancelWhileRunWaits(t *testing.T) {
+	srv := testServer(t)
+	plugDir := filepath.Join(srv.pluginsDirs[0], "sleeper")
+	if err := os.MkdirAll(plugDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{
+		"id": "sleeper", "version": "0.1", "platform_api": "0.1",
+		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
+		"input":   map[string]interface{}{},
+		"output":  map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}},
+	}
+	raw, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(plugDir, "plugin.yaml"), raw, 0644); err != nil {
+		t.Fatal(err)
+	}
+	py := "import sys,json,time\njson.load(sys.stdin)\ntime.sleep(30)\njson.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"
+	if err := os.WriteFile(filepath.Join(plugDir, "main.py"), []byte(py), 0644); err != nil {
+		t.Fatal(err)
+	}
+	yamlText := "format_version: \"0.2\"\npipeline:\n  name: concurrent_cancel\n  input: {}\n  steps:\n    - id: sleep\n      plugin: " + strconv.Quote(plugDir) + "\n      timeout: 30s\n"
+	runArgs := map[string]interface{}{"name": "run_pipeline", "arguments": map[string]interface{}{"yaml": yamlText, "wait_seconds": 10.0}}
+	runReq := Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: mustJSON(t, runArgs)}
+	cancelArgs := map[string]interface{}{"name": "cancel_run", "arguments": map[string]interface{}{}}
+	cancelReq := Request{JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "tools/call", Params: mustJSON(t, cancelArgs)}
+
+	in, inWriter := io.Pipe()
+	var out bytes.Buffer
+	transport := NewTransport(in, &out)
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(transport) }()
+	if _, err := inWriter.Write(append(mustJSON(t, runReq), '\n')); err != nil {
+		t.Fatal(err)
+	}
+
+	var runID string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		srv.mu.Lock()
+		runID = srv.currentRunID
+		_, hasCancel := srv.cancels[runID]
+		srv.mu.Unlock()
+		if runID != "" && hasCancel {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if runID == "" {
+		t.Fatal("run did not start")
+	}
+	cancelArgs["arguments"] = map[string]interface{}{"run_id": runID}
+	cancelReq.Params = mustJSON(t, cancelArgs)
+	if _, err := inWriter.Write(append(mustJSON(t, cancelReq), '\n')); err != nil {
+		t.Fatal(err)
+	}
+	_ = inWriter.Close()
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not finish after cancellation")
+	}
+	responses := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(responses) < 2 || !strings.Contains(out.String(), "cancelled") {
+		t.Fatalf("responses=%s", out.String())
+	}
+}
+
+func mustJSON(t *testing.T, v interface{}) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 // Без пайпов: handle() возвращает только Response, runner/gate в MCP идут

@@ -22,22 +22,22 @@ wedra-darwin-amd64           ← macOS Intel
 
 **1. Статическая проверка цепочки (покажет, что контракты ловятся до запуска):**
 ```bash
-wedra validate examples/email_check.yaml
+wedra pipeline validate examples/email_check.yaml
 ```
 
 **2. Пак A — проверка email-списка, человек в петле:**
 ```bash
-wedra run examples/email_check.yaml
+wedra pipeline run examples/email_check.yaml
 ```
 Прогонит 3 email (третий — заведомо битый, смотри журнал событий). На паузе `human_gate`: Enter (без правки) → `a` (принять) или `r` (отклонить).
 
-**3. Пак B — текстовый LLM-конвейер без ключей (mock-режим):**
+**3. Пак B — текстовый LLM-конвейер в mock-режиме:**
 ```bash
-# Windows (cmd):    set LLM_MOCK=1 && wedra.exe run examples\llm_text_chain.yaml
-# PowerShell:       $env:LLM_MOCK=1; .\wedra.exe run examples\llm_text_chain.yaml
-# Linux/macOS:      LLM_MOCK=1 ./wedra run examples/llm_text_chain.yaml
+# Windows (cmd):    set LLM_MOCK=1 && set GEMINI_API_KEY=mock && set LLM_OAI_API_KEY=mock && wedra.exe pipeline run examples\llm_text_chain.yaml
+# PowerShell:       $env:LLM_MOCK=1; $env:GEMINI_API_KEY="mock"; $env:LLM_OAI_API_KEY="mock"; .\wedra.exe pipeline run examples\llm_text_chain.yaml
+# Linux/macOS:      LLM_MOCK=1 GEMINI_API_KEY=mock LLM_OAI_API_KEY=mock ./wedra pipeline run examples/llm_text_chain.yaml
 ```
-На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку. С ключами (`GEMINI_API_KEY`, `LLM_OAI_API_KEY`) то же самое по-настоящему.
+На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку. Ключи всё равно должны существовать: preflight проверяет `pipeline.secrets`, даже когда mock-плагин не использует сеть. С настоящими ключами (`GEMINI_API_KEY`, `LLM_OAI_API_KEY`) то же самое по-настоящему.
 
 **4. Собери свой плагин за минуту:**
 ```bash
@@ -61,5 +61,7 @@ wedra plugin test plugins/proba      # контракт-тесты — долж�
 ## Известные косяки (честно)
 
 - Windows: unsigned exe → SmartScreen; требуется Python (плагины на нём).
-- Нет GUI, нет резюме прерванных ранов, секреты — только env-переменные.
+- GUI, `--resume` и MCP работают; resume требует тот же pipeline identity и журнал.
+- Нет OS-песочницы для community-плагинов: они запускаются с правами текущего пользователя.
+- Секреты — только env-переменные; `permissions` — декларация и аудит, не изоляция.
 - SMTP-плагин (сырой 25-й порт) сознательно НЕ в витрине: у большинства провайдеров порт закрыт.

@@ -1,11 +1,13 @@
 package registry
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -48,6 +50,34 @@ func InstalledVersion(dir string) (string, bool) {
 	return l.Version, true
 }
 
+func ValidateCommit(commit string) error {
+	if commit == "" {
+		return nil
+	}
+	if len(commit) != 40 && len(commit) != 64 {
+		return fmt.Errorf("commit должен быть полным SHA (40 или 64 hex), got %q", commit)
+	}
+	if _, err := hex.DecodeString(commit); err != nil {
+		return fmt.Errorf("commit не hex: %q", commit)
+	}
+	return nil
+}
+
+func VerifyCheckoutCommit(dir, commit string) error {
+	if err := ValidateCommit(commit); err != nil {
+		return err
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "HEAD^{commit}").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("не удалось прочитать HEAD %s: %s: %s", dir, err, strings.TrimSpace(string(out)))
+	}
+	got := strings.TrimSpace(string(out))
+	if !strings.EqualFold(got, commit) {
+		return fmt.Errorf("HEAD %s не совпадает с pin %s", got, commit)
+	}
+	return nil
+}
+
 // CloneTo — git clone depth-1 source@ref → dir (dir создаётся).
 // v0.28a: pinned-вариант с проверкой commit — см. CloneToPinned.
 func CloneTo(source, ref, dir string) error {
@@ -64,6 +94,9 @@ func CloneTo(source, ref, dir string) error {
 // SHA не может «указывать на себя» (он неизвестен до коммита), поэтому пин —
 // всегда SHA предшествующей проверенной ревизии, содержимое которой сверено.
 func CloneToPinned(source, ref, commit, dir string) error {
+	if err := ValidateCommit(commit); err != nil {
+		return err
+	}
 	if commit == "" {
 		return cloneRef(source, ref, dir)
 	}
@@ -84,7 +117,7 @@ func CloneToPinned(source, ref, commit, dir string) error {
 			return fmt.Errorf("supply-chain пин %s@%s: %s: %s", source, commit, err, string(out))
 		}
 	}
-	return nil
+	return VerifyCheckoutCommit(dir, commit)
 }
 
 func cloneRef(source, ref, dir string) error {
@@ -107,25 +140,44 @@ func CopyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink в plugin source запрещён: %s", path)
+		}
 		if d.IsDir() {
 			base := filepath.Base(path)
 			if base == ".git" || base == ".wedra" {
 				return filepath.SkipDir
 			}
-			if path == src {
-				return os.MkdirAll(dst, 0o755)
+			info, err := d.Info()
+			if err != nil {
+				return err
 			}
-			return os.MkdirAll(filepath.Join(dst, stringsRel(src, path)), 0o755)
+			mode := info.Mode().Perm()
+			if mode == 0 {
+				mode = 0o755
+			}
+			if path == src {
+				return os.MkdirAll(dst, mode)
+			}
+			return os.MkdirAll(filepath.Join(dst, stringsRel(src, path)), mode)
 		}
 		base := filepath.Base(path)
 		if base == ".wedra" {
 			return nil
 		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dst, stringsRel(src, path)), data, 0o644)
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		return os.WriteFile(filepath.Join(dst, stringsRel(src, path)), data, mode)
 	})
 }
 

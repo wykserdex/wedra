@@ -32,6 +32,8 @@ func (t *StdioTransport) Invoke(manifest *pipeline.Manifest, input []byte) ([]by
 	return b, nil
 }
 
+const ProtocolVersion = "0.2"
+
 type Envelope struct {
 	ProtocolVersion string      `json:"protocol_version"`
 	Type            string      `json:"type"`
@@ -41,7 +43,7 @@ type Envelope struct {
 
 func NewEnvelope(reqID string, payload interface{}) *Envelope {
 	return &Envelope{
-		ProtocolVersion: "0.3",
+		ProtocolVersion: ProtocolVersion,
 		Type:            "request",
 		RequestID:       reqID,
 		Payload:         payload,
