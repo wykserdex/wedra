@@ -79,6 +79,8 @@ func RunRegistryValidate(args []string) {
 				passed, failed, terr := core.RunPluginTests(dir, "", true)
 				if terr != nil {
 					ok, detail = false, "тесты: "+terr.Error()
+				} else if passed+failed < 3 {
+					ok, detail = false, fmt.Sprintf("тесты: нужно минимум 3, найдено %d", passed+failed)
 				} else if failed > 0 {
 					ok, detail = false, fmt.Sprintf("тесты: %d/%d PASSED", passed, passed+failed)
 				} else {
