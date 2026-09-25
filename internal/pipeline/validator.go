@@ -180,8 +180,10 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	if p.Foreach != "" {
 		if strings.HasPrefix(p.Foreach, "input.") {
 			key := strings.TrimPrefix(p.Foreach, "input.")
-			if _, ok := p.Input[key]; !ok {
+			if value, ok := p.Input[key]; !ok {
 				errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
+			} else if arr, ok := value.([]interface{}); ok && len(arr) > MaxForeachItems {
+				errs = append(errs, fmt.Sprintf("foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems))
 			}
 		} else if strings.HasPrefix(p.Foreach, "steps.") {
 			parts := strings.Split(p.Foreach, ".")
@@ -272,6 +274,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 		}
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
 			errs = append(errs, "шаг "+st.ID+": retry.attempts < 1")
+		}
+		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
+			errs = append(errs, fmt.Sprintf("шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts))
 		}
 		if IsBuiltin(st.Plugin) {
 			if len(st.Bind) > 0 {
@@ -384,6 +389,9 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	for g, n := range groupSize {
 		if n == 1 {
 			warns = append(warns, fmt.Sprintf("parallel_group %q: один шаг — параллелизм бессмыслен", g))
+		}
+		if n > MaxParallelWidth {
+			errs = append(errs, fmt.Sprintf("parallel_group %q: %d шагов, максимум %d", g, n, MaxParallelWidth))
 		}
 	}
 	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов

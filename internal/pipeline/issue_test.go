@@ -239,6 +239,28 @@ func TestIssueJSON(t *testing.T) {
 	}
 }
 
+func TestResourceLimitIssues(t *testing.T) {
+	arr := make([]interface{}, MaxForeachItems+1)
+	for i := range arr {
+		arr[i] = i
+	}
+	pf := &PipelineFile{
+		FormatVersion: "0.2",
+		Pipeline: Pipeline{
+			Name:    "limits",
+			Input:   map[string]interface{}{"items": arr},
+			Foreach: "input.items",
+			Steps:   []Step{{ID: "s", Plugin: "fake/syntax", OnError: "retry", Retry: &Retry{Attempts: MaxRetryAttempts + 1}}},
+		},
+	}
+	issues := ValidateIssues(pf, stubBase())
+	for _, code := range []string{E_FOREACH_LIMIT, E_RETRY_LIMIT} {
+		if len(FilterCode(issues, code)) != 1 {
+			t.Fatalf("missing %s in %+v", code, issues)
+		}
+	}
+}
+
 func TestReservedBuiltinRejectedByValidators(t *testing.T) {
 	eng := &stubEngine{mans: map[string]*Manifest{
 		"core/does_not_exist": {ID: "core/does_not_exist"},

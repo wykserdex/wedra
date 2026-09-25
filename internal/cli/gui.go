@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"wedra/internal/api"
 	"wedra/internal/guidirs"
@@ -100,7 +101,15 @@ func RunGUI(args []string) {
 		}()
 	}
 
-	if err := http.ListenAndServe(listen, handler); err != nil {
+	server := &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		fmt.Println("ошибка сервера:", err)
 		os.Exit(1)
 	}

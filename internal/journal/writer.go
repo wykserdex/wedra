@@ -12,6 +12,8 @@ import (
 	"wedra/internal/runctx"
 )
 
+const maxJournalPayloadSize = 16 << 20
+
 // Journal — append-only журнал прогона: var/runs/<run_id>/journal.jsonl
 type Journal struct {
 	// v0.23: счётчик потерянных событий (write-ошибки)
@@ -66,6 +68,12 @@ func (j *Journal) Event(kind string, kv map[string]interface{}) error {
 		return err
 	}
 	line := append(b, '\n')
+	if len(line) > maxJournalPayloadSize {
+		j.writeErrs++
+		err := fmt.Errorf("journal event %s exceeds %d bytes", kind, maxJournalPayloadSize)
+		fmt.Fprintf(os.Stderr, "journal: %v (событие потеряно)\n", err)
+		return err
+	}
 	n, werr := j.f.Write(line)
 	if werr == nil && n != len(line) {
 		werr = io.ErrShortWrite
@@ -96,6 +104,12 @@ func (j *Journal) Snapshot(ctx *runctx.Ctx) error {
 	if err != nil {
 		j.writeErrs++
 		fmt.Fprintf(os.Stderr, "journal: snapshot marshal: %v\n", err)
+		return err
+	}
+	if len(b) > maxJournalPayloadSize {
+		j.writeErrs++
+		err := fmt.Errorf("context snapshot exceeds %d bytes", maxJournalPayloadSize)
+		fmt.Fprintf(os.Stderr, "journal: %v\n", err)
 		return err
 	}
 	tmp := filepath.Join(j.Dir, "context.json.tmp")

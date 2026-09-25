@@ -14,6 +14,10 @@ import os
 import sys
 
 
+MAX_BYTES = 16 * 1024 * 1024
+MAX_ROWS = 100000
+
+
 def fail(code, message, exit_code=1, retryable=False):
     print(json.dumps({"status": "error", "error": {"code": code, "message": message, "retryable": retryable}}, ensure_ascii=False))
     return exit_code
@@ -65,9 +69,15 @@ def main():
             return fail("file_not_found", f"файл не найден: {path} (cwd={os.getcwd()})")
 
     try:
+        if os.path.getsize(path) > MAX_BYTES:
+            return fail("file_too_large", f"файл больше {MAX_BYTES} байт: {path}")
         with open(path, newline='', encoding='utf-8') as f:
             reader = csv.reader(f, delimiter=delimiter)
-            rows = list(reader)
+            rows = []
+            for row in reader:
+                if len(rows) >= MAX_ROWS:
+                    return fail("too_many_rows", f"больше {MAX_ROWS} строк: {path}")
+                rows.append(row)
             if not rows:
                 return fail("empty_file", f"файл пустой: {path}")
             if has_header:
