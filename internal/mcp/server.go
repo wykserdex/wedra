@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,9 +163,9 @@ func (m *multiEngine) loadLocal(ref string) (*pipeline.Manifest, error) {
 
 func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if pipeline.IsBuiltin(ref) {
-		if ref == "core/human_gate" {
-			return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
-		}
+		return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
+	}
+	if pipeline.IsBuiltinNamespace(ref) {
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
 	if registry.IsLocalRef(ref) {
@@ -195,6 +196,9 @@ func (s *Server) checkPluginRef(ref string) error {
 	if pipeline.IsBuiltin(ref) {
 		return nil
 	}
+	if pipeline.IsBuiltinNamespace(ref) {
+		return fmt.Errorf("E_PLUGIN_LOAD: неизвестный встроенный модуль: %s", ref)
+	}
 	if strings.Contains(ref, "..") {
 		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: путь %q выходит за корни плагинов", ref)
 	}
@@ -218,20 +222,92 @@ func (s *Server) checkPluginRef(ref string) error {
 	return nil
 }
 
-// checkPathInWorkdir — file_ref и path пайплайна внутри --workdir.
 func (s *Server) checkPathInWorkdir(p string) error {
 	if p == "" {
 		return nil
 	}
-	if filepath.IsAbs(p) {
-		rel, err := filepath.Rel(s.workDir, p)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q вне --workdir", p)
-		}
-		return nil
+	if strings.ContainsRune(p, 0) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q содержит NUL", p)
 	}
-	if strings.Contains(p, "..") {
-		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q содержит ..", p)
+	candidate := p
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(s.workDir, candidate)
+	}
+	abs, err := filepath.Abs(candidate)
+	if err != nil || !pathWithinRoot(s.workDir, abs) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q вне --workdir", p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil && !pathWithinRoot(s.workDir, resolved) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q уходит через symlink", p)
+	}
+	return nil
+}
+
+func pathWithinRoot(root, path string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(pathAbs); err == nil {
+		pathAbs = resolved
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
+	for i := range pf.Pipeline.Steps {
+		st := &pf.Pipeline.Steps[i]
+		if pipeline.IsBuiltin(st.Plugin) {
+			continue
+		}
+		m, err := s.multi.LoadManifest(st.Plugin)
+		if err != nil {
+			continue
+		}
+		for _, permission := range m.Permissions.Network {
+			if permission.AnyHost {
+				return fmt.Errorf("E_NETWORK_DENIED: плагин %s заявил any_host в MCP", m.ID)
+			}
+			host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(permission.Host), "."))
+			if host == "" {
+				return fmt.Errorf("E_NETWORK_DENIED: пустой host в permissions плагина %s", m.ID)
+			}
+			if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+				return fmt.Errorf("E_NETWORK_DENIED: host %q запрещён в MCP", permission.Host)
+			}
+			if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+				return fmt.Errorf("E_NETWORK_DENIED: private/loopback host %q запрещён в MCP", permission.Host)
+			}
+		}
+		for name, port := range m.Input {
+			if port.Format != "file_ref" {
+				continue
+			}
+			source := pipeline.PortSource(name, port, st)
+			if !strings.HasPrefix(source, "input.") || strings.Contains(strings.TrimPrefix(source, "input."), ".") {
+				return fmt.Errorf("E_FILE_REF_UNCHECKED: плагин %s, порт %s, источник %q", m.ID, name, source)
+			}
+			key := strings.TrimPrefix(source, "input.")
+			raw, ok := pf.Pipeline.Input[key]
+			if !ok {
+				continue
+			}
+			value, ok := raw.(string)
+			if !ok {
+				return fmt.Errorf("E_FILE_REF_UNCHECKED: input.%s должен быть строкой", key)
+			}
+			if err := s.checkPathInWorkdir(value); err != nil {
+				return fmt.Errorf("E_FILE_REF_OUTSIDE_ROOT: input.%s: %w", key, err)
+			}
+		}
 	}
 	return nil
 }
@@ -270,6 +346,9 @@ func (s *Server) loadPipeline(args map[string]interface{}) (*pipeline.PipelineFi
 		if err := s.checkPluginRef(st.Plugin); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.checkPipelineSafety(pf); err != nil {
+		return nil, err
 	}
 	return pf, nil
 }
@@ -361,7 +440,15 @@ func (s *Server) handle(req *Request) *Response {
 }
 
 func rpcErr(code, msg string) *RPCError {
-	if strings.HasPrefix(msg, "E_PLUGIN_OUTSIDE_ROOT") || strings.HasPrefix(code, "E_") {
+	if strings.HasPrefix(msg, "E_") || strings.HasPrefix(code, "E_") {
+		if code == "" {
+			for _, known := range []string{"E_PLUGIN_OUTSIDE_ROOT", "E_FILE_REF_OUTSIDE_ROOT", "E_FILE_REF_UNCHECKED", "E_NETWORK_DENIED", "E_PLUGIN_LOAD"} {
+				if strings.HasPrefix(msg, known+":") {
+					code = known
+					break
+				}
+			}
+		}
 		return &RPCError{Code: -32000, Message: msg, Data: map[string]string{"code": code}}
 	}
 	return &RPCError{Code: -32602, Message: msg}

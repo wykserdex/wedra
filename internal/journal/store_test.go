@@ -2,6 +2,7 @@ package journal
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,5 +48,18 @@ func TestJsonStoreMaxItemIndexIgnoresAbortedItem(t *testing.T) {
 	idx, err := store.MaxItemIndex("run-2")
 	if err != nil || idx != -1 {
 		t.Fatalf("MaxItemIndex=%d err=%v", idx, err)
+	}
+}
+
+func TestParseItemIndexRejectsInvalidValues(t *testing.T) {
+	for _, value := range []interface{}{math.NaN(), math.Inf(1), math.Inf(-1), -1, 1.5, float64(1 << 63), uint(^uint(0)), "1", true} {
+		if got, ok := ParseItemIndex(value); ok {
+			t.Fatalf("invalid index accepted: value=%v got=%d", value, got)
+		}
+	}
+	for _, value := range []interface{}{float64(0), float64(7), int64(8), json.Number("9")} {
+		if _, ok := ParseItemIndex(value); !ok {
+			t.Fatalf("valid index rejected: %v", value)
+		}
 	}
 }

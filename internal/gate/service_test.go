@@ -115,3 +115,10 @@ func TestGateRejectStops(t *testing.T) {
 		t.Fatalf("reject (on_reject=stop) обязан стопнуть, got %q", res)
 	}
 }
+
+func TestGateActionsAllowlist(t *testing.T) {
+	got := gateActions([]string{"<img src=x onerror=alert(1)>", "ACCEPT", "reject", "accept"})
+	if len(got) != 2 || got[0] != "accept" || got[1] != "reject" {
+		t.Fatalf("unexpected actions: %v", got)
+	}
+}
