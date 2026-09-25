@@ -365,10 +365,18 @@ func (s *Server) validateArgs(args map[string]interface{}) (*pipeline.PipelineFi
 
 // Serve — главный цикл stdio.
 func (s *Server) Serve(t *Transport) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
 	for {
 		req, err := t.Read()
 		if err != nil {
-			return err
+			wg.Wait()
+			select {
+			case writeErr := <-errCh:
+				return writeErr
+			default:
+				return err
+			}
 		}
 		if req.Method == "notifications/initialized" || req.Method == "notifications/cancelled" {
 			continue
@@ -376,11 +384,18 @@ func (s *Server) Serve(t *Transport) error {
 		if len(req.ID) == 0 {
 			continue
 		}
-		res := s.handle(req)
-		res.ID = req.ID
-		if err := t.Write(res); err != nil {
-			return err
-		}
+		wg.Add(1)
+		go func(req *Request) {
+			defer wg.Done()
+			res := s.handle(req)
+			res.ID = req.ID
+			if err := t.Write(res); err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+			}
+		}(req)
 	}
 }
 
