@@ -117,3 +117,46 @@ func TestEnforceOutputRequiredMissing(t *testing.T) {
 		t.Fatal("ожидалась ошибка обязательного поля")
 	}
 }
+
+func TestValidateManifestRejectsInvalidContract(t *testing.T) {
+	base := func() *pipeline.Manifest {
+		return &pipeline.Manifest{
+			ID:          "safe_plugin",
+			Version:     "0.1.0",
+			PlatformAPI: "^0.1",
+			Runtime:     pipeline.Runtime{Type: "python", Entry: "main.py"},
+			Output:      map[string]pipeline.Port{"result": {Type: "string"}},
+		}
+	}
+	cases := []struct {
+		name string
+		edit func(*pipeline.Manifest)
+	}{
+		{"version", func(m *pipeline.Manifest) { m.Version = "latest" }},
+		{"platform", func(m *pipeline.Manifest) { m.PlatformAPI = "^9.0" }},
+		{"entry", func(m *pipeline.Manifest) { m.Runtime.Entry = "../outside.py" }},
+		{"port_type", func(m *pipeline.Manifest) { m.Output["result"] = pipeline.Port{Type: "unknown"} }},
+		{"port_format", func(m *pipeline.Manifest) { m.Output["result"] = pipeline.Port{Type: "array", Format: "text"} }},
+		{"secret", func(m *pipeline.Manifest) { m.Permissions.Secrets = []string{"BAD-KEY"} }},
+		{"network", func(m *pipeline.Manifest) {
+			m.Permissions.Network = []pipeline.NetworkPermission{{Host: "https://example.com", Port: 443}}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base()
+			tc.edit(m)
+			if err := pipeline.ValidateManifest(m); err == nil {
+				t.Fatal("ожидалась ошибка манифеста")
+			}
+		})
+	}
+}
+
+func TestDecodeManifestRejectsUnknownFields(t *testing.T) {
+	raw := []byte("id: safe_plugin\nversion: 0.1.0\nplatform_api: ^0.1\nruntime:\n  type: python\n  entry: main.py\noutput:\n  result:\n    type: string\nunknown: true\n")
+	var m pipeline.Manifest
+	if err := pipeline.DecodeManifest(raw, &m); err == nil {
+		t.Fatal("неизвестное поле манифеста должно отклоняться")
+	}
+}
