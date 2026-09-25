@@ -3,9 +3,6 @@
 name: release
 on:
   workflow_call:
-    secrets:
-      GITHUB_TOKEN:
-        required: true
 
 permissions:
   contents: write
@@ -87,4 +84,4 @@ jobs:
           files: dist/*
           generate_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}

@@ -275,5 +275,3 @@ jobs:
       id-token: write
       attestations: write
     uses: ./.github/workflows/release.yml
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
