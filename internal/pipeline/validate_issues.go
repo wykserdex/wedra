@@ -114,6 +114,8 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			val, ok := p.Input[key]
 			if !ok {
 				v.err(E_FOREACH_NOT_FOUND, "", "", "pipeline.foreach", fmt.Sprintf("доступные поля: %s", strings.Join(inputFieldList(pf), ", ")), &Fix{Op: "bind", Target: "pipeline.foreach", Candidates: inputFieldList(pf)}, "foreach: массив "+p.Foreach+" не найден в input")
+			} else if arr, isArr := val.([]interface{}); isArr && len(arr) > MaxForeachItems {
+				v.err(E_FOREACH_LIMIT, "", "", "pipeline.input."+key, "слишком много элементов", nil, "pipeline foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems)
 			} else if p.ItemType != "" || p.ItemFormat != "" {
 				if arr, isArr := val.([]interface{}); isArr {
 					for idx, elem := range arr {
@@ -222,7 +224,10 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			v.err(E_ON_ERROR, st.ID, "", "pipeline.steps."+st.ID+".on_error", "допускаются: stop, skip, retry", &Fix{Op: "set", Target: "steps." + st.ID + ".on_error", Candidates: []string{"stop", "skip", "retry"}}, "шаг "+st.ID+": on_error="+st.OnError+", ожидается stop|skip|retry")
 		}
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
-			v.err(E_RETRY_ATTEMPTS, st.ID, "", "pipeline.steps."+st.ID+".retry", "attempts должен быть >= 1", nil, "шаг "+st.ID+": retry.attempts < 1")
+			v.err(E_RETRY_ATTEMPTS, st.ID, "", "pipeline.steps."+st.ID+".retry.attempts", "attempts должен быть >= 1", nil, "шаг %s: retry.attempts < 1", st.ID)
+		}
+		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
+			v.err(E_RETRY_LIMIT, st.ID, "", "pipeline.steps."+st.ID+".retry.attempts", "слишком много попыток", &Fix{Op: "set", Target: "steps." + st.ID + ".retry.attempts", Candidates: []string{"1", "3", "5"}}, "шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts)
 		}
 		if st.Approval != "" && st.Approval != "human" && st.Approval != "any" {
 			v.err(E_APPROVAL_VALUE, st.ID, "", "pipeline.steps."+st.ID+".approval", "допускаются: human, any", &Fix{Op: "set", Target: "steps." + st.ID + ".approval", Candidates: []string{"human", "any"}}, "шаг %s: approval=%s, ожидается human|any", st.ID, st.Approval)
@@ -345,6 +350,9 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 	for g, n := range groupSize {
 		if n == 1 {
 			v.warn(W_PARALLEL_SINGLE, "", "", "pipeline.parallel_group."+g, "уберите parallel_group или добавьте шаги", nil, "parallel_group %q: один шаг — параллелизм бессмыслен", g)
+		}
+		if n > MaxParallelWidth {
+			v.err(E_PARALLEL_LIMIT, "", "", "pipeline.parallel_group."+g, "слишком широк", nil, "parallel_group %q: %d шагов, максимум %d", g, n, MaxParallelWidth)
 		}
 	}
 	pluginSecrets := map[string]bool{}

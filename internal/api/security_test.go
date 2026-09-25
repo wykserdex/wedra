@@ -60,6 +60,17 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	}
 }
 
+func TestRequestBodyLimit(t *testing.T) {
+	handler, _ := secServer(t)
+	body := bytes.Repeat([]byte("x"), maxRequestBodySize+1)
+	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/large.yaml", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("oversized body: code=%d", rec.Code)
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	handler, _ := secServer(t)
 	req, _ := http.NewRequest("GET", "http://x/", nil)

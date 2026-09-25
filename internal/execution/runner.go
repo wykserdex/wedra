@@ -400,6 +400,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	} else {
 		return stats, runErr("foreach_path", "foreach: путь должен начинаться с input. или steps., got %s", pf.Pipeline.Foreach)
 	}
+	if len(items) > pipeline.MaxForeachItems {
+		return stats, runErr("resource_limit", "foreach: %d элементов, максимум %d", len(items), pipeline.MaxForeachItems)
+	}
 
 	itemKey := pf.Pipeline.ForeachItem
 	if itemKey == "" {
@@ -407,6 +410,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	}
 
 	agg := map[string][]interface{}{}
+	aggregateCount := 0
 	if startItemIdx > 0 {
 		if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
 			for _, st := range loopSteps {
@@ -421,6 +425,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				}
 			}
 		}
+	}
+	for _, values := range agg {
+		aggregateCount += len(values)
+	}
+	if aggregateCount > pipeline.MaxAggregateItems {
+		return stats, runErr("resource_limit", "resume aggregate exceeds %d items", pipeline.MaxAggregateItems)
 	}
 
 	if startItemIdx > 0 {
@@ -492,6 +502,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 			}
 			if v, ok := ctx.Data["steps"].(map[string]interface{})[srcKey]; ok {
 				agg[st.ID] = append(agg[st.ID], v)
+				aggregateCount++
+				if aggregateCount > pipeline.MaxAggregateItems {
+					err := runErr("resource_limit", "aggregate exceeds %d items", pipeline.MaxAggregateItems)
+					failEvent(j, ctx, err, nil)
+					return stats, err
+				}
 			}
 		}
 		if pf.Pipeline.Foreach != "" {
@@ -604,6 +620,9 @@ func runParallelSegments(eng Engine, pf *pipeline.PipelineFile, steps []*pipelin
 // любой ветке останавливает ран. human_gate и foreach в группах запрещены
 // валидатором.
 func runParallelGroup(eng Engine, pf *pipeline.PipelineFile, seg stepSegment, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) ([]string, error) {
+	if len(seg.steps) > pipeline.MaxParallelWidth {
+		return nil, runErr("resource_limit", "parallel_group %q: %d шагов, максимум %d", seg.group, len(seg.steps), pipeline.MaxParallelWidth)
+	}
 	ids := make([]string, 0, len(seg.steps))
 	for _, st := range seg.steps {
 		ids = append(ids, st.ID)
@@ -720,6 +739,9 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 	if !ok {
 		return "", runErr("foreach_path", "foreach: %s не массив (шаг %s)", st.Foreach, st.ID)
 	}
+	if len(arr) > pipeline.MaxForeachItems {
+		return "", runErr("resource_limit", "шаг %s: foreach: %d элементов, максимум %d", st.ID, len(arr), pipeline.MaxForeachItems)
+	}
 	itemKey := st.ForeachItem
 	if itemKey == "" {
 		itemKey = "item"
@@ -815,6 +837,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		if st.Retry != nil && st.Retry.Attempts > 0 {
 			attempts = st.Retry.Attempts
 		}
+	}
+	if attempts > pipeline.MaxRetryAttempts {
+		attempts = pipeline.MaxRetryAttempts
 	}
 	// v0.17: declare-now — subprocess получает контракт сети (deny → честный плагин откажется от сети)
 	netEnv := "allow"
@@ -928,8 +953,17 @@ func retryDelay(st *pipeline.Step, attempt int) time.Duration {
 		if st.Retry.Delay.Duration > 0 {
 			d = st.Retry.Delay.Duration
 		}
+		if d > pipeline.MaxRetryDelay {
+			d = pipeline.MaxRetryDelay
+		}
 		if st.Retry.Backoff == "exponential" {
-			d = d << (attempt - 1)
+			for i := 1; i < attempt; i++ {
+				if d >= pipeline.MaxRetryDelay/2 {
+					d = pipeline.MaxRetryDelay
+					break
+				}
+				d *= 2
+			}
 		}
 	}
 	return d
