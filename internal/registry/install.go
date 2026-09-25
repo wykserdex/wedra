@@ -63,6 +63,39 @@ func ValidateCommit(commit string) error {
 	return nil
 }
 
+func VerifyCheckoutPath(dir, commit, path string) error {
+	if err := ValidateCommit(commit); err != nil {
+		return err
+	}
+	ancestor := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", commit, "HEAD")
+	if out, err := ancestor.CombinedOutput(); err != nil {
+		return fmt.Errorf("pin %s не является предком HEAD: %s: %s", commit, err, strings.TrimSpace(string(out)))
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	if clean == "." || clean == "" {
+		clean = "."
+	}
+	pinned, err := exec.Command("git", "-C", dir, "rev-parse", commit+":"+clean).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pin %s не содержит %s: %s", commit, clean, strings.TrimSpace(string(pinned)))
+	}
+	current, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:"+clean).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("HEAD не содержит %s: %s", clean, strings.TrimSpace(string(current)))
+	}
+	if strings.TrimSpace(string(pinned)) != strings.TrimSpace(string(current)) {
+		return fmt.Errorf("локальный %s отличается от pin %s", clean, commit)
+	}
+	status, err := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=all", "--", clean).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("не удалось проверить локальное состояние %s: %s", clean, err)
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		return fmt.Errorf("локальный %s содержит незакоммиченные изменения", clean)
+	}
+	return nil
+}
+
 func VerifyCheckoutCommit(dir, commit string) error {
 	if err := ValidateCommit(commit); err != nil {
 		return err
