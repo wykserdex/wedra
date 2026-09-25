@@ -80,6 +80,12 @@
                 "type": "string",
                 "minLength": 1
               },
+              "pos": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {"type": "number"}
+              },
               "on_error": {
                 "type": "string",
                 "enum": [
@@ -223,13 +229,6 @@
                 "description": "шаги с одинаковым именем группы выполняются параллельно, барьер — до следующего шага"
               }
             }
-          }
-        },
-        "pos": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": {"type": "number"}
           }
         },
         "secrets": {

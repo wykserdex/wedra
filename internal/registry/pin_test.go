@@ -104,3 +104,14 @@ func TestPinRejectsShortCommit(t *testing.T) {
 		t.Fatal("short commit was accepted")
 	}
 }
+
+func TestVerifyCheckoutCommitRejectsMismatchedHead(t *testing.T) {
+	src, shaA, shaB := pinRepo(t, false)
+	checkout := filepath.Join(t.TempDir(), "plug")
+	if err := CloneToPinned(src, "v1", shaA, checkout); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCheckoutCommit(checkout, shaB); err == nil {
+		t.Fatal("mismatched checkout was accepted")
+	}
+}

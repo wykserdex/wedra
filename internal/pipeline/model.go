@@ -60,6 +60,7 @@ type Step struct {
 	Retry   *Retry            `yaml:"retry"`
 	Timeout Duration          `yaml:"timeout"`
 	Bind    map[string]string `yaml:"bind"`
+	Pos     [2]int            `yaml:"pos,omitempty"`
 
 	// v0.12: after_foreach — шаг выполняется один раз после foreach, а не per-item
 	AfterForeach bool `yaml:"after_foreach"`
@@ -150,6 +151,7 @@ const (
 	MaxParallelWidth  = 32
 	MaxRetryAttempts  = 10
 	MaxRetryDelay     = 5 * time.Minute
+	MaxStepTimeout    = 30 * time.Minute
 	MaxAggregateItems = 100000
 )
 

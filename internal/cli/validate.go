@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"wedra/internal/core"
 	"wedra/internal/pipeline"
 )
@@ -26,7 +25,11 @@ func RunPipelineValidate(args []string) {
 		os.Exit(2)
 	}
 	var pf core.PipelineFile
-	if err := yaml.Unmarshal(raw, &pf); err != nil {
+	loaded, err := pipeline.LoadPipelineFileFromBytes(raw)
+	if err == nil {
+		pf = *loaded
+	}
+	if err != nil {
 		if asJSON {
 			printJSON(map[string]interface{}{"ok": false, "error": "yaml: " + err.Error()})
 		} else {

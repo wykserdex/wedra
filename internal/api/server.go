@@ -85,6 +85,53 @@ func (s *Server) runEngine() *core.Engine {
 	return eng
 }
 
+func secureContainedPath(root, name string) (string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	candidate := name
+	if !filepath.IsAbs(candidate) && !strings.HasPrefix(candidate, "/") && !(len(candidate) >= 2 && candidate[1] == ':') {
+		candidate = filepath.Join(rootAbs, candidate)
+	}
+	rel, err := filepath.Rel(rootAbs, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path вне корня")
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", err
+	}
+	if info, lstatErr := os.Lstat(candidate); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("path является symlink")
+	}
+	resolved, err := filepath.EvalSymlinks(candidate)
+	if err == nil {
+		resolvedRel, relErr := filepath.Rel(rootReal, resolved)
+		if relErr != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("path уходит через symlink")
+		}
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	if info, lstatErr := os.Lstat(candidate); lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("path является symlink")
+	} else if lstatErr != nil && !os.IsNotExist(lstatErr) {
+		return "", lstatErr
+	}
+	parentReal, err := filepath.EvalSymlinks(filepath.Dir(candidate))
+	if err != nil {
+		return "", err
+	}
+	parentRel, err := filepath.Rel(rootReal, parentReal)
+	if err != nil || parentRel == ".." || strings.HasPrefix(parentRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("родительский путь уходит через symlink")
+	}
+	return candidate, nil
+}
+
 func (s *Server) setCancel(id string, c context.CancelFunc) {
 	s.cancelsMu.Lock()
 	defer s.cancelsMu.Unlock()
@@ -124,39 +171,93 @@ func (s *Server) gateFor(id string) *gate.ChannelUI {
 	return s.gates[id]
 }
 
-// csreHostLoopback — loopback-хост (127.0.0.1/localhost/::1) с любым портом.
-func csrfHostLoopback(host string) bool {
-	h := host
-	if i := strings.LastIndex(h, ":"); i > 0 {
-		h = h[:i]
+func csrfRequestHost(r *http.Request) string {
+	host := strings.TrimSpace(r.Host)
+	if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
+		host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
 	}
-	return h == "127.0.0.1" || h == "localhost" || h == "::1"
+	return host
 }
 
-// csrfGuard — v0.28a: защита POST/PUT/DELETE от cross-site форм (<form>
-// с чужого сайта запускает пайплайны с --yes):
-//   - Sec-Fetch-Site: cross-site → 403 (заголовок считает браузер —
-//     надёжен даже через прокси превью);
-//   - Origin (если есть) → обязан совпадать с видимым host (через прокси —
-//     с X-Forwarded-Host). Применяется строго к публичным биндам; на
-//     loopback доверяем Sec-Fetch-Site (локальный curl без Origin — как раньше).
-func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-		http.Error(w, "cross-site request запрещён (CSRF)", 403)
+func csrfURLMatchesScheme(rawURL, expectedHost, expectedScheme string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u == nil {
 		return false
 	}
-	if !csrfHostLoopback(r.Host) {
-		host := r.Host
-		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-			host = strings.TrimSpace(strings.Split(fh, ",")[0])
+	scheme := strings.ToLower(u.Scheme)
+	if (scheme != "http" && scheme != "https") || u.Host == "" || u.User != nil {
+		return false
+	}
+	if expectedScheme != "" && scheme != strings.ToLower(expectedScheme) {
+		return false
+	}
+	h, err := url.Parse("//" + strings.TrimSpace(expectedHost))
+	if err != nil || h.Host == "" || h.User != nil || strings.ContainsAny(expectedHost, "/?#@ \t\r\n") {
+		return false
+	}
+	port := u.Port()
+	if port == "" {
+		if scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
 		}
-		if origin := r.Header.Get("Origin"); origin != "" {
-			u, err := url.Parse(origin)
-			if err != nil || u.Host != host {
-				http.Error(w, "Origin не совпадает (CSRF)", 403)
-				return false
-			}
+	}
+	expectedPort := h.Port()
+	if expectedPort == "" {
+		if scheme == "https" {
+			expectedPort = "443"
+		} else {
+			expectedPort = "80"
 		}
+	}
+	return strings.EqualFold(u.Hostname(), h.Hostname()) && port == expectedPort
+}
+
+func csrfExpectedScheme(r *http.Request) string {
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded != "" {
+		return strings.ToLower(forwarded)
+	}
+	if r.Header.Get("X-Forwarded-Host") != "" {
+		return ""
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	if r.URL != nil && (r.URL.Scheme == "http" || r.URL.Scheme == "https") {
+		return strings.ToLower(r.URL.Scheme)
+	}
+	return "http"
+}
+
+// csrfGuard — v0.28a: защита POST/PUT/PATCH/DELETE от cross-site форм (<form>
+// с чужого сайта запускает пайплайны с --yes). Same-site не равен
+// same-origin: Origin проверяется и для loopback, а запрос без браузерных
+// заголовков остаётся совместимым с curl CI.
+func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
+	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
+	switch site {
+	case "", "same-origin", "none":
+	case "cross-site", "same-site":
+		http.Error(w, "cross-site request запрещён (CSRF)", 403)
+		return false
+	default:
+		http.Error(w, "неизвестный Sec-Fetch-Site (CSRF)", 403)
+		return false
+	}
+
+	host := csrfRequestHost(r)
+	expectedScheme := csrfExpectedScheme(r)
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+		if !csrfURLMatchesScheme(origin, host, expectedScheme) {
+			http.Error(w, "Origin не совпадает (CSRF)", 403)
+			return false
+		}
+		return true
+	}
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" && !csrfURLMatchesScheme(referer, host, expectedScheme) {
+		http.Error(w, "Referer не совпадает (CSRF)", 403)
+		return false
 	}
 	return true
 }
@@ -205,7 +306,7 @@ func (s *Server) Routes() http.Handler {
 		if s.sessionHandshake(w, r) {
 			return
 		}
-		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE") && !s.csrfGuard(w, r) {
+		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "DELETE") && !s.csrfGuard(w, r) {
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -334,12 +435,8 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasSuffix(name, ".yaml") {
 		name += ".yaml"
 	}
-	// v0.28a: path traversal — Join глотает ..; без проверки читал/писал
-	// любой .yaml вне PipelinesDir (GET ..%2fregistry.yaml, PUT ..%2f..%2f..)
-	base := filepath.Clean(s.PipelinesDir)
-	path := filepath.Join(base, name)
-	if rel, err := filepath.Rel(base, path); err != nil || rel == ".." ||
-		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	path, err := secureContainedPath(s.PipelinesDir, name)
+	if err != nil {
 		http.Error(w, "file: только имя из PipelinesDir (traversal запрещён)", 400)
 		return
 	}
@@ -524,7 +621,11 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	// v0.22: /api/runs/<id>/journal?since=N — live-хвост для GUI
 	if rest, ok := strings.CutSuffix(id, "/journal"); ok {
-		dir := filepath.Join(s.RunsDir, rest)
+		dir, err := journal.SafeRunDir(s.RunsDir, rest)
+		if err != nil {
+			http.Error(w, "invalid run id", 400)
+			return
+		}
 		rd := journal.NewReader(dir)
 		events, err := rd.Events()
 		if err != nil {
@@ -544,7 +645,11 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	dir := filepath.Join(s.RunsDir, id)
+	dir, err := journal.SafeRunDir(s.RunsDir, id)
+	if err != nil {
+		http.Error(w, "invalid run id", 400)
+		return
+	}
 	rd := journal.NewReader(dir)
 	events, err := rd.Events()
 	if err != nil {
@@ -573,28 +678,16 @@ func (s *Server) resolvePipelineFile(name string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("нужно имя или путь к pipeline")
 	}
-	base, err := filepath.Abs(s.PipelinesDir)
+	candidate := name
+	if !filepath.IsAbs(candidate) && !strings.HasPrefix(candidate, "/") && !(len(candidate) >= 2 && candidate[1] == ':') {
+		candidate = filepath.Join(s.PipelinesDir, candidate)
+	}
+	path, err := secureContainedPath(s.PipelinesDir, candidate)
 	if err != nil {
 		return "", err
 	}
-	candidates := []string{}
-	if filepath.IsAbs(name) || strings.HasPrefix(name, "/") || (len(name) >= 2 && name[1] == ':') {
-		candidates = append(candidates, name)
-	} else {
-		candidates = append(candidates, filepath.Join(base, name), name)
-	}
-	for _, candidate := range candidates {
-		abs, err := filepath.Abs(candidate)
-		if err != nil {
-			continue
-		}
-		rel, err := filepath.Rel(base, abs)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		if fi, err := os.Stat(abs); err == nil && !fi.IsDir() {
-			return abs, nil
-		}
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		return path, nil
 	}
 	return "", fmt.Errorf("pipeline %q не найден внутри %s", name, s.PipelinesDir)
 }
@@ -711,6 +804,10 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 
 // handleRunCancel — v0.9: POST /api/runs/<id>/cancel.
 func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id string) {
+	if _, err := journal.SafeRunDir(s.RunsDir, id); err != nil {
+		http.Error(w, "invalid run id", 400)
+		return
+	}
 	if r.Method != "POST" {
 		http.Error(w, "POST", 405)
 		return
@@ -732,7 +829,11 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id stri
 // POST {action, edits} — решение: POST в ChannelUI активного рана (409, если
 // гейта нет, уже решён или ран завершён).
 func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string) {
-	dir := filepath.Join(s.RunsDir, id)
+	dir, err := journal.SafeRunDir(s.RunsDir, id)
+	if err != nil {
+		http.Error(w, "invalid run id", 400)
+		return
+	}
 	switch r.Method {
 	case "GET":
 		rd := journal.NewReader(dir)

@@ -32,7 +32,7 @@ wedra mcp --plugins /abs/path/plugins --workdir /abs/path/project
 | `describe_plugin` | `id` | манифест целиком |
 | `validate_pipeline` | `yaml` \| `path` | `{ok, issues[]}` — `ok:false` норма, не `isError` |
 | `plan_pipeline` | `yaml` \| `path` | DAG + issues |
-| `run_pipeline` | `yaml`\|`path`, `wait_seconds?` | сначала validate, затем `{run_id, status: running\|waiting_human\|done\|failed\|cancelled}` |
+| `run_pipeline` | `yaml`\|`path`, `wait_seconds?` (0..300) | сначала validate, затем `{run_id, status: running\|waiting_human\|done\|failed\|cancelled}` |
 | `get_run` | `run_id`, `since?` | статус, stats, новые события, выходы (~20KB), `pending_gate{step,form,actions}` без токена |
 | `cancel_run` | `run_id` | `{status:"cancelling"}`; затем `get_run` → `cancelled` (`E_RUN_DONE`, если ран уже завершён) |
 

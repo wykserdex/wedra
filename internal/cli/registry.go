@@ -69,6 +69,8 @@ func RunRegistryValidate(args []string) {
 			m, lerr := core.NewEngine().LoadManifest(dir)
 			if lerr != nil {
 				ok, detail = false, "манифест: "+lerr.Error()
+			} else if errs := pipeline.ValidatePluginDir(dir); len(errs) > 0 {
+				ok, detail = false, "манифест: "+strings.Join(errs, "; ")
 			} else if m.ID != name {
 				ok, detail = false, fmt.Sprintf("id в манифесте %q ≠ имя в реестре %q", m.ID, name)
 			} else if _, serr := os.Stat(filepath.Join(dir, "plugin.test.yaml")); serr != nil {
@@ -139,6 +141,11 @@ type srcRoot struct{ root string }
 // resolveRoot — каталог записи без повторных клонов (кэш на (source, version)).
 func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[string]*srcRoot, tmpRoots *[]string) (*srcRoot, error) {
 	if localSource != "" && sameRepo(entry.Source, localSource) {
+		if entry.Commit != "" {
+			if err := registry.VerifyCheckoutCommit(localSource, entry.Commit); err != nil {
+				return nil, fmt.Errorf("локальный source не соответствует pin: %w", err)
+			}
+		}
 		return &srcRoot{root: localSource}, nil
 	}
 	key := entry.Source + "|" + entry.Version + "|" + entry.Commit
@@ -147,12 +154,17 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 	}
 	// 1) source — локальный каталог
 	if fi, e := os.Stat(entry.Source); e == nil && fi.IsDir() {
+		if entry.Commit != "" {
+			if err := registry.VerifyCheckoutCommit(entry.Source, entry.Commit); err != nil {
+				return nil, fmt.Errorf("локальный source не соответствует pin: %w", err)
+			}
+		}
 		c := &srcRoot{root: entry.Source}
 		cache[key] = c
 		return c, nil
 	}
 	// 2) оффлайн: каталог локального реестра и есть source
-	if hDir != "" {
+	if hDir != "" && entry.Commit == "" {
 		candidate := filepath.Join(hDir, entry.Path)
 		if _, e := os.Stat(candidate); e != nil {
 			candidate = filepath.Join(hDir, "plugins", filepath.Base(filepath.FromSlash(entry.Path)))

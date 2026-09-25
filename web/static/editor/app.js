@@ -15,13 +15,49 @@
 // открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
+const inputText = value => Array.isArray(value) || (value !== null && typeof value === 'object')
+  ? JSON.stringify(value, null, 2) : (value == null ? '' : String(value));
+const parseInputText = (text, current) => {
+  if (Array.isArray(current)) {
+    const value = JSON.parse(text);
+    if (!Array.isArray(value)) throw new Error('ожидается массив JSON');
+    return value;
+  }
+  if (current !== null && typeof current === 'object') {
+    const value = JSON.parse(text);
+    if (value === null || Array.isArray(value) || typeof value !== 'object') throw new Error('ожидается объект JSON');
+    return value;
+  }
+  if (typeof current === 'number') {
+    const value = Number(text);
+    if (text.trim() === '' || !Number.isFinite(value)) throw new Error('ожидается число');
+    return value;
+  }
+  if (typeof current === 'boolean') {
+    if (text !== 'true' && text !== 'false') throw new Error('ожидается true или false');
+    return text === 'true';
+  }
+  return text;
+};
+const inputEditor = (input, idx) => {
+  const value = input.default;
+  let editor;
+  if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
+    editor = `<textarea data-indef="${idx}" rows="3" spellcheck="false" style="flex:1;min-width:0">${esc(inputText(value))}</textarea>`;
+  } else if (typeof value === 'boolean') {
+    editor = `<select data-indef="${idx}" style="flex:1;min-width:0"><option value="true"${value ? ' selected' : ''}>true</option><option value="false"${value ? '' : ' selected'}>false</option></select>`;
+  } else {
+    editor = `<input data-indef="${idx}" type="${typeof value === 'number' ? 'number' : 'text'}"${typeof value === 'number' ? ' step="any"' : ''} value="${esc(inputText(value))}" placeholder="значение по умолчанию" spellcheck="false"/>`;
+  }
+  return `<div class="irow"><input data-iname="${idx}" value="${esc(input.name)}" placeholder="имя"/>${editor}<button data-indel="${idx}">×</button></div>`;
+};
 const GRID = 20;
 const snap = v => Math.round(v / GRID) * GRID;
 
 let state = {
   plugins: [],
   doc: { name: 'new_pipeline', file: 'new_pipeline.yaml', format_version: '', input: [], steps: [],
-    secrets: [], network: '',
+    secrets: [], network: '', gates: '',
     foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
@@ -127,7 +163,7 @@ function addStep(plugin, x, y) {
     foreach: '', foreach_item: '', after_foreach: false, parallel_group: '', retry: null,
   };
   if (plugin === 'core/human_gate') {
-    st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop';
+    st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop'; st.approval = '';
   }
   state.doc.steps.push(st);
   state.sel = st.id;
@@ -258,6 +294,8 @@ function renderEdges() {
 }
 
 // ── панель свойств ────────────────────────────────────────────────────────
+const FORM_TYPES = ['', 'string', 'number', 'boolean', 'array', 'object'];
+const FORM_FORMATS = ['', 'text', 'email', 'url', 'ip', 'file_ref'];
 const WHEN_OPS = [
   ['', '— без условия —'], ['truthy', 'truthy — значение истинно'],
   ['exists', 'exists — путь существует'], ['missing', 'missing — пути нет'],
@@ -407,12 +445,29 @@ function renderProps() {
     const gateBlock = gate ? `
       <div class="pblock"><label>form — построчно: «путь» или «e:путь» (editable)</label>
         <textarea data-gform rows="4" spellcheck="false">${esc((st.form || []).map(f => (f.editable ? 'e:' : '') + f.field).join('\n'))}</textarea></div>
+      ${(st.form || []).map((f, idx) => {
+        const type = f.type || '', format = f.format || '';
+        const typeOpts = FORM_TYPES.map(v => `<option value="${v}"${v === type ? ' selected' : ''}>${v || '— type —'}</option>`).join('') +
+          (!FORM_TYPES.includes(type) ? `<option value="${esc(type)}" selected>${esc(type)} (вручную)</option>` : '');
+        const formatOpts = FORM_FORMATS.map(v => `<option value="${v}"${v === format ? ' selected' : ''}>${v || '— format —'}</option>`).join('') +
+          (!FORM_FORMATS.includes(format) ? `<option value="${esc(format)}" selected>${esc(format)} (вручную)</option>` : '');
+        return `<div class="prow">
+          <div class="pblock"><label>form[${idx + 1}] type — ${esc(f.field)}</label><select data-gtype="${idx}">${typeOpts}</select></div>
+          <div class="pblock"><label>format</label><select data-gformat="${idx}">${formatOpts}</select></div>
+        </div>`;
+      }).join('')}
       <div class="pblock"><label>actions — по одному на строку</label>
         <textarea data-gactions rows="3" spellcheck="false">${esc((st.actions || []).join('\n'))}</textarea></div>
       <div class="pblock"><label>on_reject</label>
         <select data-gonreject>
           <option value="stop"${(st.on_reject || 'stop') === 'stop' ? ' selected' : ''}>stop (ран остановлен)</option>
           <option value=""${!st.on_reject ? ' selected' : ''}>continue (идём дальше)</option>
+        </select></div>
+      <div class="pblock"><label>approval</label>
+        <select data-gapproval>
+          <option value=""${!st.approval ? ' selected' : ''}>по умолчанию (any)</option>
+          <option value="any"${st.approval === 'any' ? ' selected' : ''}>any</option>
+          <option value="human"${st.approval === 'human' ? ' selected' : ''}>human — только человек</option>
         </select></div>` : '';
     html += `
       <h3>Шаг</h3>
@@ -433,12 +488,17 @@ function renderProps() {
       <button class="danger" data-del>удалить шаг</button>
       <div class="hint">Двигай шаг за заголовок. Связи — в «bind» (список источников) — рёбра перерисуются сами.</div>`;
   } else {
-    const rows = state.doc.input.map((i, idx) => `
-      <div class="irow"><input data-iname="${idx}" value="${esc(i.name)}" placeholder="имя"/><input data-indef="${idx}" value="${esc(i.default || '')}" placeholder="значение по умолчанию"/><button data-indel="${idx}">×</button></div>`).join('');
+    const rows = state.doc.input.map(inputEditor).join('');
     html += `
       <h3>Пайплайн (выбери шаг для правки шага)</h3>
       <div class="pblock"><label>имя</label><input data-pname value="${esc(state.doc.name)}" spellcheck="false"/></div>
-      <div class="pblock"><label>вход (input.*)</label>${rows || '<div class="hint">нет входов</div>'}
+      <div class="pblock"><label>gates — политика гейтов</label>
+        <select data-pgates>
+          <option value=""${!state.doc.gates ? ' selected' : ''}>по шагам (approval)</option>
+          <option value="any"${state.doc.gates === 'any' ? ' selected' : ''}>any</option>
+          <option value="human_only"${state.doc.gates === 'human_only' ? ' selected' : ''}>human_only — все гейты только человеком</option>
+        </select></div>
+      <div class="pblock"><label>вход (input.*): object/array — JSON</label>${rows || '<div class="hint">нет входов</div>'}
         <button data-inadd>+ вход</button></div>
       <div class="pblock"><label>secrets — env-ключи для плагинов (v0.5)</label>
         ${secretsBlock()}</div>
@@ -535,13 +595,39 @@ function wireProps(st) {
   if (sa) sa.onchange = () => { pushUndo(); st.after_foreach = sa.checked; renderAll(); };
   const gform = el.querySelector('[data-gform]');
   if (gform) gform.onchange = () => {
+    const previous = st.form || [];
+    const lines = gform.value.split('\n').map(l => l.trim()).filter(Boolean);
+    const used = new Set();
     pushUndo();
-    st.form = gform.value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-      if (l.startsWith('e:')) return { field: l.slice(2), editable: true };
-      return { field: l, editable: false };
+    st.form = lines.map((l, idx) => {
+      const editable = l.startsWith('e:');
+      const field = editable ? l.slice(2) : l;
+      let oldIdx = previous.findIndex((f, i) => !used.has(i) && !!f.editable === editable && f.field === field);
+      if (oldIdx < 0 && lines.length === previous.length && !used.has(idx)) oldIdx = idx;
+      if (oldIdx >= 0) used.add(oldIdx);
+      const old = previous[oldIdx] || {};
+      return { field, editable, type: old.type || '', format: old.format || '' };
     });
     renderAll();
   };
+  el.querySelectorAll('[data-gtype]').forEach(sel => {
+    sel.onchange = () => {
+      const field = (st.form || [])[+sel.dataset.gtype];
+      if (!field) return;
+      pushUndo();
+      field.type = sel.value;
+      renderAll();
+    };
+  });
+  el.querySelectorAll('[data-gformat]').forEach(sel => {
+    sel.onchange = () => {
+      const field = (st.form || [])[+sel.dataset.gformat];
+      if (!field) return;
+      pushUndo();
+      field.format = sel.value;
+      renderAll();
+    };
+  });
   const gact = el.querySelector('[data-gactions]');
   if (gact) gact.onchange = () => {
     pushUndo();
@@ -550,6 +636,8 @@ function wireProps(st) {
   };
   const gonr = el.querySelector('[data-gonreject]');
   if (gonr) gonr.onchange = () => { pushUndo(); st.on_reject = gonr.value; renderAll(); };
+  const gapproval = el.querySelector('[data-gapproval]');
+  if (gapproval) gapproval.onchange = () => { pushUndo(); st.approval = gapproval.value; renderAll(); };
   const del = el.querySelector('[data-del]');
   if (del) del.onclick = () => {
     pushUndo();
@@ -563,8 +651,23 @@ function wireProps(st) {
   };
   const pn = el.querySelector('[data-pname]');
   if (pn) pn.onchange = () => { pushUndo(); state.doc.name = pn.value.trim() || state.doc.name; renderAll(); };
+  const pgates = el.querySelector('[data-pgates]');
+  if (pgates) pgates.onchange = () => { pushUndo(); state.doc.gates = pgates.value; renderAll(); };
   el.querySelectorAll('[data-iname]').forEach(i => i.onchange = () => { pushUndo(); state.doc.input[i.dataset.iname].name = i.value.trim(); renderAll(); });
-  el.querySelectorAll('[data-indef]').forEach(i => i.onchange = () => { pushUndo(); state.doc.input[i.dataset.indef].default = i.value; renderAll(); });
+  el.querySelectorAll('[data-indef]').forEach(control => {
+    control.onchange = () => {
+      const input = state.doc.input[control.dataset.indef];
+      try {
+        const value = parseInputText(control.value, input.default);
+        pushUndo();
+        input.default = value;
+        renderAll();
+      } catch (e) {
+        alert('Некорректное значение input.' + input.name + ': ' + e.message);
+        renderAll();
+      }
+    };
+  });
   el.querySelectorAll('[data-indel]').forEach(b => b.onclick = () => { pushUndo(); state.doc.input.splice(+b.dataset.indel, 1); renderAll(); });
   const pf = el.querySelector('[data-pforeach]');
   if (pf) pf.onchange = () => { pushUndo(); state.doc.foreach = pf.value; renderAll(); };
@@ -736,12 +839,17 @@ async function openFile(file) {
     pushUndo();
     state.doc = {
       name: doc.name, file, format_version: doc.format_version || '',
-      input: (doc.input || []).map(i => ({ name: i.name, default: i.default || '' })),
+      input: (doc.input || []).map(i => ({
+        name: i.name,
+        default: Object.prototype.hasOwnProperty.call(i, 'default') ? i.default : '',
+      })),
       steps: (doc.steps || []).map(s => ({
         id: s.id, plugin: s.plugin,
         pos: Array.isArray(s.pos) && s.pos.length === 2 ? [s.pos[0], s.pos[1]] : [20 * (1 + Math.random() * 8), 20 * (1 + Math.random() * 6)],
         on_error: s.on_error || 'stop', timeout: s.timeout || '',
-        bind: s.bind || {}, form: s.form || [], actions: s.actions || [], on_reject: s.on_reject || '',
+        bind: s.bind || {},
+        form: (s.form || []).map(f => ({ field: f.field, editable: !!f.editable, type: f.type || '', format: f.format || '' })),
+        actions: s.actions || [], on_reject: s.on_reject || '', approval: s.approval || '',
         when: s.when || null,
         foreach: s.foreach || '', foreach_item: s.foreach_item || '',
         after_foreach: !!s.after_foreach, parallel_group: s.parallel_group || '',
@@ -749,7 +857,7 @@ async function openFile(file) {
       })),
       foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
       item_type: doc.item_type || '', item_format: doc.item_format || '',
-      secrets: doc.secrets || [], network: doc.network || '',
+      secrets: doc.secrets || [], network: doc.network || '', gates: doc.gates || '',
     };
     state.unsupported = doc.unsupported || [];
     state.sel = null;

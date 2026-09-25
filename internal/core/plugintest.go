@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -280,6 +281,10 @@ func printCase(cr CaseResult, quiet bool) {
 }
 
 // RunPluginTests прогоняет plugin.test.yaml плагина. specPath == "" → <dir>/plugin.test.yaml.
+func hasExpectation(expect Expectation) bool {
+	return expect.Status != "" || expect.ExitCode != nil || len(expect.Output) > 0 || expect.Error != nil
+}
+
 func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err error) {
 	m, err := NewEngine().LoadManifest(dir)
 	if err != nil {
@@ -293,11 +298,22 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 		return 0, 0, fmt.Errorf("нет файла тестов %s: %w", specPath, err)
 	}
 	var spec PluginTestFile
-	if err := yaml.Unmarshal(raw, &spec); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&spec); err != nil {
 		return 0, 0, fmt.Errorf("%s: %w", specPath, err)
 	}
-	if len(spec.Tests) == 0 {
-		return 0, 0, fmt.Errorf("%s: ни одного теста", specPath)
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return 0, 0, fmt.Errorf("%s: несколько YAML-документов", specPath)
+		}
+		return 0, 0, fmt.Errorf("%s: %w", specPath, err)
+	}
+	for i, tc := range spec.Tests {
+		if !hasExpectation(tc.Expect) {
+			return 0, 0, fmt.Errorf("%s: тест %d не содержит expect", specPath, i+1)
+		}
 	}
 
 	if len(m.Permissions.Secrets) > 0 && !quiet {
