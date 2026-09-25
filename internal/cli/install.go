@@ -191,6 +191,140 @@ func pluginSourceDir(entry registry.Entry, localRegistryDir, version, localSourc
 
 // ── pipeline install ───────────────────────────────────────────────────────
 
+type pipelineInstallResult struct {
+	PresetName string
+	OutFile    string
+	Installed  int
+	Present    int
+	Warnings   []string
+}
+
+func commitPresetFile(staged, target string) error {
+	if _, err := os.Stat(target); err != nil {
+		if os.IsNotExist(err) {
+			return os.Rename(staged, target)
+		}
+		return err
+	}
+	backup, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".old-*")
+	if err != nil {
+		return err
+	}
+	backupName := backup.Name()
+	if err := backup.Close(); err != nil {
+		os.Remove(backupName)
+		return err
+	}
+	if err := os.Remove(backupName); err != nil {
+		return err
+	}
+	if err := os.Rename(target, backupName); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, target); err != nil {
+		if restoreErr := os.Rename(backupName, target); restoreErr != nil {
+			return fmt.Errorf("replace %s: %w; restore: %v", target, err, restoreErr)
+		}
+		return err
+	}
+	return os.Remove(backupName)
+}
+
+func installPipelinePreset(raw []byte, fallbackName, registrySrc string) (pipelineInstallResult, error) {
+	pf, err := pipeline.LoadPipelineFileFromBytes(raw)
+	if err != nil {
+		return pipelineInstallResult{}, fmt.Errorf("пресет не распарсился как пайплайн: %w", err)
+	}
+	for i := range pf.Pipeline.Steps {
+		if name, version, ok := registry.NormalizePluginRef(pf.Pipeline.Steps[i].Plugin); ok {
+			if version != "" {
+				pf.Pipeline.Steps[i].Plugin = name + "@" + version
+			} else {
+				pf.Pipeline.Steps[i].Plugin = name
+			}
+		}
+	}
+	normalized, err := yaml.Marshal(pf)
+	if err != nil {
+		return pipelineInstallResult{}, fmt.Errorf("не удалось нормализовать пресет: %w", err)
+	}
+	pname := pf.Pipeline.Name
+	if pname == "" {
+		pname = fallbackName
+	}
+	if err := registry.ValidateComponent(pname); err != nil {
+		return pipelineInstallResult{}, fmt.Errorf("небезопасное имя пресета: %w", err)
+	}
+	if err := os.MkdirAll("examples", 0o755); err != nil {
+		return pipelineInstallResult{}, err
+	}
+	outFile := filepath.Join("examples", pname+".yaml")
+	staged, err := os.CreateTemp("examples", "."+pname+".yaml.tmp-*")
+	if err != nil {
+		return pipelineInstallResult{}, err
+	}
+	stagedName := staged.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			os.Remove(stagedName)
+		}
+	}()
+	if _, err := staged.Write(normalized); err != nil {
+		staged.Close()
+		return pipelineInstallResult{}, err
+	}
+	if err := staged.Close(); err != nil {
+		return pipelineInstallResult{}, err
+	}
+	if err := os.Chmod(stagedName, 0o644); err != nil {
+		return pipelineInstallResult{}, err
+	}
+
+	wantVer := map[string]string{}
+	for _, st := range pf.Pipeline.Steps {
+		if registry.IsLocalRef(st.Plugin) {
+			continue
+		}
+		nm, vr := registry.SplitRef(st.Plugin)
+		if prev, ok := wantVer[nm]; ok && prev != "" && vr != "" && prev != vr {
+			return pipelineInstallResult{}, fmt.Errorf("плагин %s требует разные версии: %s и %s", nm, prev, vr)
+		}
+		if prev, ok := wantVer[nm]; !ok || prev == "" {
+			wantVer[nm] = vr
+		}
+	}
+	result := pipelineInstallResult{PresetName: pname, OutFile: outFile}
+	for nm, vr := range wantVer {
+		installedDir, err := registry.RefToDir(nm, "plugins")
+		need := err != nil
+		if !need && vr != "" {
+			if iv, ok := registry.InstalledVersion(installedDir); !ok || iv != vr {
+				need = true
+			}
+		}
+		if need {
+			if err := doPluginInstall(nm, vr, registrySrc, "plugins"); err != nil {
+				return result, fmt.Errorf("автоустановка %s: %w", nm, err)
+			}
+			result.Installed++
+		} else {
+			result.Present++
+		}
+	}
+
+	errs, warns := core.Validate(pf, core.NewEngine())
+	result.Warnings = warns
+	if len(errs) > 0 {
+		return result, fmt.Errorf("валидация пресета: %s", strings.Join(errs, "; "))
+	}
+	if err := commitPresetFile(stagedName, outFile); err != nil {
+		return result, err
+	}
+	committed = true
+	return result, nil
+}
+
 func RunPipelineInstall(args []string) {
 	preset, registrySrc := "", ""
 	for _, a := range args {
@@ -210,94 +344,17 @@ func RunPipelineInstall(args []string) {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
-
-	var pf pipeline.PipelineFile
-	if err := yaml.Unmarshal(raw, &pf); err != nil {
-		fmt.Println("пресет не распарсился как пайплайн:", err)
-		os.Exit(1)
-	}
-	for i := range pf.Pipeline.Steps {
-		if name, _, ok := registry.NormalizePluginRef(pf.Pipeline.Steps[i].Plugin); ok {
-			pf.Pipeline.Steps[i].Plugin = name
-		}
-	}
-	normalized, err := yaml.Marshal(&pf)
+	result, err := installPipelinePreset(raw, name, registrySrc)
 	if err != nil {
-		fmt.Println("не удалось нормализовать пресет:", err)
-		os.Exit(1)
-	}
-	pname := pf.Pipeline.Name
-	if pname == "" {
-		pname = name
-	}
-	if err := registry.ValidateComponent(pname); err != nil {
-		fmt.Println("небезопасное имя пресета:", err)
-		os.Exit(1)
-	}
-	outFile := filepath.Join("examples", pname+".yaml")
-	if err := os.MkdirAll("examples", 0o755); err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(outFile, normalized, 0o644); err != nil {
-		fmt.Println("ошибка:", err)
-		os.Exit(1)
+	fmt.Printf("▶ пресет %q → %s\n", result.PresetName, result.OutFile)
+	fmt.Printf("  плагины: %d установлено, %d уже на месте\n", result.Installed, result.Present)
+	for _, warning := range result.Warnings {
+		fmt.Println("  · предупреждение:", warning)
 	}
-	fmt.Printf("▶ пресет %q → %s\n", pname, outFile)
-
-	// автоустановка недостающих плагинов (реестровые ссылки)
-	// имя → требуемая версия ("" = любая); конфликты версий одного плагина — ошибка
-	wantVer := map[string]string{}
-	for _, st := range pf.Pipeline.Steps {
-		if registry.IsLocalRef(st.Plugin) {
-			continue
-		}
-		nm, vr := registry.SplitRef(st.Plugin)
-		if prev, ok := wantVer[nm]; ok && prev != "" && vr != "" && prev != vr {
-			fmt.Printf("ошибка: плагин %s в одном пайплайне требует разные версии: %s и %s\n", nm, prev, vr)
-			os.Exit(1)
-		}
-		if prev, ok := wantVer[nm]; !ok || prev == "" {
-			wantVer[nm] = vr
-		}
-	}
-	installed, present := 0, 0
-	for nm, vr := range wantVer {
-		dir := filepath.Join("plugins", nm)
-		need := false
-		if _, err := registry.RefToDir(nm, "plugins"); err != nil {
-			need = true
-		} else if vr != "" {
-			if iv, ok := registry.InstalledVersion(dir); ok && iv != vr {
-				need = true // версия не совпадает — переустановить под пин
-			}
-		}
-		if need {
-			if err := doPluginInstall(nm, vr, registrySrc, "plugins"); err != nil {
-				fmt.Println("ошибка автоустановки", nm, ":", err)
-				os.Exit(1)
-			}
-			installed++
-		} else {
-			present++
-		}
-	}
-	fmt.Printf("  плагины: %d установлено, %d уже на месте\n", installed, present)
-
-	// финальная проверка совместимости
-	eng := core.NewEngine()
-	errs, warns := core.Validate(&pf, eng)
-	for _, w := range warns {
-		fmt.Println("  · предупреждение:", w)
-	}
-	if len(errs) > 0 {
-		for _, e := range errs {
-			fmt.Println("  ✗", e)
-		}
-		fmt.Println("пресет установлен, но валидация не прошла")
-		os.Exit(1)
-	}
-	fmt.Printf("■ пресет %q готов: %s --yes\n", pname, outFile)
+	fmt.Printf("■ пресет %q готов: %s --yes\n", result.PresetName, result.OutFile)
 }
 
 // fetchPreset — имя из реестра, локальный .yaml или http(s) URL.

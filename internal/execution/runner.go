@@ -904,6 +904,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		return "", runErr("context_serialization", "шаг %s: input не сериализуется: %w", st.ID, err)
 	}
 	timeout := st.Timeout.Duration
+	if timeout < 0 || timeout > pipeline.MaxStepTimeout {
+		return "", runErr(pipeline.E_TIMEOUT_LIMIT, "шаг %s: timeout=%s, допустимо 0..%s", st.ID, timeout, pipeline.MaxStepTimeout)
+	}
 	if timeout == 0 {
 		timeout = 60 * time.Second
 	}
@@ -966,7 +969,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		return "ok", nil
 	}
 	if res.Platform {
-		return "", runErr("platform:"+res.ErrCode, "платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
+		// ERRORS.md: в журнал идёт ровно один префикс `platform:` —
+		// на exit>=2 код плагина уже приходит с ним (plugin/process.go).
+		return "", runErr(plugin.PlatformErrCode(res.ErrCode), "платформенная ошибка (%s): %s", res.ErrCode, res.ErrMsg)
 	}
 	switch st.OnError {
 	case "skip":

@@ -60,6 +60,99 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	}
 }
 
+func TestCSRFSameSiteWithSessionCookieRejected(t *testing.T) {
+	dir := t.TempDir()
+	srv := NewServer(filepath.Join(dir, "plugins"), filepath.Join(dir, "pipelines"), filepath.Join(dir, "runs"))
+	srv.EnableSession("session-secret")
+	req, _ := http.NewRequest("POST", "http://127.0.0.1:8765/api/run", bytes.NewReader([]byte(`{"file":"x.yaml","yes":true}`)))
+	req.Header.Set("Origin", "http://127.0.0.1:8766")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "session-secret"})
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("same-site session request: code=%d (want 403), body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRunTraversalBlocked(t *testing.T) {
+	handler, outside := secServer(t)
+	root := filepath.Dir(outside)
+	runs := filepath.Join(root, "runs")
+	outsideRun := filepath.Join(root, "outside")
+	if err := os.MkdirAll(runs, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outsideRun, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideRun, "journal.jsonl"), []byte("{\"type\":\"run_end\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{"detail-forward", "GET", "http://x/api/runs/..%2Foutside"},
+		{"detail-backslash", "GET", `http://x/api/runs/..%5Coutside`},
+		{"detail-literal-backslash", "GET", `http://x/api/runs/..\outside`},
+		{"journal-forward", "GET", "http://x/api/runs/..%2Foutside/journal"},
+		{"journal-backslash", "GET", `http://x/api/runs/..%5Coutside/journal`},
+		{"gate-forward", "GET", "http://x/api/runs/..%2Foutside/gate"},
+		{"gate-backslash", "GET", `http://x/api/runs/..%5Coutside/gate`},
+		{"cancel-forward", "POST", "http://x/api/runs/..%2Foutside/cancel"},
+		{"cancel-backslash", "POST", `http://x/api/runs/..%5Coutside/cancel`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, tc.target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != 400 {
+				t.Fatalf("%s %s: code=%d body=%s", tc.method, tc.target, rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "run_end") {
+				t.Fatalf("traversal response leaked journal: %s", rec.Body.String())
+			}
+		})
+	}
+	validRun := filepath.Join(runs, "valid-run")
+	if err := os.MkdirAll(validRun, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(validRun, "journal.jsonl"), []byte("{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("GET", "http://x/api/runs/valid-run", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("valid run: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPipelineSymlinkBlocked(t *testing.T) {
+	handler, outside := secServer(t)
+	pipelines := filepath.Join(filepath.Dir(outside), "pipelines")
+	link := filepath.Join(pipelines, "linked.yaml")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	req, _ := http.NewRequest("GET", "http://x/api/pipelines/linked.yaml", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("symlink pipeline: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRequestBodyLimit(t *testing.T) {
 	handler, _ := secServer(t)
 	body := bytes.Repeat([]byte("x"), maxRequestBodySize+1)
@@ -116,6 +209,14 @@ func TestCSRFRejected(t *testing.T) {
 	})
 	if rec.Code != 403 {
 		t.Fatalf("SFS cross-site: code=%d (want 403)", rec.Code)
+	}
+
+	rec = post(func(r *http.Request) {
+		r.Header.Set("Sec-Fetch-Site", "same-site")
+		r.Header.Set("Origin", "http://127.0.0.1:8766")
+	})
+	if rec.Code != 403 {
+		t.Fatalf("SFS same-site: code=%d (want 403)", rec.Code)
 	}
 
 	// 2) публичный хост + чужой Origin — 403

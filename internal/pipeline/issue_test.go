@@ -253,11 +253,11 @@ func TestResourceLimitIssues(t *testing.T) {
 			Name:    "limits",
 			Input:   map[string]interface{}{"items": arr},
 			Foreach: "input.items",
-			Steps:   []Step{{ID: "s", Plugin: "fake/syntax", OnError: "retry", Retry: &Retry{Attempts: MaxRetryAttempts + 1}}},
+			Steps:   []Step{{ID: "s", Plugin: "fake/syntax", OnError: "retry", Retry: &Retry{Attempts: MaxRetryAttempts + 1}, Timeout: Duration{Duration: MaxStepTimeout + 1}}},
 		},
 	}
 	issues := ValidateIssues(pf, stubBase())
-	for _, code := range []string{E_FOREACH_LIMIT, E_RETRY_LIMIT} {
+	for _, code := range []string{E_FOREACH_LIMIT, E_RETRY_LIMIT, E_TIMEOUT_LIMIT} {
 		if len(FilterCode(issues, code)) != 1 {
 			t.Fatalf("missing %s in %+v", code, issues)
 		}
@@ -282,6 +282,74 @@ func TestReservedBuiltinRejectedByValidators(t *testing.T) {
 	issues := ValidateIssues(pf, eng)
 	if got := FilterCode(issues, E_PLUGIN_LOAD); len(got) != 1 {
 		t.Fatalf("ValidateIssues errors: %+v", issues)
+	}
+}
+
+func TestLoadPipelineFileFromBytesRejectsUnknownFields(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		raw   string
+	}{
+		{
+			name:  "top-level",
+			field: "unknown_top",
+			raw: `unknown_top: true
+format_version: "0.2"
+pipeline:
+  name: strict
+  steps: []
+`,
+		},
+		{
+			name:  "pipeline",
+			field: "unknown_pipeline",
+			raw: `format_version: "0.2"
+pipeline:
+  name: strict
+  unknown_pipeline: true
+  steps: []
+`,
+		},
+		{
+			name:  "step",
+			field: "unknown_step",
+			raw: `format_version: "0.2"
+pipeline:
+  name: strict
+  steps:
+    - id: review
+      plugin: core/human_gate
+      unknown_step: true
+`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadPipelineFileFromBytes([]byte(tc.raw))
+			if err == nil {
+				t.Fatalf("unknown field %q was accepted", tc.field)
+			}
+			if !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("error for %q does not name field: %v", tc.field, err)
+			}
+		})
+	}
+}
+
+func TestLoadPipelineFileFromBytesRejectsMultipleDocuments(t *testing.T) {
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: first
+  steps: []
+---
+format_version: "0.2"
+pipeline:
+  name: second
+  steps: []
+`)
+	if _, err := LoadPipelineFileFromBytes(raw); err == nil {
+		t.Fatal("multiple YAML documents were accepted")
 	}
 }
 

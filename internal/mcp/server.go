@@ -1,9 +1,12 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -25,7 +28,10 @@ import (
 // Version — версия сервера в initialize (cli проставляет из VERSION).
 var Version = "dev"
 
-const defaultProtocolVersion = "2024-11-05"
+const (
+	defaultProtocolVersion = "2024-11-05"
+	maxWaitSeconds         = 300
+)
 
 var supportedProtocolVersions = []string{defaultProtocolVersion}
 
@@ -141,10 +147,87 @@ type multiEngine struct {
 
 func parseManifestBytes(raw []byte) (*pipeline.Manifest, error) {
 	var m pipeline.Manifest
-	if err := yaml.Unmarshal(raw, &m); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&m); err != nil {
+		return nil, err
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("manifest: несколько YAML-документов")
+		}
 		return nil, err
 	}
 	return &m, nil
+}
+
+func (m *multiEngine) pluginRoots() []string {
+	roots := append([]string{}, m.dirs...)
+	if m.workDir != "" {
+		roots = append(roots, m.workDir)
+	}
+	return roots
+}
+
+func (m *multiEngine) pluginPathAllowed(path string) bool {
+	for _, root := range m.pluginRoots() {
+		if pathWithinRoot(root, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *multiEngine) checkPluginDir(path string) error {
+	if strings.ContainsRune(path, 0) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: plugin %q содержит NUL", path)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: plugin %q не разрешается", path)
+	}
+	if !m.pluginPathAllowed(abs) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: plugin %q вне --plugins/--workdir", path)
+	}
+	resolved, err := resolvePathForContainment(abs)
+	if err != nil || !m.pluginPathAllowed(resolved) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: plugin %q уходит через symlink/junction", path)
+	}
+	manifest := filepath.Join(abs, "plugin.yaml")
+	if _, err := os.Lstat(manifest); err == nil && !pathWithinRoot(abs, manifest) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: plugin %q manifest уходит через symlink/junction", path)
+	}
+	return nil
+}
+
+func (m *multiEngine) checkPluginRef(ref string) error {
+	if strings.Contains(ref, "..") {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: путь %q выходит за корни плагинов", ref)
+	}
+	if (strings.HasPrefix(ref, "/") || (filepath.Separator == '\\' && strings.HasPrefix(ref, `\`))) && !filepath.IsAbs(ref) {
+		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: %q вне --plugins/--workdir", ref)
+	}
+	if !registry.IsLocalRef(ref) {
+		var boundaryErr error
+		for _, root := range m.pluginRoots() {
+			dir, err := registry.RefToDir(ref, root)
+			if err != nil {
+				continue
+			}
+			if err := m.checkPluginDir(dir); err != nil {
+				boundaryErr = err
+				continue
+			}
+			return nil
+		}
+		return boundaryErr
+	}
+	path := ref
+	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, `\`) {
+		path = filepath.Join(m.workDir, path)
+	}
+	return m.checkPluginDir(path)
 }
 
 func (m *multiEngine) loadLocal(ref string) (*pipeline.Manifest, error) {
@@ -154,6 +237,9 @@ func (m *multiEngine) loadLocal(ref string) (*pipeline.Manifest, error) {
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.checkPluginDir(path); err != nil {
 		return nil, err
 	}
 	eng := core.NewEngine()
@@ -169,24 +255,47 @@ func (m *multiEngine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
 	}
 	if registry.IsLocalRef(ref) {
+		if err := m.checkPluginRef(ref); err != nil {
+			return nil, err
+		}
 		return m.loadLocal(ref)
 	}
-	// абсолютные пути и .. проверяются песочницей до загрузки
 	lastErr := fmt.Errorf("плагин %q не найден", ref)
+	var boundaryErr error
 	for _, dir := range m.dirs {
+		candidate, err := registry.RefToDir(ref, dir)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if err := m.checkPluginDir(candidate); err != nil {
+			boundaryErr = err
+			continue
+		}
 		eng := core.NewEngine()
 		eng.PluginsDir = dir
-		if manifest, err := eng.LoadManifest(ref); err == nil {
+		if manifest, err := eng.LoadManifest(candidate); err == nil {
 			return manifest, nil
 		} else {
 			lastErr = err
 		}
 	}
-	// fallback: workDir как корень
-	eng := core.NewEngine()
-	eng.PluginsDir = m.workDir
-	if manifest, err := eng.LoadManifest(ref); err == nil {
-		return manifest, nil
+	candidate, err := registry.RefToDir(ref, m.workDir)
+	if err == nil {
+		if err := m.checkPluginDir(candidate); err != nil {
+			boundaryErr = err
+		} else {
+			eng := core.NewEngine()
+			eng.PluginsDir = m.workDir
+			if manifest, err := eng.LoadManifest(candidate); err == nil {
+				return manifest, nil
+			} else {
+				lastErr = err
+			}
+		}
+	}
+	if boundaryErr != nil {
+		return nil, boundaryErr
 	}
 	return nil, lastErr
 }
@@ -202,18 +311,18 @@ func (s *Server) checkPluginRef(ref string) error {
 	if strings.Contains(ref, "..") {
 		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: путь %q выходит за корни плагинов", ref)
 	}
-	// Unix-абсолютные (/tmp/...) — тоже абсолютные даже на Windows
+	if s.multi != nil {
+		return s.multi.checkPluginRef(ref)
+	}
 	isAbs := filepath.IsAbs(ref) || strings.HasPrefix(ref, "/")
 	if isAbs {
 		abs := ref
 		if !filepath.IsAbs(abs) {
-			// Unix-путь на Windows: считаем заведомо вне корней (корни — Windows-пути)
 			return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: %q вне --plugins/--workdir", ref)
 		}
 		abs, _ = filepath.Abs(abs)
 		for _, root := range append(append([]string{}, s.pluginsDirs...), s.workDir) {
-			rel, err := filepath.Rel(root, abs)
-			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if pathWithinRoot(root, abs) {
 				return nil
 			}
 		}
@@ -237,29 +346,94 @@ func (s *Server) checkPathInWorkdir(p string) error {
 	if err != nil || !pathWithinRoot(s.workDir, abs) {
 		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q вне --workdir", p)
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil && !pathWithinRoot(s.workDir, resolved) {
-		return fmt.Errorf("E_PLUGIN_OUTSIDE_ROOT: path %q уходит через symlink", p)
-	}
 	return nil
 }
 
+func resolvePathForContainment(path string) (string, error) {
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	current = filepath.Clean(current)
+	for links := 0; links < 255; links++ {
+		probe := current
+		suffix := []string{}
+		for {
+			if target, linkErr := os.Readlink(probe); linkErr == nil {
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(probe), target)
+				}
+				current = filepath.Join(append([]string{target}, suffix...)...)
+				break
+			}
+			if info, statErr := os.Lstat(probe); statErr == nil {
+				if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+					return "", fmt.Errorf("reparse point: %s", probe)
+				}
+			} else if !os.IsNotExist(statErr) {
+				return "", statErr
+			}
+			if resolved, evalErr := filepath.EvalSymlinks(probe); evalErr == nil {
+				for _, part := range suffix {
+					resolved = filepath.Join(resolved, part)
+				}
+				return filepath.Clean(resolved), nil
+			}
+			parent := filepath.Dir(probe)
+			if parent == probe {
+				return "", fmt.Errorf("path cannot be resolved: %s", current)
+			}
+			suffix = append([]string{filepath.Base(probe)}, suffix...)
+			probe = parent
+		}
+	}
+	return "", fmt.Errorf("too many links: %s", current)
+}
+
 func pathWithinRoot(root, path string) bool {
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := resolvePathForContainment(root)
 	if err != nil {
 		return false
 	}
-	pathAbs, err := filepath.Abs(path)
+	pathAbs, err := resolvePathForContainment(path)
 	if err != nil {
 		return false
-	}
-	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
-		rootAbs = resolved
-	}
-	if resolved, err := filepath.EvalSymlinks(pathAbs); err == nil {
-		pathAbs = resolved
 	}
 	rel, err := filepath.Rel(rootAbs, pathAbs)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func foreachInputKey(foreach, item string) string {
+	if foreach == "" {
+		return ""
+	}
+	if item == "" {
+		return "item"
+	}
+	return item
+}
+
+func fileRefSourceDynamic(pf *pipeline.PipelineFile, st *pipeline.Step, source string) bool {
+	if !strings.HasPrefix(source, "input.") {
+		return true
+	}
+	key := strings.TrimPrefix(source, "input.")
+	if key == "" || strings.Contains(key, ".") {
+		return true
+	}
+	if pf.Pipeline.Foreach != "" && key == foreachInputKey(pf.Pipeline.Foreach, pf.Pipeline.ForeachItem) {
+		return true
+	}
+	if st != nil && st.Foreach != "" && key == foreachInputKey(st.Foreach, st.ForeachItem) {
+		return true
+	}
+	for i := range pf.Pipeline.Steps {
+		step := &pf.Pipeline.Steps[i]
+		if step.Foreach != "" && key == foreachInputKey(step.Foreach, step.ForeachItem) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
@@ -270,6 +444,9 @@ func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
 		}
 		m, err := s.multi.LoadManifest(st.Plugin)
 		if err != nil {
+			if strings.HasPrefix(err.Error(), "E_PLUGIN_OUTSIDE_ROOT") {
+				return err
+			}
 			continue
 		}
 		for _, permission := range m.Permissions.Network {
@@ -292,7 +469,7 @@ func (s *Server) checkPipelineSafety(pf *pipeline.PipelineFile) error {
 				continue
 			}
 			source := pipeline.PortSource(name, port, st)
-			if !strings.HasPrefix(source, "input.") || strings.Contains(strings.TrimPrefix(source, "input."), ".") {
+			if fileRefSourceDynamic(pf, st, source) {
 				return fmt.Errorf("E_FILE_REF_UNCHECKED: плагин %s, порт %s, источник %q", m.ID, name, source)
 			}
 			key := strings.TrimPrefix(source, "input.")
@@ -516,12 +693,18 @@ func (s *Server) toolListPlugins(args map[string]interface{}) (string, bool, *RP
 	var list []map[string]interface{}
 	for _, base := range append(append([]string{}, s.pluginsDirs...), filepath.Join(s.workDir, "plugins")) {
 		for _, sub := range []string{base, filepath.Join(base, "official"), filepath.Join(base, "community")} {
+			if err := s.multi.checkPluginDir(sub); err != nil {
+				continue
+			}
 			entries, _ := os.ReadDir(sub)
 			for _, e := range entries {
 				if !e.IsDir() {
 					continue
 				}
 				dir := filepath.Join(sub, e.Name())
+				if err := s.multi.checkPluginDir(dir); err != nil {
+					continue
+				}
 				raw, err := os.ReadFile(filepath.Join(dir, "plugin.yaml"))
 				if err != nil {
 					continue
@@ -615,6 +798,13 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	errs, _ := pipeline.SplitIssues(issues)
 	if len(errs) > 0 {
 		return toJSON(map[string]interface{}{"ok": false, "issues": issues}), false, nil
+	}
+	waitSec := 0.0
+	if w, ok := args["wait_seconds"].(float64); ok {
+		if math.IsNaN(w) || math.IsInf(w, 0) || w < 0 || w > maxWaitSeconds {
+			return "", false, rpcErr("", "wait_seconds должен быть от 0 до 300")
+		}
+		waitSec = w
 	}
 	// secrets — только имена, значений нет; missing → понятная ошибка
 	var missing []string
@@ -716,10 +906,6 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	}()
 
 	// wait_seconds: подождать завершения/гейта
-	waitSec := 0.0
-	if w, ok := args["wait_seconds"].(float64); ok {
-		waitSec = w
-	}
 	status := "running"
 	if waitSec > 0 {
 		deadline := time.Now().Add(time.Duration(waitSec * float64(time.Second)))
@@ -751,8 +937,10 @@ func (s *Server) runStatus(runID string) string {
 		return st.status
 	default:
 	}
-	// живой ран: waiting_human, если gate_wait без decision
-	dir := filepath.Join(s.runsDir, runID)
+	dir, err := journal.SafeRunDir(s.runsDir, runID)
+	if err != nil {
+		return "unknown"
+	}
 	rd := journal.NewReader(dir)
 	events, err := rd.Events()
 	if err != nil {
@@ -807,12 +995,16 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 	if runID == "" {
 		return "", false, rpcErr("", "нужен run_id")
 	}
+	dir, err := journal.SafeRunDir(s.runsDir, runID)
+	if err != nil {
+		return "", false, rpcErr("", "небезопасный run_id")
+	}
 	s.mu.Lock()
 	_, ok := s.runs[runID]
 	s.mu.Unlock()
 	if !ok {
 		// может, ран из прошлой сессии процесса? проверяем папку
-		if _, err := os.Stat(filepath.Join(s.runsDir, runID)); err != nil {
+		if _, err := os.Stat(dir); err != nil {
 			return "", false, rpcErr("", "ран не найден: "+runID)
 		}
 	}
@@ -820,7 +1012,6 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 	if f, ok := args["since"].(float64); ok {
 		since = int(f)
 	}
-	dir := filepath.Join(s.runsDir, runID)
 	rd := journal.NewReader(dir)
 	events, err := rd.Events()
 	if err != nil {
@@ -879,6 +1070,9 @@ func (s *Server) toolCancel(args map[string]interface{}) (string, bool, *RPCErro
 	runID, _ := args["run_id"].(string)
 	if runID == "" {
 		return "", false, rpcErr("", "нужен run_id")
+	}
+	if _, err := journal.SafeRunDir(s.runsDir, runID); err != nil {
+		return "", false, rpcErr("", "небезопасный run_id")
 	}
 	s.mu.Lock()
 	cancel, ok := s.cancels[runID]

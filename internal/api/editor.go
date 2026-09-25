@@ -5,8 +5,7 @@ package api
 //
 // Модель редактора (EditorDoc) — подмножество схемы: id/plugin/pos/bind/
 // on_error/timeout + у гейта form/actions/on_reject + input-дефолты.
-// Позиции узлов хранятся в YAML как `pos: [x, y]` — лоадер ядра это поле
-// игнорирует (yaml.v3 без KnownFields), редактор читает обратно.
+// Позиции узлов хранятся в YAML как `pos: [x, y]` и читаются ядром.
 // v0.27: when — под управлением редактора (path/op/value, 10 операторов ядра).
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach/foreach_item/
 // item_type/item_format на пайплайне (управляющий поток целиком).
@@ -104,14 +103,37 @@ type editorDoc struct {
 	ItemFormat  string `json:"item_format"`
 }
 
-// editorPosFile — теневой разбор только под позиции (ядро pos не знает).
-type editorPosFile struct {
-	Pipeline struct {
-		Steps []struct {
-			ID  string `yaml:"id"`
-			Pos [2]int `yaml:"pos"`
-		} `yaml:"steps"`
-	} `yaml:"pipeline"`
+func isInputTypeDeclaration(value interface{}) bool {
+	descriptor, ok := value.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	typeName, ok := descriptor["type"].(string)
+	if !ok {
+		return false
+	}
+	switch typeName {
+	case "string", "number", "boolean", "array", "object":
+	default:
+		return false
+	}
+	for key, value := range descriptor {
+		switch key {
+		case "type":
+		case "required":
+			if _, ok := value.(bool); !ok {
+				return false
+			}
+		case "default":
+		case "format", "description":
+			if _, ok := value.(string); !ok {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
@@ -128,13 +150,6 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "parse: "+err.Error(), 400)
 		return
-	}
-	pos := map[string][2]int{}
-	var posFile editorPosFile
-	if err := yaml.Unmarshal(data, &posFile); err == nil {
-		for _, st := range posFile.Pipeline.Steps {
-			pos[st.ID] = st.Pos
-		}
 	}
 	doc := editorDoc{
 		Name:          pf.Pipeline.Name,
@@ -155,11 +170,10 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 	for _, n := range names {
 		v := pf.Pipeline.Input[n]
-		switch v.(type) {
-		case map[string]interface{}:
+		if isInputTypeDeclaration(v) {
 			doc.Unsupported = append(doc.Unsupported, "input."+n+" (type-объявление, не значение)")
 			doc.Input = append(doc.Input, editorInput{Name: n, Default: ""})
-		default:
+		} else {
 			doc.Input = append(doc.Input, editorInput{Name: n, Default: v})
 		}
 	}
@@ -167,7 +181,7 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		es := editorStep{
 			ID:      st.ID,
 			Plugin:  st.Plugin,
-			Pos:     pos[st.ID],
+			Pos:     st.Pos,
 			OnError: st.OnError,
 			Bind:    map[string]string{},
 		}

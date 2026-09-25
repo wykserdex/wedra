@@ -17,3 +17,9 @@ tests:
     expect:
       status: error
       error: { code: empty_input, retryable: false }
+
+  - name: битый JSON → платформенная ошибка
+    input_raw: "{broken"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input, retryable: false }

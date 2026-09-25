@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -31,20 +32,118 @@ func NewFilesystemStore(baseDir string) *FilesystemStore {
 	return &FilesystemStore{BaseDir: baseDir}
 }
 
-func (s *FilesystemStore) runDir(runID string) string {
-	return filepath.Join(s.BaseDir, runID)
+func ValidateRunID(runID string) error {
+	if runID == "" || len(runID) > 160 {
+		return fmt.Errorf("небезопасный run_id %q", runID)
+	}
+	for _, r := range runID {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return fmt.Errorf("небезопасный run_id %q", runID)
+	}
+	return nil
+}
+
+func resolveJournalPath(path string) (string, error) {
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	suffix := []string{}
+	for {
+		resolved, evalErr := filepath.EvalSymlinks(current)
+		if evalErr == nil {
+			for _, part := range suffix {
+				resolved = filepath.Join(resolved, part)
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(evalErr) {
+			return "", evalErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", evalErr
+		}
+		suffix = append([]string{filepath.Base(current)}, suffix...)
+		current = parent
+	}
+}
+
+func SafeRunDir(baseDir, runID string) (string, error) {
+	if err := ValidateRunID(runID); err != nil {
+		return "", err
+	}
+	if baseDir == "" {
+		baseDir = "var/runs"
+	}
+	root, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(root, runID)
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("небезопасный run_id %q", runID)
+	}
+	rootReal, err := resolveJournalPath(root)
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Lstat(dir); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("run_dir является symlink")
+		}
+		resolved, resolveErr := resolveJournalPath(dir)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		resolvedRel, relErr := filepath.Rel(rootReal, resolved)
+		if relErr != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("run_dir уходит через symlink")
+		}
+		return dir, nil
+	} else if !os.IsNotExist(statErr) {
+		return "", statErr
+	}
+	resolved, err := resolveJournalPath(dir)
+	if err != nil {
+		return "", err
+	}
+	resolvedRel, err := filepath.Rel(rootReal, resolved)
+	if err != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("родительский run_dir уходит через symlink")
+	}
+	return dir, nil
+}
+
+func (s *FilesystemStore) runDir(runID string) (string, error) {
+	return SafeRunDir(s.BaseDir, runID)
 }
 
 func (s *FilesystemStore) Create(runID string) (*Journal, error) {
-	return NewJournal(s.runDir(runID))
+	dir, err := s.runDir(runID)
+	if err != nil {
+		return nil, err
+	}
+	return NewJournal(dir)
 }
 
 func (s *FilesystemStore) OpenAppend(runID string) (*Journal, error) {
-	return OpenJournalAppend(s.runDir(runID))
+	dir, err := s.runDir(runID)
+	if err != nil {
+		return nil, err
+	}
+	return OpenJournalAppend(dir)
 }
 
 func (s *FilesystemStore) SaveArtifact(runID string, name string, data []byte) error {
-	dir := filepath.Join(s.runDir(runID), "artifacts")
+	runDir, err := s.runDir(runID)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(runDir, "artifacts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -53,7 +152,11 @@ func (s *FilesystemStore) SaveArtifact(runID string, name string, data []byte) e
 }
 
 func (s *FilesystemStore) LoadContext(runID string) (map[string]interface{}, error) {
-	raw, err := os.ReadFile(filepath.Join(s.runDir(runID), "context.json"))
+	dir, err := s.runDir(runID)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "context.json"))
 	if err != nil {
 		return nil, fmt.Errorf("context.json: %w", err)
 	}
@@ -149,7 +252,11 @@ func maxCompletedItemIndex(events []map[string]interface{}) int {
 }
 
 func (s *FilesystemStore) MaxItemIndex(runID string) (int, error) {
-	rd := NewReader(s.runDir(runID))
+	dir, err := s.runDir(runID)
+	if err != nil {
+		return -1, err
+	}
+	rd := NewReader(dir)
 	events, err := rd.Events()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -165,7 +272,11 @@ func (s *FilesystemStore) Load(runID string) (map[string]interface{}, error) {
 }
 
 func (s *FilesystemStore) ListArtifacts(runID string) ([]string, error) {
-	dir := filepath.Join(s.runDir(runID), "artifacts")
+	runDir, err := s.runDir(runID)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(runDir, "artifacts")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -183,8 +294,12 @@ func (s *FilesystemStore) ListArtifacts(runID string) ([]string, error) {
 }
 
 func (s *FilesystemStore) LoadArtifact(runID string, name string) ([]byte, error) {
+	runDir, err := s.runDir(runID)
+	if err != nil {
+		return nil, err
+	}
 	clean := filepath.Base(name)
-	p := filepath.Join(s.runDir(runID), "artifacts", clean)
+	p := filepath.Join(runDir, "artifacts", clean)
 	return os.ReadFile(p)
 }
 
@@ -352,7 +467,11 @@ func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
 		return err
 	}
 	clean := filepath.Base(name)
-	p := filepath.Join(s.runDir(runID), "artifacts", clean)
+	runDir, err := s.runDir(runID)
+	if err != nil {
+		return err
+	}
+	p := filepath.Join(runDir, "artifacts", clean)
 	db.Artifacts = append(db.Artifacts, dbArtifact{
 		ID:    len(db.Artifacts) + 1,
 		RunID: runID,
@@ -363,7 +482,11 @@ func (s *JsonStore) SaveArtifact(runID string, name string, data []byte) error {
 }
 
 func (s *JsonStore) MaxItemIndex(runID string) (int, error) {
-	journalPath := filepath.Join(s.runDir(runID), "journal.jsonl")
+	runDir, err := s.runDir(runID)
+	if err != nil {
+		return -1, err
+	}
+	journalPath := filepath.Join(runDir, "journal.jsonl")
 	if _, err := os.Stat(journalPath); err == nil {
 		return s.FilesystemStore.MaxItemIndex(runID)
 	}

@@ -131,6 +131,28 @@ func TestPluginTestDetectsFailure(t *testing.T) {
 	}
 }
 
+func TestPluginTestRejectsUnknownFields(t *testing.T) {
+	spec := "tests:\n  - name: typo\n    input: { value: hi }\n    expect: { status: ok }\n    unexpected: true\n"
+	specPath := filepath.Join(t.TempDir(), "unknown.test.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RunPluginTests("testdata/plugins/echo_ok", specPath, true); err == nil {
+		t.Fatal("unknown plugin.test.yaml field must be rejected")
+	}
+}
+
+func TestPluginTestRequiresExpectation(t *testing.T) {
+	spec := "tests:\n  - name: no assertion\n    input: { value: hi }\n"
+	specPath := filepath.Join(t.TempDir(), "empty-expect.test.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RunPluginTests("testdata/plugins/echo_ok", specPath, true); err == nil {
+		t.Fatal("test without expect must be rejected")
+	}
+}
+
 func TestPluginTestNoSpecFile(t *testing.T) {
 	if _, _, err := RunPluginTests("testdata/plugins/crasher", "", true); err == nil {
 		t.Fatal("отсутствующий plugin.test.yaml обязан быть ошибкой с подсказкой")
