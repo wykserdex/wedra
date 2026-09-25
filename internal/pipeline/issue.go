@@ -85,6 +85,7 @@ const (
 	E_GATE_FOREACH           = "E_GATE_FOREACH"
 	E_GATE_PARALLEL          = "E_GATE_PARALLEL"
 	E_GATE_BIND              = "E_GATE_BIND"
+	E_GATE_ACTIONS           = "E_GATE_ACTIONS"
 	E_ON_ERROR               = "E_ON_ERROR"
 	E_RETRY_ATTEMPTS         = "E_RETRY_ATTEMPTS"
 	E_ON_REJECT              = "E_ON_REJECT"

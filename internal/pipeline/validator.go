@@ -282,6 +282,11 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 			default:
 				errs = append(errs, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
 			}
+			for _, action := range st.Actions {
+				if action != "accept" && action != "reject" {
+					errs = append(errs, "шаг "+st.ID+": actions="+action+", допустимы accept|reject")
+				}
+			}
 			bnSeen := map[string][]string{}
 			for _, f := range st.Form {
 				bn := Basename(f.Field)

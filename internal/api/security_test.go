@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,21 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 404 {
 		t.Fatalf("GET отсутствующего: code=%d (want 404)", rec.Code)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	handler, _ := secServer(t)
+	req, _ := http.NewRequest("GET", "http://x/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("CSP=%q", got)
+	}
+	for _, key := range []string{"X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"} {
+		if rec.Header().Get(key) == "" {
+			t.Fatalf("missing security header %s", key)
+		}
 	}
 }
 
