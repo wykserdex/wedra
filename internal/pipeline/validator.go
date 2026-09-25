@@ -508,11 +508,12 @@ func Basename(p string) string {
 }
 
 var (
-	manifestIDPattern      = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-	manifestNamePattern    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	manifestVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$|^0\.[0-9]+$`)
-	manifestHostPattern    = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
-	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	manifestIDPattern          = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+	manifestNamePattern        = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	manifestVersionPattern     = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$|^0\.[0-9]+$`)
+	manifestHostPattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+	environmentNamePattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	manifestRequirementPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+-]*$`)
 )
 
 var manifestPortTypes = map[string]bool{
@@ -564,6 +565,13 @@ func ValidateManifest(m *Manifest) error {
 	for i, requirement := range m.Runtime.Requires {
 		if strings.TrimSpace(requirement) == "" {
 			add("runtime.requires[%d] пуст", i)
+		} else if !manifestRequirementPattern.MatchString(requirement) {
+			add("runtime.requires[%d] %q: ожидается package==version", i, requirement)
+		}
+	}
+	if len(m.Runtime.Requires) > 0 && m.Dir != "" {
+		if err := validateManifestRequirements(m.Dir, m.Runtime.Requires); err != nil {
+			add("runtime.requires: %v", err)
 		}
 	}
 	if err := validateManifestPorts("input", m.Input); err != nil {
@@ -608,6 +616,34 @@ func ValidateManifest(m *Manifest) error {
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func validateManifestRequirements(dir string, requirements []string) error {
+	raw, err := os.ReadFile(filepath.Join(dir, "requirements.lock"))
+	if err != nil {
+		return fmt.Errorf("требуется requirements.lock с exact pins")
+	}
+	expected := map[string]bool{}
+	for _, requirement := range requirements {
+		expected[requirement] = true
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !expected[line] {
+			return fmt.Errorf("requirements.lock содержит незаявленную зависимость %q", line)
+		}
+		seen[line] = true
+	}
+	for requirement := range expected {
+		if !seen[requirement] {
+			return fmt.Errorf("requirements.lock не содержит %q", requirement)
+		}
 	}
 	return nil
 }
