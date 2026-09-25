@@ -174,3 +174,28 @@ func TestRefToDirRejectsReservedBuiltin(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryRejectsUnsafeNamesAndCommits(t *testing.T) {
+	tmp := t.TempDir()
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  ../../escape:\n    source: x\n    path: .\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("unsafe registry name was accepted")
+	}
+	writeFile(t, filepath.Join(tmp, RegistryFile), "version: \"0.1\"\nplugins:\n  good:\n    source: x\n    path: .\n    commit: short\n")
+	if _, err := Load(tmp); err == nil {
+		t.Fatal("short commit was accepted")
+	}
+}
+
+func TestValidateComponent(t *testing.T) {
+	for _, name := range []string{"plugin", "plugin-1", "plugin.name"} {
+		if err := ValidateComponent(name); err != nil {
+			t.Fatalf("valid component %q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", ".", "..", "../x", `..\\x`, "C:x", "x/y"} {
+		if err := ValidateComponent(name); err == nil {
+			t.Fatalf("unsafe component accepted: %q", name)
+		}
+	}
+}

@@ -161,13 +161,25 @@ func parseRegistry(raw []byte) (*Registry, error) {
 	reg.Plugins = normalizeEntries(reg.Plugins)
 	reg.Presets = normalizeEntries(reg.Presets)
 	for name, entry := range reg.Plugins {
+		if err := ValidateComponent(name); err != nil {
+			return nil, fmt.Errorf("registry.yaml: плагин: %w", err)
+		}
 		if !safeEntryPath(entry.Path) {
 			return nil, fmt.Errorf("registry.yaml: плагин %q: небезопасный path %q", name, entry.Path)
 		}
+		if err := ValidateCommit(entry.Commit); err != nil {
+			return nil, fmt.Errorf("registry.yaml: плагин %q: %w", name, err)
+		}
 	}
 	for name, entry := range reg.Presets {
+		if err := ValidateComponent(name); err != nil {
+			return nil, fmt.Errorf("registry.yaml: пресет: %w", err)
+		}
 		if !safeEntryPath(entry.Path) {
 			return nil, fmt.Errorf("registry.yaml: пресет %q: небезопасный path %q", name, entry.Path)
+		}
+		if err := ValidateCommit(entry.Commit); err != nil {
+			return nil, fmt.Errorf("registry.yaml: пресет %q: %w", name, err)
 		}
 	}
 	return &reg, nil
@@ -180,6 +192,13 @@ func safeEntryPath(path string) bool {
 	}
 	clean := filepath.Clean(filepath.FromSlash(normalized))
 	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+func ValidateComponent(name string) error {
+	if name == "" || strings.TrimSpace(name) != name || name == "." || name == ".." || strings.ContainsAny(name, `/\:`) || strings.ContainsRune(name, 0) || filepath.IsAbs(name) || filepath.Clean(name) != name {
+		return fmt.Errorf("небезопасное имя компонента %q", name)
+	}
+	return nil
 }
 
 func normalizeEntries(in map[string]Entry) map[string]Entry {
