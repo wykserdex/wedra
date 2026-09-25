@@ -85,7 +85,7 @@ jobs:
           curl -sf 127.0.0.1:8917/api/runs | grep -E 'status|^\[\]$'
           # v0.9: без сессии человека мутации → 401
           curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep 401
-          LINK=$(grep -o 'http://[^ ]*?k=[0-9a-f]*' /tmp/gui.log | head -1)
+          LINK=$(grep -oE 'https?://[^[:space:]]+k=[0-9a-f]+' /tmp/gui.log | head -1)
           test -n "$LINK"
           curl -sf -o /dev/null -c /tmp/cj17 "$LINK"   # ?k= → HttpOnly cookie
           curl -sf -b /tmp/cj17 -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep started
@@ -98,7 +98,7 @@ jobs:
           ./wedra gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf 127.0.0.1:8918/api/health >/dev/null && break; sleep 0.5; done
-          LINK=$(grep -o 'http://[^ ]*?k=[0-9a-f]*' /tmp/gui-gate.log | head -1)
+          LINK=$(grep -oE 'https?://[^[:space:]]+k=[0-9a-f]+' /tmp/gui-gate.log | head -1)
           test -n "$LINK"
           curl -sf -o /dev/null -c /tmp/cj18 "$LINK"   # ?k= → HttpOnly cookie
           RUN_ID=$(curl -sf -b /tmp/cj18 -X POST 127.0.0.1:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
