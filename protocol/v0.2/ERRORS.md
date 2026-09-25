@@ -99,6 +99,8 @@
 | network_policy | `pipeline.network` имеет недопустимое значение | ран не стартует |
 | validation_failed | pre-run validation не пройдена | ран не стартует |
 | run_error | прочее (резолв, resume, параллельная группа) | ран остановлен |
+| snapshot_lost | `context.json` не записан (снапшот > 16 МБ, диск/права): в журнале `snapshot_lost` c `reason` и `bytes` | работа идёт до конца, но терминальное событие — `run_failed` со `snapshot_losses`, не `run_end`; `--resume` восстановит не всё |
+| journal_write | потеряны события журнала (диск полон, запись не прошла) | терминальное событие записано, ошибка surfaces после него |
 | cancelled | отмена: Ctrl+C, `POST /api/runs/<id>/cancel`, MCP `cancel_run` | `run_cancelled`, затем snapshot, процесс плагина убит, retry нет; `--resume` продолжит |
 
 `step_skipped` с `reason:on_error` несёт исходный `code` плагина (`bad_syntax`, ...).

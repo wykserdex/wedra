@@ -32,6 +32,12 @@ const (
 	defaultProtocolVersion = "2024-11-05"
 	maxWaitSeconds         = 300
 	maxRetainedRuns        = 128
+
+	// P2 F-03: потолки чтения журнала в инструментах (та же цена, что и в
+	// HTTP API: журнал рана не ограничен). Статус/pending_gate смотрят на
+	// последние события, а get_run отдаёт окно от since с курсором next.
+	maxRunJournalEvents = 2000
+	maxRunJournalBytes  = 4 << 20
 )
 
 var supportedProtocolVersions = []string{defaultProtocolVersion}
@@ -959,13 +965,15 @@ func (s *Server) runStatus(runID string) string {
 	if err != nil {
 		return "unknown"
 	}
-	rd := journal.NewReader(dir)
-	events, err := rd.Events()
+	// P2 F-03: статус определяется последними событиями журнала (run_end/
+	// run_failed/последний gate_wait), поэтому хватает хвоста в пределах
+	// потолка, а не разбора всего журнала в память.
+	res, err := journal.NewReader(dir).EventsBounded(0, runJournalLimits(true))
 	if err != nil {
 		return "running"
 	}
 	pending := false
-	for _, e := range events {
+	for _, e := range res.Events {
 		switch e["type"] {
 		case "gate_wait":
 			pending = true
@@ -1000,6 +1008,16 @@ func (s *Server) runStatus(runID string) string {
 	return "running"
 }
 
+// runJournalLimits — потолок окна журнала для инструментов. tail=true —
+// последние события (статус рана), иначе окно от позиции since (get_run).
+func runJournalLimits(tail bool) journal.ReadLimits {
+	return journal.ReadLimits{
+		MaxBytes:  maxRunJournalBytes,
+		MaxEvents: maxRunJournalEvents,
+		Tail:      tail,
+	}
+}
+
 func truncateJSON(v interface{}, limit int) interface{} {
 	b, _ := json.Marshal(v)
 	if len(b) <= limit {
@@ -1031,19 +1049,17 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 		since = int(f)
 	}
 	rd := journal.NewReader(dir)
-	events, err := rd.Events()
+	// P2 F-03: окно событий ограничено; total/first/next/truncated описывают
+	// границы окна, поэтому догрузка по since работает как раньше.
+	res, err := rd.EventsBounded(since, runJournalLimits(false))
 	if err != nil {
 		return "", false, rpcErr("", err.Error())
 	}
-	if since < 0 {
-		since = 0
-	}
-	if since > len(events) {
-		since = len(events)
-	}
-	newEvents := events[since:]
 	status := s.runStatus(runID)
-	out := map[string]interface{}{"run_id": runID, "status": status, "total": len(events), "events": newEvents}
+	out := map[string]interface{}{
+		"run_id": runID, "status": status, "total": res.Total, "events": res.Events,
+		"first": res.First, "next": res.Next, "truncated": res.Truncated,
+	}
 	s.mu.Lock()
 	if rs, ok := s.runs[runID]; ok {
 		select {
@@ -1058,10 +1074,14 @@ func (s *Server) toolGetRun(args map[string]interface{}) (string, bool, *RPCErro
 	}
 	s.mu.Unlock()
 	if status == "waiting_human" {
+		// gate_wait ищется по хвосту журнала, а не по окну от since: иначе
+		// догружающий агент (since>0) потерял бы подсказку о гейте
 		var lastWait map[string]interface{}
-		for _, e := range events {
-			if e["type"] == "gate_wait" {
-				lastWait = e
+		if tail, tailErr := journal.NewReader(dir).EventsBounded(0, runJournalLimits(true)); tailErr == nil {
+			for _, e := range tail.Events {
+				if e["type"] == "gate_wait" {
+					lastWait = e
+				}
 			}
 		}
 		if lastWait != nil {

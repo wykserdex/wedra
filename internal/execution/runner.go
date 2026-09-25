@@ -88,6 +88,10 @@ func failEvent(j *journal.Journal, ctx *runctx.Ctx, err error, extra map[string]
 		j.Event("run_failed", kv)
 	}
 	if ctx != nil {
+		// P2 F-04: потеря этого снапшота (снапшот после терминального
+		// события — тоже состояние для --resume) уже зафиксирована в
+		// журнале самим Journal: событие snapshot_lost + счётчик. Ран уже
+		// неуспешен по своей причине — её код и не перебиваем.
 		j.Snapshot(ctx)
 	}
 }
@@ -97,9 +101,68 @@ func journalWriteError(j *journal.Journal) error {
 		return nil
 	}
 	if n := j.WriteErrors(); n > 0 {
-		return runErr("journal_write", "журнал неполный: потеряно событий: %d", n)
+		return runErr("journal_write", "журнал неполный: потеряно записей: %d", n)
 	}
 	return nil
+}
+
+// priorSnapshotLosses — сколько потерь снапшота уже записано в журнал до
+// текущего рана. При --resume журнал общий с прошлым прогоном, поэтому его
+// счётчик у нового Journal-объекта пуст, а состояние на диске — то же самое.
+// Ошибка чтения трактуется как «потерь не найдено»: нечитаемый журнал и так
+// ломает resume раньше (resumeCursor).
+func priorSnapshotLosses(dir string) int {
+	n := 0
+	if _, err := journal.NewReader(dir).ScanMeta(func(meta journal.EventMeta) error {
+		if meta.Type == "snapshot_lost" {
+			n++
+		}
+		return nil
+	}); err != nil {
+		return 0
+	}
+	return n
+}
+
+// snapshotLossError — P2 F-04: терминальная ошибка потерянных снапшотов
+// контекста (nil, если потерь нет). Источник истины — журнал: потеря
+// считается там же, где пишется событие snapshot_lost, поэтому её нельзя
+// потерять, «забыв проверить» ошибку в горячем пути. В сообщении только
+// причина и размер: ни данных контекста, ни секретов.
+func snapshotLossError(j *journal.Journal, prior int) error {
+	if j == nil {
+		return nil
+	}
+	n := j.SnapshotLosses() + prior
+	if n == 0 {
+		return nil
+	}
+	cause := j.SnapshotLossError()
+	if cause == nil {
+		// потери только прошлого рана: причина осталась в его журнале
+		cause = errors.New("потери прошлого прогона (см. событие snapshot_lost)")
+	}
+	return runErr("snapshot_lost", "снапшот контекста потерян: не записано %d (context.json за ран неполон, --resume восстановит не всё): %v", n, cause)
+}
+
+// finish — терминальная запись рана. Пока снапшоты целы, это run_end. Если
+// снапшот потерян, run_end был бы враньём: на диске лежит устаревшее
+// состояние, а журнал сказал бы «ок». Поэтому журнал получает
+// run_failed/snapshot_lost, а вызывающий — ошибку с кодом snapshot_lost
+// (CLI: ненулевой код; API/MCP: статус failed). Потеря событий журнала без
+// потери снапшота — прежний journal_write уже после run_end.
+func finish(j *journal.Journal, prior int, kv map[string]interface{}) error {
+	if err := snapshotLossError(j, prior); err != nil {
+		failKV := map[string]interface{}{
+			"error":           err.Error(),
+			"code":            "snapshot_lost",
+			"snapshot_losses": j.SnapshotLosses() + prior,
+		}
+		j.Event("run_failed", failKV)
+		return err
+	}
+	j.Event("run_end", kv)
+	return journalWriteError(j)
 }
 
 func (o RunOptions) cancelled() bool {
@@ -116,6 +179,10 @@ type RunStats struct {
 	OK      int
 	Aborted int
 	RunDir  string
+	// P2 F-04: снапшоты контекста, потерянные до этого рана (при --resume
+	// журнал общий). Ненулевое значение означает, что context.json отстаёт от
+	// курсора resume, и терминальный статус рана — не «ок».
+	SnapshotLosses int
 }
 
 func resumeCursor(dir string) (int, RunStats, error) {
@@ -369,6 +436,15 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if err != nil {
 			return stats, fmt.Errorf("--resume %s: не читается journal: %w", opts.Resume, err)
 		}
+		// P2 F-04: resume берёт курсор из журнала (item_end), а состояние — из
+		// context.json. Если снапшот когда-то терялся, disk-состояние отстаёт от
+		// курсора, и «продолжить с max+1» молча скормит следующим шагам неполный
+		// контекст. Ран продолжает работу, но терминальный вердикт обязан быть
+		// честным (finish).
+		if priorLost := priorSnapshotLosses(j.Dir); priorLost > 0 {
+			stats.SnapshotLosses = priorLost
+			opts.logf("  ! в журнале %d потерянных снапшотов: context.json отстаёт от курсора resume", priorLost)
+		}
 		stats.RunDir = j.Dir
 		stats.OK, stats.Aborted = priorStats.OK, priorStats.Aborted
 		opts.logf("▶ resume %q с элемента %d (журнал: %s)", pf.Pipeline.Name, startItemIdx, j.Dir)
@@ -528,8 +604,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 					}
 				}
 			}
-			j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted, "resumed": true})
-			if err := journalWriteError(j); err != nil {
+			if err := finish(j, stats.SnapshotLosses, map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted, "resumed": true}); err != nil {
 				return stats, err
 			}
 			return stats, nil
@@ -596,6 +671,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		if pf.Pipeline.Foreach != "" {
 			writeAggregates(ctx, agg, loopSteps)
 		}
+		// P2 F-04: ошибку здесь ловить нечего — Journal сам пишет событие
+		// snapshot_lost и считает потерю, терминальный вердикт принимает
+		// finish. Раньше возврат игнорировался, и потеря была не видна нигде.
 		j.Snapshot(ctx)
 		j.Event("item_end", map[string]interface{}{"item_index": idx, "status": itemStatus})
 		if itemStatus == "aborted" {
@@ -628,11 +706,10 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		j.Event("post_phase_end", map[string]interface{}{})
 	}
 
-	j.Event("run_end", map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted})
-	opts.logf("\n■ ран завершён: ok=%d aborted=%d → %s", stats.OK, stats.Aborted, j.Dir)
-	if err := journalWriteError(j); err != nil {
+	if err := finish(j, stats.SnapshotLosses, map[string]interface{}{"ok": stats.OK, "aborted": stats.Aborted}); err != nil {
 		return stats, err
 	}
+	opts.logf("\n■ ран завершён: ok=%d aborted=%d → %s", stats.OK, stats.Aborted, j.Dir)
 	return stats, nil
 }
 
