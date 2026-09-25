@@ -166,3 +166,11 @@ func TestRegistryRejectsEscapingPath(t *testing.T) {
 		t.Fatal("escaping registry path должен быть отвергнут")
 	}
 }
+
+func TestRefToDirRejectsReservedBuiltin(t *testing.T) {
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+		if _, err := RefToDir(ref, t.TempDir()); err == nil {
+			t.Fatalf("reserved builtin %q was accepted", ref)
+		}
+	}
+}
