@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"gopkg.in/yaml.v3"
-
 	"wedra/internal/pipeline"
 	"wedra/internal/registry"
 )
@@ -59,13 +57,13 @@ func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 		return nil, fmt.Errorf("плагин %q: не читается plugin.yaml: %w", ref, err)
 	}
 	var m pipeline.Manifest
-	if err := yaml.Unmarshal(raw, &m); err != nil {
+	if err := pipeline.DecodeManifest(raw, &m); err != nil {
 		return nil, fmt.Errorf("плагин %q: некорректный манифест: %w", ref, err)
 	}
-	if m.ID == "" {
-		return nil, fmt.Errorf("плагин %q: в манифесте нет id", ref)
-	}
 	m.Dir = dir
+	if err := pipeline.ValidateManifest(&m); err != nil {
+		return nil, fmt.Errorf("плагин %q: некорректный манифест: %w", ref, err)
+	}
 	e.mu.Lock()
 	e.Cache[ref] = &m
 	e.mu.Unlock()
