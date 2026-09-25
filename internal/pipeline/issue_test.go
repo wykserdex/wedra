@@ -187,6 +187,9 @@ func TestIssueCodesTable(t *testing.T) {
 		{"gates_value", func(pf *PipelineFile) {
 			pf.Pipeline.Gates = "nope"
 		}, E_GATES_VALUE},
+		{"network_value", func(pf *PipelineFile) {
+			pf.Pipeline.Network = "denny"
+		}, E_NETWORK_VALUE},
 		{"parallel_split", func(pf *PipelineFile) {
 			pf.Pipeline.Steps = []Step{
 				{ID: "a", Plugin: "fake/syntax", Bind: map[string]string{"email": "input.email"}, ParallelGroup: "g"},

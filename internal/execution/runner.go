@@ -254,6 +254,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	if opts.Ctx == nil {
 		opts.Ctx = stdctx.Background()
 	}
+	if pf.Pipeline.Network != "" && pf.Pipeline.Network != "allow" && pf.Pipeline.Network != "deny" {
+		return stats, runErr("network_policy", "pipeline network=%q: допускаются allow или deny", pf.Pipeline.Network)
+	}
 	// v0.16: secrets — до любого эффекта: не запустим ран без ключей
 	var missingSecrets []string
 	for _, k := range pf.Pipeline.Secrets {
