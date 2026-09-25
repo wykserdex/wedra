@@ -1,5 +1,12 @@
 # Changelog — WEDRA
 
+## 0.32 — audit-complete release
+
+- Закрыты все actionable P0/P1/P2 findings аудита и P3 hardening-хвосты.
+- Добавлены macOS CI, SHA-pinned actions, SBOM и GitHub provenance attestations.
+- Registry pins и version metadata обновлены на проверенный pre-release commit.
+- Недоверенные plugins по-прежнему требуют отдельной OS-изоляции; это явно не входит в trusted-local MVP.
+
 ## 0.31b — post-audit hardening (in progress)
 
 - Закрыты P0/P1/P2 findings аудита: traversal/CSRF/session, resume-валидация, journal limits/snapshot loss, registry и preset supply chain.
