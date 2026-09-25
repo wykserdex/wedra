@@ -24,4 +24,4 @@ output:
 permissions:
   network: [ { host: "api.anthropic.com", port: 443 } ]
   filesystem: none
-  secrets: [ "ANTHROPIC_API_KEY" ]
+  secrets: [ "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "LLM_TIMEOUT", "LLM_MOCK" ]

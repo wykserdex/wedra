@@ -1036,3 +1036,83 @@ pipeline:
 		t.Fatalf("нет warning про заявленную сеть example.com:443: %s", warns)
 	}
 }
+
+func TestEditorPreservesGatePoliciesAndStructuredInput(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: policy_roundtrip
+  gates: human_only
+  input:
+    values: [one, two]
+    count: 3
+  steps:
+    - id: review
+      plugin: core/human_gate
+      approval: human
+      form:
+        - field: input.count
+          editable: true
+          type: number
+          format: text
+      actions: [accept]
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("parse code=%d body=%v", code, doc)
+	}
+	if doc["gates"] != "human_only" {
+		t.Fatalf("gates=%v", doc["gates"])
+	}
+	inputs := doc["input"].([]interface{})
+	if len(inputs) != 2 {
+		t.Fatalf("inputs=%v", inputs)
+	}
+	var values []interface{}
+	for _, rawInput := range inputs {
+		input := rawInput.(map[string]interface{})
+		if input["name"] == "values" {
+			values = input["default"].([]interface{})
+		}
+	}
+	if len(values) != 2 || values[0] != "one" || values[1] != "two" {
+		t.Fatalf("array input=%v", values)
+	}
+	step := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if step["approval"] != "human" {
+		t.Fatalf("approval=%v", step["approval"])
+	}
+	form := step["form"].([]interface{})[0].(map[string]interface{})
+	if form["type"] != "number" || form["format"] != "text" {
+		t.Fatalf("form metadata=%v", form)
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 || out["ok"] != true {
+		t.Fatalf("serialize code=%d body=%v", code, out)
+	}
+	yamlText := out["yaml"].(string)
+	if !strings.Contains(yamlText, "gates: human_only") || !strings.Contains(yamlText, "approval: human") || !strings.Contains(yamlText, "format: text") {
+		t.Fatalf("metadata lost:\n%s", yamlText)
+	}
+	pf, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pf.Pipeline.Gates != "human_only" || pf.Pipeline.Steps[0].Approval != "human" || pf.Pipeline.Steps[0].Form[0].Format != "text" {
+		t.Fatalf("round-trip metadata=%+v", pf)
+	}
+}
+
+func TestEditorRejectsInvalidGatePolicy(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	doc := map[string]interface{}{
+		"name": "bad_policy", "format_version": "0.2",
+		"input": []interface{}{}, "steps": []interface{}{}, "gates": "typo", "unsupported": []interface{}{},
+	}
+	d, _ := json.Marshal(doc)
+	code, out := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
+	if code != 200 || out["ok"] != false {
+		t.Fatalf("invalid policy accepted: code=%d body=%v", code, out)
+	}
+}

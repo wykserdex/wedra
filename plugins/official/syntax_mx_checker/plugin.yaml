@@ -5,7 +5,7 @@ platform_api: "^0.1"
 runtime:
   type: python
   entry: main.py
-  requires: ["dnspython (опционально; без него MX-проверка деградирует до skip с варнингом в журнал)"]
+  requires: []
 
 input:
   email:

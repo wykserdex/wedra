@@ -14,7 +14,7 @@
 // Честный скоуп: type-объявления input не управляются — такие пайплайны
 // открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
 const GRID = 20;
 const snap = v => Math.round(v / GRID) * GRID;
 
@@ -787,6 +787,7 @@ async function init() {
   $('#file-open').onchange = e => { if (e.target.value) openFile(e.target.value); };
   $('#btn-save').onclick = save;
   $('#btn-yaml').onclick = showYaml;
+  $('#close-yaml').onclick = () => { $('#yaml-view').style.display = 'none'; };
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;
   renderAll();

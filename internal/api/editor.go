@@ -21,7 +21,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -35,13 +34,15 @@ import (
 )
 
 type editorInput struct {
-	Name    string `json:"name"`
-	Default string `json:"default"`
+	Name    string      `json:"name"`
+	Default interface{} `json:"default"`
 }
 
 type editorFormField struct {
-	Field    string `json:"field"`
-	Editable bool   `json:"editable"`
+	Field    string `json:"field" yaml:"field"`
+	Editable bool   `json:"editable" yaml:"editable"`
+	Type     string `json:"type,omitempty" yaml:"type,omitempty"`
+	Format   string `json:"format,omitempty" yaml:"format,omitempty"`
 }
 
 // editorWhen — v0.27: условие шага (ядро: internal/pipeline/when.go,
@@ -63,6 +64,7 @@ type editorStep struct {
 	Form     []editorFormField `json:"form"`
 	Actions  []string          `json:"actions"`
 	OnReject string            `json:"on_reject"`
+	Approval string            `json:"approval"`
 	When     *editorWhen       `json:"when,omitempty"`
 	// v0.28: управляющий поток шага
 	Foreach       string `json:"foreach"`
@@ -93,6 +95,7 @@ type editorDoc struct {
 	// WEDRA_NETWORK=allow и сам декларирует сеть в манифесте) или "deny"
 	// (шаг с заявленной сетью — ошибка валидатора и раннера)
 	Network     string   `json:"network"`
+	Gates       string   `json:"gates"`
 	Unsupported []string `json:"unsupported"`
 	// v0.28: управляющий поток пайплайна (батч по массиву)
 	Foreach     string `json:"foreach"`
@@ -143,6 +146,7 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		ForeachItem:   pf.Pipeline.ForeachItem,
 		ItemType:      pf.Pipeline.ItemType,
 		ItemFormat:    pf.Pipeline.ItemFormat,
+		Gates:         pf.Pipeline.Gates,
 	}
 	names := make([]string, 0, len(pf.Pipeline.Input))
 	for n := range pf.Pipeline.Input {
@@ -156,11 +160,7 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 			doc.Unsupported = append(doc.Unsupported, "input."+n+" (type-объявление, не значение)")
 			doc.Input = append(doc.Input, editorInput{Name: n, Default: ""})
 		default:
-			def := ""
-			if v != nil {
-				def = fmt.Sprint(v)
-			}
-			doc.Input = append(doc.Input, editorInput{Name: n, Default: def})
+			doc.Input = append(doc.Input, editorInput{Name: n, Default: v})
 		}
 	}
 	for _, st := range pf.Pipeline.Steps {
@@ -181,10 +181,11 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 			es.Bind[k] = v
 		}
 		for _, f := range st.Form {
-			es.Form = append(es.Form, editorFormField{Field: f.Field, Editable: f.Editable})
+			es.Form = append(es.Form, editorFormField{Field: f.Field, Editable: f.Editable, Type: f.Type, Format: f.Format})
 		}
 		es.Actions = st.Actions
 		es.OnReject = st.OnReject
+		es.Approval = st.Approval
 		if st.When.IsSet() {
 			es.When = &editorWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 		}
@@ -224,6 +225,7 @@ type outStep struct {
 	Form     []editorFormField `yaml:"form,omitempty"`
 	Actions  []string          `yaml:"actions,omitempty"`
 	OnReject string            `yaml:"on_reject,omitempty"`
+	Approval string            `yaml:"approval,omitempty"`
 	When     *outWhen          `yaml:"when,omitempty"`
 	// v0.28: управляющий поток шага
 	Foreach       string    `yaml:"foreach,omitempty"`
@@ -253,6 +255,7 @@ type outFile struct {
 		Steps       []outStep      `yaml:"steps"`
 		Secrets     []string       `yaml:"secrets,omitempty"` // v0.5
 		Network     string         `yaml:"network,omitempty"` // v0.6
+		Gates       string         `yaml:"gates,omitempty"`
 		Foreach     string         `yaml:"foreach,omitempty"`
 		ForeachItem string         `yaml:"foreach_item,omitempty"`
 		ItemType    string         `yaml:"item_type,omitempty"`
@@ -291,7 +294,7 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		Pipeline: pipeline.Pipeline{
 			Name: doc.Name, Input: map[string]interface{}{}, Steps: []pipeline.Step{},
 			Foreach: doc.Foreach, ForeachItem: doc.ForeachItem,
-			ItemType: doc.ItemType, ItemFormat: doc.ItemFormat,
+			ItemType: doc.ItemType, ItemFormat: doc.ItemFormat, Gates: doc.Gates,
 		},
 	}
 	for _, in := range doc.Input {
@@ -334,10 +337,11 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 			step.Timeout = pipeline.Duration{Duration: d}
 		}
 		for _, f := range st.Form {
-			step.Form = append(step.Form, pipeline.FormField{Field: f.Field, Editable: f.Editable})
+			step.Form = append(step.Form, pipeline.FormField{Field: f.Field, Editable: f.Editable, Type: f.Type, Format: f.Format})
 		}
 		step.Actions = st.Actions
 		step.OnReject = st.OnReject
+		step.Approval = st.Approval
 		if st.When != nil {
 			w := pipeline.When{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 			if w.Op == "" {
@@ -382,6 +386,7 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	out.Pipeline.ForeachItem = pf.Pipeline.ForeachItem
 	out.Pipeline.ItemType = pf.Pipeline.ItemType
 	out.Pipeline.ItemFormat = pf.Pipeline.ItemFormat
+	out.Pipeline.Gates = pf.Pipeline.Gates
 	out.Pipeline.Input = map[string]any{}
 	for k, v := range pf.Pipeline.Input {
 		out.Pipeline.Input[k] = v
@@ -402,10 +407,11 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 			os.Bind[k] = v
 		}
 		for _, f := range st.Form {
-			os.Form = append(os.Form, editorFormField{Field: f.Field, Editable: f.Editable})
+			os.Form = append(os.Form, editorFormField{Field: f.Field, Editable: f.Editable, Type: f.Type, Format: f.Format})
 		}
 		os.Actions = st.Actions
 		os.OnReject = st.OnReject
+		os.Approval = st.Approval
 		if st.When.IsSet() {
 			os.When = &outWhen{Path: st.When.Path, Op: st.When.Op, Value: st.When.Value}
 		}
@@ -430,10 +436,11 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "генерированный YAML не читается: "+err.Error(), 500)
 		return
 	}
-	errs, warns := pipeline.Validate(check, s.Engine)
+	issues := pipeline.ValidateIssues(check, s.Engine)
+	errs, warns := pipeline.SplitIssues(issues)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"yaml": text, "errors": errs, "warnings": warns, "ok": len(errs) == 0,
+		"yaml": text, "errors": errs, "warnings": warns, "issues": issues, "ok": len(errs) == 0,
 	})
 }
 
