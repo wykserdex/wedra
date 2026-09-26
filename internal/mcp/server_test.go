@@ -407,10 +407,8 @@ func TestMCPRejectsPluginSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: symlink_escape\n  input:\n    text: hello\n  steps:\n    - id: s\n      plugin: " + strconv.Quote(filepath.Join("plugins", "escape")) + "\n      bind:\n        text: input.text\n"
-	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
-	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
-		t.Fatalf("plugin symlink escape was accepted: %v", rpcErr)
-	}
+	// Symlink-обход — тот же отказ политики: ok:false + issue, run отказывает.
+	assertPolicyRefusal(t, srv, yamlStr, "plugin_outside_root", "E_PLUGIN_OUTSIDE_ROOT")
 }
 
 func TestMCPCancelRun(t *testing.T) {
