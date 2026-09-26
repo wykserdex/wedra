@@ -106,6 +106,24 @@ func TestUntrustedRunsInsideSandbox(t *testing.T) {
 	}
 }
 
+func TestWindowsRefusalIsActionable(t *testing.T) {
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		t.Skip("проверка только для платформ без изолятора")
+	}
+	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
+	_, _, err := sandboxArgs(m, []string{"/bin/true"})
+	if !errors.Is(err, ErrSandboxUnsupported) {
+		t.Fatalf("ожидался ErrSandboxUnsupported, получено: %v", err)
+	}
+	// Оператор должен понимать, что флаг согласия проблему не решает.
+	if !strings.Contains(err.Error(), "--allow-untrusted-plugins") {
+		t.Errorf("сообщение должно предупреждать, что флаг не помогает: %v", err)
+	}
+	if !strings.Contains(err.Error(), runtime.GOOS) {
+		t.Errorf("сообщение должно называть платформу: %v", err)
+	}
+}
+
 func TestUntrustedEnvExcludesUserProfile(t *testing.T) {
 	// Профиль пользователя и произвольные переменные не должны попадать
 	// в изолированный плагин.
