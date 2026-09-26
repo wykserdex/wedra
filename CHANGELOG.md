@@ -2,14 +2,19 @@
 
 ## Unreleased (post-0.32)
 
-- Контракт доверия к коду плагина: поле манифеста `sandbox: trusted|untrusted`.
-- Fail-closed гейт: `sandbox: untrusted` не запускается без OS-изоляции
-  (backend'а в сборке нет) — `platform:sandbox_unavailable` до создания процесса.
-- `untrusted` + `permissions.secrets` отклоняется валидатором манифеста.
-- Политика ядра `--deny-untrusted-plugins` (`pipeline run`, `runs resume`):
-  запрещает запуск любого плагина в ранде; рекомендуется для CI.
-- CI: actionlint-gate на workflow-файлы; `softprops/action-gh-release` 3.0.3
-  (node24, вход `generate_release_notes` подтверждён).
+- OS-изоляция внешнего кода: `bwrap` (Linux) и `sandbox-exec` (macOS);
+  на Windows — fail-closed отказ. Нет пути, где untrusted-код выполнился бы
+  без песочницы.
+- Контракт доверия: поле манифеста `sandbox: trusted|untrusted`; запуск
+  untrusted требует явного `--allow-untrusted-plugins`.
+- Env-allowlist для изолированных плагинов: без профиля пользователя
+  (HOME/USERPROFILE/APPDATA/PROGRAMDATA) и без `permissions.secrets`.
+- `--deny-untrusted-plugins` (`pipeline run`, `runs resume`) — запрет любого
+  плагина в ранде; рекомендуется для CI.
+- Сеть изолируется, если плагин не объявил `permissions.network`.
+- CI: actionlint-gate; `actions/checkout` 7.0.1, `actions/setup-go` 7.0.0,
+  `softprops/action-gh-release` 3.0.3 (все на node24); в Linux-джоб добавлен
+  bubblewrap, чтобы изоляция реально проверялась тестами.
 
 ## 0.32 — audit-complete release
 

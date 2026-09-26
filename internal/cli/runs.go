@@ -126,6 +126,7 @@ func RunRunsResume(args []string) {
 	yes := false
 	noAuto := false
 	denyUntrusted := false
+	allowUntrusted := false
 	runsDir := ""
 	store := ""
 	dbPath := ""
@@ -140,6 +141,8 @@ func RunRunsResume(args []string) {
 			noAuto = true
 		case a == "--deny-untrusted-plugins":
 			denyUntrusted = true
+		case a == "--allow-untrusted-plugins":
+			allowUntrusted = true
 		case strings.HasPrefix(a, "--runs-dir="):
 			runsDir = strings.TrimPrefix(a, "--runs-dir=")
 		case a == "--runs-dir":
@@ -190,6 +193,9 @@ func RunRunsResume(args []string) {
 	}
 	if denyUntrusted {
 		newArgs = append(newArgs, "--deny-untrusted-plugins")
+	}
+	if allowUntrusted {
+		newArgs = append(newArgs, "--allow-untrusted-plugins")
 	}
 	if runsDir != "" {
 		newArgs = append(newArgs, "--runs-dir="+runsDir)

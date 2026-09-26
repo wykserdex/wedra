@@ -21,8 +21,9 @@ type TrustPolicy struct {
 	// объявили sandbox: untrusted. Включается флагом
 	// --deny-untrusted-plugins: полезно для CI и рандов с community-плагинами.
 	DenyUntrusted bool
-	// AllowUntrusted — разрешить запуск внешнего кода без изоляции. Требует
-	// явного вызова AllowUntrustedPlugins; в CLI не выставляется.
+	// AllowUntrusted — явное согласие запускать внешний код. Плагин всё равно
+	// уходит в изолятор; если изолятора на хосте нет, запуск падает
+	// (fail-closed), а не выполняется без песочницы.
 	AllowUntrusted bool
 }
 
@@ -45,8 +46,8 @@ func TrustPolicyFrom(ctx context.Context) TrustPolicy {
 	return p
 }
 
-// AllowUntrustedPlugins — вызов в trusted-коде (agent track, тесты), который
-// осознанно берёт на себя риск запуска внешнего кода без изоляции.
+// AllowUntrustedPlugins — вызов в trusted-коде, который осознанно разрешает
+// запуск внешнего кода (он всё равно уходит в изолятор).
 func AllowUntrustedPlugins(ctx context.Context) context.Context {
 	return WithTrustPolicy(ctx, TrustPolicy{AllowUntrusted: true})
 }
@@ -63,8 +64,9 @@ func untrustedCodeError(m *pipeline.Manifest, reason string) *ExecResult {
 	}
 }
 
-// enforceTrust — fail-closed проверка перед запуском процесса. Возвращает
-// готовый ExecResult с ошибкой, если код запускать нельзя.
+// enforceTrust — fail-closed проверка ДО запуска: без согласия ядра внешний код
+// не запускается. Само наличие песочницы проверяется в execPluginEnv: там, где
+// изолятора нет, процесс не создаётся (ErrSandboxUnsupported).
 func enforceTrust(m *pipeline.Manifest, policy TrustPolicy) *ExecResult {
 	if m == nil {
 		return nil
@@ -74,7 +76,7 @@ func enforceTrust(m *pipeline.Manifest, policy TrustPolicy) *ExecResult {
 		return untrustedCodeError(m, "ядро запущено с --deny-untrusted-plugins")
 	case m.Untrusted() && !policy.AllowUntrusted:
 		return untrustedCodeError(m,
-			"sandbox backend в этой сборке не реализован (os-sandbox: bwrap/sandbox-exec/AppContainer)")
+			"нет согласия на запуск внешнего кода (нужен флаг --allow-untrusted-plugins)")
 	}
 	return nil
 }

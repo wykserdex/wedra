@@ -1,0 +1,129 @@
+package plugin
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"wedra/internal/pipeline"
+)
+
+// untrustedManifestWith — python-плагин, который на запуск пишет marker.
+func sandboxPlugin(t *testing.T, dir, marker string) *pipeline.Manifest {
+	t.Helper()
+	script := "import sys\n" +
+		"open(" + quotePy(marker) + ", 'w').write('ran')\n" +
+		"sys.stdout.write('{\"status\":\"ok\",\"output\":{}}')\n"
+	if err := os.WriteFile(filepath.Join(dir, "plugin.py"), []byte(script), 0o600); err != nil {
+		t.Fatalf("write plugin: %v", err)
+	}
+	return &pipeline.Manifest{
+		ID:      "sandbox-test",
+		Version: "0.1.0",
+		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
+		Sandbox: pipeline.SandboxUntrusted,
+		Dir:     dir,
+	}
+}
+
+func TestSandboxBackendReported(t *testing.T) {
+	name := sandboxBackendName()
+	if name == "нет" {
+		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+			return // ожидаемо: платформа без изолятора
+		}
+		if _, ok := sandboxBackend(); !ok {
+			t.Skip("изолятор не установлен в этом раннере")
+		}
+		t.Fatal("sandboxBackendName() == \"нет\", но изолятор доступен")
+	}
+	if name != "bwrap" && name != "sandbox-exec" {
+		t.Fatalf("неизвестный изолятор %q", name)
+	}
+}
+
+func TestPlatformSandboxFailsClosedWithoutBackend(t *testing.T) {
+	if _, ok := sandboxBackend(); ok {
+		t.Skip("изолятор доступен — проверяется в TestUntrustedRunsInsideSandbox")
+	}
+	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
+	_, err := platformSandbox(context.Background(), []string{"/bin/true"}, m)
+	if !errors.Is(err, ErrSandboxUnsupported) {
+		t.Fatalf("без изолятора ожидался ErrSandboxUnsupported, получено: %v", err)
+	}
+}
+
+func TestUntrustedRefusedWhenBackendMissing(t *testing.T) {
+	if _, ok := sandboxBackend(); ok {
+		t.Skip("изолятор доступен")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	m := sandboxPlugin(t, dir, marker)
+	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 5*time.Second, nil)
+	if res.OK() || res.ErrCode != "sandbox_unavailable" {
+		t.Fatalf("без изолятора запуск untrusted обязан быть отвергнут: %+v", res)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("процесс был запущен без изоляции")
+	}
+}
+
+func TestUntrustedRunsInsideSandbox(t *testing.T) {
+	if _, ok := sandboxBackend(); !ok {
+		t.Skip("изолятор недоступен на этом хосте")
+	}
+	requirePython(t)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	m := sandboxPlugin(t, dir, marker)
+	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 30*time.Second, nil)
+	if !res.OK() {
+		t.Fatalf("untrusted-плагин в песочнице должен работать: %+v (stderr: %s)", res, res.Stderr)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("плагин не отработал: %v", err)
+	}
+}
+
+func TestUntrustedEnvExcludesUserProfile(t *testing.T) {
+	// Профиль пользователя и произвольные переменные не должны попадать
+	// в изолированный плагин.
+	t.Setenv("WEDRA_TRUST_PROBE", "secret-value")
+	env := untrustedBaseEnv()
+	if len(env) == 0 {
+		t.Fatal("untrusted-окружение пустое — интерпретатор не запустится")
+	}
+	for _, kv := range env {
+		for _, banned := range []string{"WEDRA_TRUST_PROBE=", "APPDATA=", "LOCALAPPDATA=", "PROGRAMDATA=", "PUBLIC="} {
+			if strings.HasPrefix(kv, banned) {
+				t.Fatalf("изолированный плагин получил %s", kv)
+			}
+		}
+	}
+}
+
+func TestUntrustedEnvNeverCarriesSecrets(t *testing.T) {
+	t.Setenv("WEDRA_TRUST_SECRET", "top-secret")
+	m := &pipeline.Manifest{
+		ID:          "s",
+		Runtime:     pipeline.Runtime{Type: "python"},
+		Sandbox:     pipeline.SandboxUntrusted,
+		Permissions: pipeline.Permissions{Secrets: []string{"WEDRA_TRUST_SECRET"}},
+	}
+	for _, kv := range untrustedBaseEnv() {
+		if strings.HasPrefix(kv, "WEDRA_TRUST_SECRET=") {
+			t.Fatalf("секрет попал в untrusted-окружение: %s", kv)
+		}
+	}
+	// Валидатор не пропустит такое сочетание, но и exec-путь не должен доверять
+	// только валидатору.
+	if err := pipeline.ValidateManifest(m); err == nil {
+		t.Fatal("untrusted + permissions.secrets должен отклоняться")
+	}
+}

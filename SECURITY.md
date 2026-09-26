@@ -33,17 +33,31 @@ without separate OS-level isolation.
 ## Untrusted plugin code (`sandbox: untrusted`)
 
 A plugin manifest may declare `sandbox: untrusted`, meaning the author
-considers the code to be third-party. WEDRA is fail-closed about this: no
-OS-level isolation backend ships yet (`bwrap` on Linux, `sandbox-exec` on
-macOS, AppContainer on Windows), so such a plugin is refused before any process
-is spawned, with the protocol error `platform:sandbox_unavailable`. A
-`untrusted` plugin may also not declare `permissions.secrets`.
+considers the code to be third-party. Such a plugin is refused unless the
+operator explicitly opts in with `--allow-untrusted-plugins`, and even then it
+only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
+`permissions.secrets`.
 
-`--deny-untrusted-plugins` extends the refusal to every plugin in the run,
-including plugins that do not declare `sandbox`. It is the recommended flag for
-CI and for any machine that executes community plugins. Without the flag, a
-plugin that declares nothing keeps running with the current user's permissions,
-which is the historical behaviour and is not a security boundary.
+| Platform | Backend | Notes |
+| --- | --- | --- |
+| Linux | `bwrap` (bubblewrap) | read-only host filesystem, separate PID/IPC/UTS, fresh `/tmp`, network namespace dropped unless `permissions.network` is declared |
+| macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
+| Windows | none | fail-closed: untrusted plugins cannot run |
+
+If the backend is missing, the run stops with `platform:sandbox_unavailable`
+before any process is created. There is no path that executes untrusted code
+outside a sandbox.
+
+What the backends do **not** provide: read isolation (a plugin can read any
+file the user can read, subject to the host mount set), egress filtering when a
+plugin declares network permissions, and resource limits. Do not treat
+`--allow-untrusted-plugins` as a complete boundary for hostile code.
+
+`--deny-untrusted-plugins` refuses every plugin in the run, including plugins
+that do not declare `sandbox`. It is the recommended flag for CI. Without
+either flag, a plugin that declares nothing keeps running with the current
+user's permissions, which is the historical behaviour and is not a security
+boundary.
 
 The trust decision belongs to the core, not to the plugin: the manifest field
 is enforced by the kernel, and the policy is set once per run and inherited by

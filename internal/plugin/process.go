@@ -151,7 +151,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
+	var argv []string
 	switch m.Runtime.Type {
 	case "python":
 		py, err := pythonInterpreter()
@@ -166,7 +166,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 			res.ExitCode = 2
 			return res
 		}
-		cmd = exec.CommandContext(ctx, py, entry)
+		argv = []string{py, entry}
 	case "binary":
 		entry, err := filepath.Abs(filepath.Join(m.Dir, m.Runtime.Entry))
 		if err != nil {
@@ -174,16 +174,36 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 			res.ExitCode = 2
 			return res
 		}
-		cmd = exec.CommandContext(ctx, entry)
+		argv = []string{entry}
 	default:
 		res.Platform, res.ErrCode, res.ErrMsg = true, "runtime_unknown", "runtime.type: "+m.Runtime.Type
 		res.ExitCode = 2
 		return res
 	}
 
+	// Внешний код запускается только внутри изолятора; если изолятор на хосте
+	// недоступен — отказ до создания процесса (fail-closed).
+	var cmd *exec.Cmd
+	if m.Untrusted() {
+		wrapped, err := sandboxCommand(ctx, argv, m)
+		if err != nil {
+			res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", err.Error()
+			res.ExitCode = 2
+			return res
+		}
+		cmd = wrapped
+	} else {
+		cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)
+	}
+
 	cmd.Dir = m.Dir
 	cmd.Stdin = bytes.NewReader(input)
 	baseEnv := pluginBaseEnv(m)
+	if m.Untrusted() {
+		// В песочнице плагину не нужны профиль пользователя и его каталоги:
+		// HOME/USERPROFILE/APPDATA вырезаются, секреты не передаются вовсе.
+		baseEnv = untrustedBaseEnv()
+	}
 	if m.Runtime.Type == "python" {
 		baseEnv = append(baseEnv, "PYTHONUTF8=1")
 	}
@@ -339,15 +359,37 @@ var pluginSystemEnv = map[string]struct{}{
 }
 
 func pluginBaseEnv(m *Manifest) []string {
-	out := make([]string, 0, len(pluginSystemEnv)+len(m.Permissions.Secrets))
+	return baseEnvFor(m, pluginSystemEnv, true)
+}
+
+// untrustedSystemEnv — минимальный набор для изолированного плагина. Профиль
+// пользователя (HOME/USERPROFILE/APPDATA/LOCALAPPDATA/PROGRAMDATA/PUBLIC) и
+// доменные переменные вырезаны: иначе песочница протекает в файлы, которые
+// плагин не должен видеть.
+var untrustedSystemEnv = map[string]struct{}{
+	"PATH": {}, "PATHEXT": {}, "SYSTEMROOT": {}, "WINDIR": {}, "COMSPEC": {},
+	"TEMP": {}, "TMP": {}, "TMPDIR": {}, "LANG": {}, "LC_ALL": {}, "LC_CTYPE": {}, "TZ": {},
+}
+
+// untrustedBaseEnv — окружение внешнего кода: только системные переменные из
+// узкого allowlist, никаких permissions.secrets (их валидатор и не пропустит).
+func untrustedBaseEnv() []string {
+	return baseEnvFor(nil, untrustedSystemEnv, false)
+}
+
+func baseEnvFor(m *Manifest, allow map[string]struct{}, withSecrets bool) []string {
+	out := make([]string, 0, len(allow))
 	for _, kv := range os.Environ() {
 		i := indexByte(kv, '=')
 		if i <= 0 || !validEnvName(kv[:i]) {
 			continue
 		}
-		if _, ok := pluginSystemEnv[strings.ToUpper(kv[:i])]; ok {
+		if _, ok := allow[strings.ToUpper(kv[:i])]; ok {
 			out = append(out, kv)
 		}
+	}
+	if !withSecrets || m == nil {
+		return out
 	}
 	for _, name := range m.Permissions.Secrets {
 		if !validEnvName(name) {

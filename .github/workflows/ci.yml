@@ -43,6 +43,10 @@ jobs:
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
           "$RUNNER_TEMP/bin/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
+      - name: install sandbox backend (bubblewrap)
+        run: |
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
       - name: go test
         run: go test ./... -count=1 -run Test -v -race
       - name: conformance tests
