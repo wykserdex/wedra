@@ -1,6 +1,6 @@
 # Changelog — WEDRA
 
-## Unreleased (post-0.32)
+## 0.32a — post-0.32 hardening: plugin trust & OS sandbox
 
 - OS-изоляция внешнего кода: `bwrap` (Linux) и `sandbox-exec` (macOS);
   на Windows — fail-closed отказ. Нет пути, где untrusted-код выполнился бы
@@ -17,7 +17,12 @@
 - Сеть изолируется, если плагин не объявил `permissions.network`.
 - CI: actionlint-gate; `actions/checkout` 7.0.1, `actions/setup-go` 7.0.0,
   `softprops/action-gh-release` 3.0.3 (все на node24); в Linux-джоб добавлен
-  bubblewrap, чтобы изоляция реально проверялась тестами.
+  bubblewrap, чтобы изоляция реально проверялась тестами; Windows-тесты
+  ограничены `-timeout 8m`, чтобы зависание давало стектрейс, а не тишину.
+- Схема версий: после `X.Y` инкременты идут буквенными суффиксами
+  (`0.32a`, `0.32b`, …), каждый со своим тегом `vX.YZ` — см. docs/versioning.md.
+- Registry-пины (`v0.32` / `442c4b0…`) не менялись: код плагинов в этом
+  инкременте не менялся, пин остаётся на последнем коммите с их содержимым.
 
 ## 0.32 — audit-complete release
 
