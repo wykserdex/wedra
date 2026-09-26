@@ -23,30 +23,40 @@ func declaresNetwork(m *pipeline.Manifest) bool { return m != nil && len(m.Permi
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux,
 // sandbox-exec на macOS); платформы без изолятора возвращают ErrSandboxUnsupported,
 // и процесс не создаётся вовсе.
-//
-// Возвращает cleanup, который удаляет приватный scratch-каталог: он живёт ровно
-// столько, сколько идёт процесс плагина, и на хосте после запуска не остаётся.
-func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest) (*exec.Cmd, func(), error) {
-	noop := func() {}
+func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, scratch string) (*exec.Cmd, error) {
 	if len(argv) == 0 {
-		return nil, noop, errors.New("пустая команда плагина")
+		return nil, errors.New("пустая команда плагина")
 	}
-	// Собственный каталог вместо общего os.TempDir(): он приватен этому запуску и
-	// гарантированно существует до монтирования. Точка монтирования, которой нет
-	// на хосте, не годится: после --ro-bind / / создать её уже нельзя, и bwrap
-	// падает с "Read-only file system".
-	scratch, err := os.MkdirTemp("", "wedra-sbx-")
-	if err != nil {
-		return nil, noop, fmt.Errorf("scratch для песочницы: %w", err)
-	}
-	cleanup := func() { _ = os.RemoveAll(scratch) }
-
 	launcher, args, err := sandboxArgs(m, argv, scratch)
 	if err != nil {
-		cleanup()
-		return nil, noop, err
+		return nil, err
 	}
-	return exec.CommandContext(ctx, launcher, args...), cleanup, nil
+	return exec.CommandContext(ctx, launcher, args...), nil
+}
+
+// newSandboxScratch — приватный записываемый каталог на один запуск плагина.
+// Вызывающий обязан вызвать cleanup после завершения процесса.
+//
+// Собственный каталог вместо общего os.TempDir(): он приватен этому запуску и
+// гарантированно существует до монтирования. Точка монтирования, которой нет на
+// хосте, не годится: после --ro-bind / / создать её уже нельзя, и bwrap падает с
+// "Read-only file system".
+func newSandboxScratch() (string, func(), error) {
+	noop := func() {}
+	dir, err := os.MkdirTemp("", "wedra-sbx-")
+	if err != nil {
+		return "", noop, fmt.Errorf("scratch для песочницы: %w", err)
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+// sandboxScratchEnv — HOME/TMPDIR, которые получают оба бэкенда. На Linux bwrap
+// пробрасывает окружение, на macOS профиль открывает запись только для scratch, —
+// без этих переменных плагин на macOS писал бы в read-only каталог хоста.
+// Путь резолвится, чтобы совпадать с тем, что попало в правила песочницы.
+func sandboxScratchEnv(scratch string) []string {
+	dir := resolveSandboxPath(scratch)
+	return []string{"HOME=" + dir, "TMPDIR=" + dir, "TEMP=" + dir, "TMP=" + dir}
 }
 
 // sandboxBackendName — человекочитаемое имя изолятора (для логов и ошибок).

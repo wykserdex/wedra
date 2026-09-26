@@ -182,17 +182,25 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	}
 
 	// Внешний код запускается только внутри изолятора; если изолятор на хосте
-	// недоступен — отказ до создания процесса (fail-closed).
+	// недоступна — отказ до создания процесса (fail-closed).
 	var cmd *exec.Cmd
+	scratch := ""
 	if m.Untrusted() {
-		wrapped, cleanup, err := sandboxCommand(ctx, argv, m)
+		var cleanup func()
+		var err error
+		scratch, cleanup, err = newSandboxScratch()
+		if err == nil {
+			cmd, err = sandboxCommand(ctx, argv, m, scratch)
+		}
 		if err != nil {
+			if cleanup != nil {
+				cleanup()
+			}
 			res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", err.Error()
 			res.ExitCode = 2
 			return res
 		}
 		defer cleanup()
-		cmd = wrapped
 	} else {
 		cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)
 	}
@@ -203,7 +211,8 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	if m.Untrusted() {
 		// В песочнице плагину не нужны профиль пользователя и его каталоги:
 		// HOME/USERPROFILE/APPDATA вырезаются, секреты не передаются вовсе.
-		baseEnv = untrustedBaseEnv()
+		// HOME/TMPDIR указывают на приватный scratch этого запуска.
+		baseEnv = append(untrustedBaseEnv(), sandboxScratchEnv(scratch)...)
 	}
 	if m.Runtime.Type == "python" {
 		baseEnv = append(baseEnv, "PYTHONUTF8=1")
