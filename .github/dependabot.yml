@@ -1,0 +1,16 @@
+# Dependabot открывает PR на обновление GitHub Actions.
+#
+# Важно: PR этого бота НЕльзя мержить кнопкой "Merge pull request" на GitHub —
+# тогда squash-коммит авторствуется dependabot[bot], и бот появляется в списке
+# Contributors репозитория. Мержите локально:
+#   git fetch origin pull/<N>/head:pr<N>
+#   git checkout main && git merge --squash pr<N>
+#   git commit -m "chore(deps): ..." && git push origin main
+# Так коммит остаётся за владельцем репозитория, а обновления продолжают приходить.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
