@@ -92,7 +92,7 @@ func printHelp() {
 	fmt.Printf(`WEDRA — контрактный исполнитель цепочек с человеком в петле (v%s)
 
 Команды (мясо, не косметика):
-  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve]
+  wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>] [--runs-dir=var/runs] [--store=fs|json] [--no-auto-approve] [--deny-untrusted-plugins]
   wedra pipeline install <name|file.yaml|url> [--registry=<url|path>]  # пресет + автоустановка плагинов
   wedra pipeline validate <file.yaml> [--json]      # --json: {ok, issues[]} с кодами (ERRORS.md)
   wedra pipeline plan <file.yaml>
@@ -109,7 +109,7 @@ func printHelp() {
                                                  # v0.17: trust-гейт реестра (манифест, id, конформность)
   wedra runs list [var/runs]               # список прогонов (fs + json)
   wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
-  wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve]
+  wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve] [--deny-untrusted-plugins]
   wedra gui [--port 8765] [--open] [--no-session] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]  # консоль; мутации — по ссылке ?k= из терминала
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY

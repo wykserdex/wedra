@@ -28,6 +28,7 @@ func RunPipelineRun(args []string) {
 	store := "fs"
 	dbPath := ""
 	noAuto := false
+	denyUntrusted := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -35,6 +36,8 @@ func RunPipelineRun(args []string) {
 			yes = true
 		case a == "--no-auto-approve":
 			noAuto = true
+		case a == "--deny-untrusted-plugins":
+			denyUntrusted = true
 		case strings.HasPrefix(a, "--runs-dir="):
 			runsDir = strings.TrimPrefix(a, "--runs-dir=")
 		case a == "--runs-dir":
@@ -121,7 +124,7 @@ func RunPipelineRun(args []string) {
 		<-sig
 		os.Exit(130)
 	}()
-	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath, Ctx: runCtx, NoAutoApprove: noAuto})
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath, Ctx: runCtx, NoAutoApprove: noAuto, DenyUntrusted: denyUntrusted})
 	if err != nil {
 		if errors.Is(err, execution.ErrCancelled) {
 			fmt.Println("ран отменён; продолжить: wedra runs resume", runIDFromDir(stats.RunDir))
