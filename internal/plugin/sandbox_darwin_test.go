@@ -27,6 +27,9 @@ func TestDarwinProfileResolvesSymlinks(t *testing.T) {
 }
 
 func TestDarwinSandboxArgs(t *testing.T) {
+	if _, ok := sandboxLauncher(); !ok {
+		t.Skip("sandbox-exec не найден в PATH")
+	}
 	dir := t.TempDir()
 	m := &pipeline.Manifest{
 		ID:      "x",
