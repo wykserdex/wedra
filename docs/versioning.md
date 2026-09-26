@@ -4,7 +4,7 @@
 
 | Ось | Источник | Текущее значение | Правило |
 |---|---|---|---|
-| Product / application | `VERSION` | `0.32a` | буквенные инкременты внутри `X.Y`: `0.32a`, `0.32b`, … ; тег `v0.32a` |
+| Product / application | `VERSION` | `0.32b` | буквенные инкременты внутри `X.Y`: `0.32a`, `0.32b`, … ; тег `v0.32a` |
 | Pipeline и plugin protocol | `protocol/VERSION` | `0.2` | меняется только при изменении контракта |
 | Registry schema | `registry.yaml` | `0.1` | формат записи реестра |
 | Plugin component | `plugin.yaml:version` | semver плагина | версия конкретного компонента |
