@@ -3,9 +3,7 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
 	"runtime"
 
 	"wedra/internal/pipeline"
@@ -17,6 +15,10 @@ import (
 
 func sandboxBackend() (string, bool) { return "", false }
 
-func platformSandbox(ctx context.Context, argv []string, m *pipeline.Manifest) (*exec.Cmd, error) {
-	return nil, fmt.Errorf("%w: для %s нет поддерживаемого изолятора (нужен bwrap на Linux или sandbox-exec на macOS)", ErrSandboxUnsupported, runtime.GOOS)
+func sandboxLauncher() (string, bool) { return "", false }
+
+func sandboxUsable() bool { return false }
+
+func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) {
+	return "", nil, fmt.Errorf("%w: для %s нет поддерживаемого изолятора (нужен bwrap на Linux или sandbox-exec на macOS)", ErrSandboxUnsupported, runtime.GOOS)
 }

@@ -44,9 +44,12 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 | macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
 | Windows | none | fail-closed: untrusted plugins cannot run |
 
-If the backend is missing, the run stops with `platform:sandbox_unavailable`
-before any process is created. There is no path that executes untrusted code
-outside a sandbox.
+If the backend is missing, or the host forbids creating one, the run stops
+with `platform:sandbox_unavailable` before any process is created. The
+availability probe runs once per process: `bwrap` is verified by actually
+building a namespace, `sandbox-exec` by actually writing a probe file under the
+real profile. A backend that is installed but cannot isolate anything is treated
+as absent. There is no path that executes untrusted code outside a sandbox.
 
 What the backends do **not** provide: read isolation (a plugin can read any
 file the user can read, subject to the host mount set), egress filtering when a
