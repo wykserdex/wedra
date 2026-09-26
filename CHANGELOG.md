@@ -5,6 +5,9 @@
 - OS-изоляция внешнего кода: `bwrap` (Linux) и `sandbox-exec` (macOS);
   на Windows — fail-closed отказ. Нет пути, где untrusted-код выполнился бы
   без песочницы.
+- Capability-проба хоста (кеш на процесс): `bwrap` реально собирает namespace,
+  `sandbox-exec` реально пишет probe-файл под рабочим профилем. Установленный,
+  но неспособный изолировать backend считается отсутствующим.
 - Контракт доверия: поле манифеста `sandbox: trusted|untrusted`; запуск
   untrusted требует явного `--allow-untrusted-plugins`.
 - Env-allowlist для изолированных плагинов: без профиля пользователя
