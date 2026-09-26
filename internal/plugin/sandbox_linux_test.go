@@ -35,7 +35,6 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		"--ro-bind / /",
 		"--proc /proc",
 		"--bind " + resolveSandboxPath(scratch) + " " + resolveSandboxPath(scratch),
-		"--setenv HOME " + resolveSandboxPath(scratch),
 		"--unshare-net",
 		"-- /usr/bin/python3 /p/plugin.py",
 	} {
@@ -51,6 +50,14 @@ func TestLinuxSandboxArgs(t *testing.T) {
 	}
 	if _, err := os.Stat(resolveSandboxPath(scratch)); err != nil {
 		t.Fatalf("scratch-каталог должен существовать до монтирования: %v", err)
+	}
+	// HOME/TMPDIR идут через окружение процесса, а не через --setenv: один
+	// источник правды для обоих бэкендов.
+	if strings.Contains(joined, "--setenv") {
+		t.Errorf("HOME/TMPDIR должны приходить из cmd.Env, а не из --setenv: %s", joined)
+	}
+	if env := sandboxScratchEnv(scratch); !strings.Contains(strings.Join(env, ","), "TMPDIR="+scratch) {
+		t.Errorf("scratch-окружение не содержит TMPDIR: %v", env)
 	}
 	// Каталог плагина не должен пробрасываться на запись.
 	if strings.Contains(joined, "--bind "+resolveSandboxPath(dir)) {

@@ -83,12 +83,10 @@ func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string, scratch string) [
 		"--ro-bind", "/", "/",
 		"--proc", "/proc",
 		"--dev", "/dev",
-		// Единственная точка записи: приватный каталог этого запуска. Каталог
-		// плагина остаётся read-only, /tmp хоста — тоже, поэтому подложить
-		// файл в чужой временный каталог нельзя.
+		// Единственная точка записи: приватный каталог этого запуска (HOME/TMPDIR
+		// пробрасываются через cmd.Env). Каталог плагина остаётся read-only, /tmp
+		// хоста — тоже, поэтому подложить файл в чужой временный каталог нельзя.
 		"--bind", scratch, scratch,
-		"--setenv", "HOME", scratch,
-		"--setenv", "TMPDIR", scratch,
 		"--chdir", resolveSandboxPath(m.Dir),
 	}
 	if !declaresNetwork(m) {
