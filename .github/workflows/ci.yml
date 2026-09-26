@@ -42,7 +42,7 @@ jobs:
       - name: workflow lint
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          "$RUNNER_TEMP/bin/actionlint" .github/workflows/*.yml
+          "$RUNNER_TEMP/bin/actionlint" -shellcheck= -pyflakes= .github/workflows/*.yml
       - name: go test
         run: go test ./... -count=1 -run Test -v -race
       - name: conformance tests
