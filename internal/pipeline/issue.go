@@ -127,7 +127,13 @@ const (
 	// за каталог), а плагин объявил filesystem не readwrite и, скорее всего,
 	// отклонит его на запуске. Предупреждение: ошибкой это становится только в
 	// рантайме, но валидатор знает и значение, и манифест плагина.
-	W_FILESYSTEM_HOST_PATH  = "W_FILESYSTEM_HOST_PATH"
+	W_FILESYSTEM_HOST_PATH = "W_FILESYSTEM_HOST_PATH"
+	// E_BIND_SOURCE_INVALID — bind объявлен, но его значение не является
+	// ссылкой на контекст (input.*/steps.*). Раньше такой источник молча не
+	// резолвился: для optional-порта движок его пропускал, плагин брал значение
+	// по умолчанию, валидация проходила, ран завершался "done" — то есть пайплайн
+	// тихо делал не то, что задано в YAML.
+	E_BIND_SOURCE_INVALID   = "E_BIND_SOURCE_INVALID"
 	W_PORT_OPTIONAL_UNBOUND = "W_PORT_OPTIONAL_UNBOUND"
 	W_PORT_OPTIONAL_SOURCE  = "W_PORT_OPTIONAL_SOURCE"
 	W_SECRETS_UNUSED        = "W_SECRETS_UNUSED"

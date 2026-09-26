@@ -77,6 +77,16 @@ func buildInput(m *Manifest, st *Step, ctx *Ctx) (map[string]interface{}, error)
 		from := PortSource(name, port, st)
 		v, ok := ctx.Get(from)
 		if !ok {
+			// Optional без объявленного bind — законно: порт не передан, плагин
+			// берёт значение по умолчанию. Но если bind объявлен и не резолвится,
+			// это ошибка пайплайна: раньше такой optional-порт молча пропускался,
+			// и ран завершался "done", хотя YAML задавал другое значение.
+			if st != nil {
+				if _, declared := st.Bind[name]; declared {
+					return nil, &errorString{msg: "вход " + name + ": bind " + from +
+						" не найден в контексте (проверьте ссылку input.*/steps.*)"}
+				}
+			}
 			if port.Optional {
 				continue
 			}
