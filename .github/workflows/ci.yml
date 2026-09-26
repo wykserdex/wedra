@@ -245,7 +245,9 @@ jobs:
         with:
           go-version: '1.26.x'
       - run: go vet ./...
-      - run: go test ./... -count=1
+      # -timeout: на Windows периодически зависает тест; вместо молчаливого
+      # ожидания job-таймаута получаем стектрейс зависшего теста за 8 минут.
+      - run: go test ./... -count=1 -timeout 8m
       - run: go build ./cmd/wedra
       - run: go build ./cmd/wedragui
 
