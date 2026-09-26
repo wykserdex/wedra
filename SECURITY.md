@@ -40,7 +40,7 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 
 | Platform | Backend | Notes |
 | --- | --- | --- |
-| Linux | `bwrap` (bubblewrap) | read-only host filesystem, separate PID/IPC/UTS, fresh `/tmp`, network namespace dropped unless `permissions.network` is declared |
+| Linux | `bwrap` (bubblewrap) | read-only host filesystem, separate PID/IPC/UTS, private tmpfs scratch at `/wedra-sandbox` (`HOME`/`TMPDIR` point there), network namespace dropped unless `permissions.network` is declared |
 | macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
 | Windows | none | fail-closed: untrusted plugins cannot run |
 
