@@ -762,11 +762,43 @@ func (s *Server) toolDescribePlugin(args map[string]interface{}) (string, bool, 
 	}), false, nil
 }
 
+// policyIssueCodes — отказы политики MCP, которые для validate_pipeline являются
+// нормальным результатом проверки, а не поломкой вызова. Раньше они приходили
+// JSON-RPC ошибкой, хотя контракт инструмента прямо обещает «ok:false —
+// нормальный результат», и агент получал исключение вместо разбора issues[].
+var policyIssueCodes = map[string]string{
+	"E_NETWORK_DENIED":        "network_denied",
+	"E_PLUGIN_OUTSIDE_ROOT":   "plugin_outside_root",
+	"E_UNSUPPORTED_PROTOCOL":  "unsupported_protocol",
+	"E_FILE_REF_OUTSIDE_ROOT": "file_ref_outside_root",
+}
+
+// policyIssue — превратить отказ политики в Issue. Исходный код политики
+// сохраняется в начале сообщения, чтобы вызывающий мог отличить отказ от обычной
+// ошибки разбора, а короткий код попадает в issues[].code.
+func policyIssue(err error) (pipeline.Issue, bool) {
+	msg := err.Error()
+	for prefix, code := range policyIssueCodes {
+		if strings.HasPrefix(msg, prefix) {
+			return pipeline.Issue{
+				Severity: pipeline.SeverityError,
+				Code:     code,
+				Message:  prefix + ": " + strings.TrimSpace(strings.TrimPrefix(msg, prefix+":")),
+			}, true
+		}
+	}
+	return pipeline.Issue{}, false
+}
+
 func (s *Server) toolValidate(args map[string]interface{}) (string, bool, *RPCError) {
 	_, issues, err := s.validateArgs(args)
 	if err != nil {
-		if strings.HasPrefix(err.Error(), "E_PLUGIN_OUTSIDE_ROOT") {
-			return "", false, rpcErr("E_PLUGIN_OUTSIDE_ROOT", err.Error())
+		// Отказ политики — результат проверки: ok:false плюс issue с кодом.
+		if issue, ok := policyIssue(err); ok {
+			return toJSON(map[string]interface{}{
+				"ok":     false,
+				"issues": append(issues, issue),
+			}), false, nil
 		}
 		return "", false, rpcErr("", err.Error())
 	}
