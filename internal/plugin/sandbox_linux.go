@@ -58,7 +58,7 @@ func sandboxUsable() bool {
 	return linuxProbeOK
 }
 
-func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) {
+func sandboxArgs(m *pipeline.Manifest, argv []string, scratch string) (string, []string, error) {
 	launcher, ok := sandboxLauncher()
 	if !ok {
 		return "", nil, fmt.Errorf("%w: bwrap (bubblewrap) не найден в PATH — установите пакет bubblewrap", ErrSandboxUnsupported)
@@ -66,20 +66,14 @@ func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) 
 	if !sandboxUsable() {
 		return "", nil, fmt.Errorf("%w: bwrap есть, но хост не разрешает user namespaces (--unshare-all) — песочницу собрать нельзя", ErrSandboxUnsupported)
 	}
-	return launcher, sandboxArgsUnchecked(m, argv), nil
+	return launcher, sandboxArgsUnchecked(m, argv, scratch), nil
 }
-
-// sandboxScratchPath — точка монтирования приватного scratch-пространства
-// внутри песочницы. Отдельный путь (а не /tmp) принципиален: перекрытие /tmp
-// скрывало бы каталог плагина, когда плагин установлен во временный каталог
-// (t.TempDir(), распакованный архив) — процесс стартовал бы с невидимым entry.
-// Точка не перекрывает ничего на хосте, поэтому пути плагина остаются видимыми.
-const sandboxScratchPath = "/wedra-sandbox"
 
 // sandboxArgsUnchecked — чистая сборка аргументов bwrap без проверки capability
 // хоста. Вынесена отдельно, чтобы форма команды тестировалась даже там, где
 // раннер запрещает user namespaces и sandboxArgs вернёт отказ.
-func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string) []string {
+func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string, scratch string) []string {
+	scratch = resolveSandboxPath(scratch)
 	args := []string{
 		"--die-with-parent",
 		"--unshare-pid",
@@ -89,11 +83,12 @@ func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string) []string {
 		"--ro-bind", "/", "/",
 		"--proc", "/proc",
 		"--dev", "/dev",
-		// Приватный анонимный scratch: запись есть, после выхода процесса
-		// содержимое исчезает, на хосте ничего не остаётся.
-		"--tmpfs", sandboxScratchPath,
-		"--setenv", "HOME", sandboxScratchPath,
-		"--setenv", "TMPDIR", sandboxScratchPath,
+		// Единственная точка записи: приватный каталог этого запуска. Каталог
+		// плагина остаётся read-only, /tmp хоста — тоже, поэтому подложить
+		// файл в чужой временный каталог нельзя.
+		"--bind", scratch, scratch,
+		"--setenv", "HOME", scratch,
+		"--setenv", "TMPDIR", scratch,
 		"--chdir", resolveSandboxPath(m.Dir),
 	}
 	if !declaresNetwork(m) {
