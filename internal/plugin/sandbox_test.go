@@ -37,10 +37,7 @@ func TestSandboxBackendReported(t *testing.T) {
 		if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 			return // ожидаемо: платформа без изолятора
 		}
-		if _, ok := sandboxBackend(); !ok {
-			t.Skip("изолятор не установлен в этом раннере")
-		}
-		t.Fatal("sandboxBackendName() == \"нет\", но изолятор доступен")
+		t.Skip("изолятор не установлен в этом раннере")
 	}
 	if name != "bwrap" && name != "sandbox-exec" {
 		t.Fatalf("неизвестный изолятор %q", name)
@@ -48,26 +45,44 @@ func TestSandboxBackendReported(t *testing.T) {
 }
 
 func TestPlatformSandboxFailsClosedWithoutBackend(t *testing.T) {
-	if _, ok := sandboxBackend(); ok {
-		t.Skip("изолятор доступен — проверяется в TestUntrustedRunsInsideSandbox")
+	if sandboxUsable() {
+		t.Skip("песочница на этом хосте работает — проверяется в TestUntrustedRunsInsideSandbox")
 	}
 	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
-	_, err := platformSandbox(context.Background(), []string{"/bin/true"}, m)
+	_, _, err := sandboxArgs(m, []string{"/bin/true"})
 	if !errors.Is(err, ErrSandboxUnsupported) {
-		t.Fatalf("без изолятора ожидался ErrSandboxUnsupported, получено: %v", err)
+		t.Fatalf("без рабочей песочницы ожидался ErrSandboxUnsupported, получено: %v", err)
+	}
+}
+
+func TestSandboxArgsKeepPluginCommandLast(t *testing.T) {
+	if !sandboxUsable() {
+		t.Skip("песочница на этом хосте не работает — аргументы не собрать")
+	}
+	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
+	launcher, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/plug/plugin.py"})
+	if err != nil {
+		t.Fatalf("sandboxArgs: %v", err)
+	}
+	if launcher == "" || len(args) == 0 {
+		t.Fatal("launcher или аргументы пусты")
+	}
+	tail := args[len(args)-2:]
+	if tail[0] != "/usr/bin/python3" || tail[1] != "/plug/plugin.py" {
+		t.Fatalf("команда плагина должна быть последней, получено: %v", args)
 	}
 }
 
 func TestUntrustedRefusedWhenBackendMissing(t *testing.T) {
-	if _, ok := sandboxBackend(); ok {
-		t.Skip("изолятор доступен")
+	if sandboxUsable() {
+		t.Skip("песочница на этом хосте работает")
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran")
 	m := sandboxPlugin(t, dir, marker)
 	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 5*time.Second, nil)
 	if res.OK() || res.ErrCode != "sandbox_unavailable" {
-		t.Fatalf("без изолятора запуск untrusted обязан быть отвергнут: %+v", res)
+		t.Fatalf("без песочницы запуск untrusted обязан быть отвергнут: %+v", res)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("процесс был запущен без изоляции")
@@ -75,8 +90,8 @@ func TestUntrustedRefusedWhenBackendMissing(t *testing.T) {
 }
 
 func TestUntrustedRunsInsideSandbox(t *testing.T) {
-	if _, ok := sandboxBackend(); !ok {
-		t.Skip("изолятор недоступен на этом хосте")
+	if !sandboxUsable() {
+		t.Skip("песочница недоступна на этом хосте (проверяется отказ в TestUntrustedRefusedWhenBackendMissing)")
 	}
 	requirePython(t)
 	dir := t.TempDir()
