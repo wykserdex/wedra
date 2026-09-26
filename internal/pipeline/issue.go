@@ -123,10 +123,15 @@ const (
 	W_GATE_FORM_MISSING      = "W_GATE_FORM_MISSING"
 	W_GATE_FORM_SKIP         = "W_GATE_FORM_SKIP"
 	W_NETWORK_DECLARED       = "W_NETWORK_DECLARED"
-	W_PORT_OPTIONAL_UNBOUND  = "W_PORT_OPTIONAL_UNBOUND"
-	W_PORT_OPTIONAL_SOURCE   = "W_PORT_OPTIONAL_SOURCE"
-	W_SECRETS_UNUSED         = "W_SECRETS_UNUSED"
-	W_SECRETS_UNDECLARED     = "W_SECRETS_UNDECLARED"
-	W_PARALLEL_SINGLE        = "W_PARALLEL_SINGLE"
-	W_FILE_REF_ROOT          = "W_FILE_REF_ROOT"
+	// W_FILESYSTEM_HOST_PATH — в bind передан путь хоста (абсолютный или с выходом
+	// за каталог), а плагин объявил filesystem не readwrite и, скорее всего,
+	// отклонит его на запуске. Предупреждение: ошибкой это становится только в
+	// рантайме, но валидатор знает и значение, и манифест плагина.
+	W_FILESYSTEM_HOST_PATH  = "W_FILESYSTEM_HOST_PATH"
+	W_PORT_OPTIONAL_UNBOUND = "W_PORT_OPTIONAL_UNBOUND"
+	W_PORT_OPTIONAL_SOURCE  = "W_PORT_OPTIONAL_SOURCE"
+	W_SECRETS_UNUSED        = "W_SECRETS_UNUSED"
+	W_SECRETS_UNDECLARED    = "W_SECRETS_UNDECLARED"
+	W_PARALLEL_SINGLE       = "W_PARALLEL_SINGLE"
+	W_FILE_REF_ROOT         = "W_FILE_REF_ROOT"
 )

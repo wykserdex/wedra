@@ -284,6 +284,11 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				v.err(E_BIND_UNKNOWN_PORT, st.ID, b, "pipeline.steps."+st.ID+".bind."+b, fmt.Sprintf("порты плагина: %s", strings.Join(ports, ", ")), &Fix{Op: "bind", Target: "steps." + st.ID + "." + b, Candidates: ports}, "шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input))
 			}
 		}
+		// Путь-литерал в bind при плагине без filesystem: readwrite почти всегда
+		// означает отказ на запуске (path_escape), хотя валидатор знает и
+		// значение, и манифест. Предупреждение, не ошибка: плагину с readwrite
+		// абсолютный путь принимать можно.
+		warnHostPathInBind(&v, pf, st, m)
 		if len(m.Permissions.Network) > 0 {
 			hosts := NetworkHosts(m)
 			if p.Network == "deny" {
@@ -387,6 +392,80 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		v.warn(W_SECRETS_UNDECLARED, "", "", "pipeline.secrets", "объявите ключ в pipeline.secrets", &Fix{Op: "declare", Target: "pipeline.secrets", Candidates: undeclared}, "secrets: плагину нужен ключ %s — объявите в pipeline secrets (иначе может не быть в env при запуске)", s)
 	}
 	return v.issues
+}
+
+// staticInputKey — имя ключа pipeline.input по выражению вида input.foo[.bar].
+// ok=false, если значение вычисляется в рантайме (шаги, when) и на момент
+// валидации неизвестно.
+func staticInputKey(srcPath string) (string, bool) {
+	if !strings.HasPrefix(srcPath, "input.") {
+		return "", false
+	}
+	key := strings.TrimPrefix(srcPath, "input.")
+	if idx := strings.Index(key, "."); idx >= 0 {
+		key = key[:idx]
+	}
+	if key == "" {
+		return "", false
+	}
+	return key, true
+}
+
+// looksLikeHostPath — значение похоже на путь хоста, а не на относительный путь
+// внутри рабочего каталога: абсолютный путь (в т.ч. UNC и Windows-диск) или
+// явный выход из каталога через "..".
+func looksLikeHostPath(s string) bool {
+	if s == "" || strings.ContainsAny(s, "*?\n") {
+		return false
+	}
+	normalized := strings.ReplaceAll(s, "\\", "/")
+	if strings.HasPrefix(normalized, "/") {
+		return true
+	}
+	if len(s) >= 2 && s[1] == ':' {
+		return true // C:\... / c:/...
+	}
+	for _, seg := range strings.Split(normalized, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// warnHostPathInBind — путь-литерал в bind при плагине без filesystem:
+// readwrite почти всегда означает отказ на запуске: плагин резолвит пути
+// относительно своего каталога/workspace, и абсолютный путь он не примет. Раньше
+// это выяснялось только в рантайме (path_escape), хотя валидатор знает и
+// значение, и манифест плагина. Это предупреждение, а не ошибка: плагин с
+// readwrite вправе принять абсолютный путь.
+func warnHostPathInBind(v *collector, pf *PipelineFile, st *Step, m *Manifest) {
+	if m.Permissions.Filesystem == "readwrite" {
+		return
+	}
+	for b := range st.Bind {
+		port, known := m.Input[b]
+		if !known {
+			continue
+		}
+		key, ok := staticInputKey(PortSource(b, port, st))
+		if !ok {
+			continue
+		}
+		rawVal, ok := pf.Pipeline.Input[key]
+		if !ok {
+			continue
+		}
+		s, ok := rawVal.(string)
+		if !ok || !looksLikeHostPath(s) {
+			continue
+		}
+		v.warn(W_FILESYSTEM_HOST_PATH, st.ID, b, "pipeline.input."+key,
+			"укажите путь относительно рабочего каталога", nil,
+			"шаг %s, порт %s: значение %q — абсолютный путь или выход за пределы каталога, "+
+				"а плагин %s объявил filesystem: %s и, скорее всего, отклонит его на запуске",
+			st.ID, b, s, m.ID, m.Permissions.Filesystem)
+	}
 }
 
 // LintIssues — ValidateIssues + проверка file_ref (файлы должны существовать).
