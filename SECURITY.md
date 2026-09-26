@@ -45,15 +45,30 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 | Windows | none | fail-closed: untrusted plugins cannot run |
 
 An AppContainer backend for Windows was investigated and is not enabled. The
-blocker is not the AppContainer API but host ACL state: an AppContainer token
-holds neither the user SID nor `Users`/`Everyone`, so the container cannot reach
-a plugin under the user profile without an explicit ACE, and reaching it means
-writing a DACL on the ancestor chain — including `%APPDATA%`. On a measured
-workstation that write (`SetNamedSecurityInfo` on `%USERPROFILE%\AppData`) blocks
-indefinitely, which is consistent with a third-party filesystem minifilter
-intercepting security-descriptor writes. Until that is understood, Windows
-stays fail-closed rather than shipping a backend that can wedge the host or
-leave a stale ACE behind after a crash.
+blocker is not the AppContainer API but host ACL state. An AppContainer token
+holds neither the user SID nor `Users`/`Everyone`, so the container can only
+traverse a directory chain that grants one of those, and any plugin that needs
+an explicit grant requires a DACL write on that chain. Measured on a Windows
+workstation, both candidate placements fail without elevation:
+
+- inside the user profile (the plugin directory, and `%LOCALAPPDATA%` for a
+  Python interpreter): the `SetNamedSecurityInfo` call on `%LOCALAPPDATA%`
+  blocks indefinitely, reproducibly, from Go, PowerShell and .NET alike. No
+  visible dialog is involved — the screen stays idle — which is consistent with
+  a filesystem minifilter serialising security-descriptor writes. Defender's
+  Controlled Folder Access is off, so it is not that specific feature.
+- outside the profile (`C:\ProgramData`, the only user-writable root):
+  a DACL-only write returns `ACCESS_DENIED` immediately for a non-elevated
+  process. `Users` may create subdirectories there but not modify its DACL.
+
+The remaining options are both rejected on purpose: requiring WEDRA to run
+elevated so a plugin runner can rewrite ACLs in the user's profile, or shipping
+a Windows backend that can wedge the host or leave a stale ACE behind after a
+crash. Windows therefore stays fail-closed, and an untrusted plugin cannot run
+there. This also rules out a "copy the plugin into a sandbox-owned directory"
+workaround, because a vault inside the profile is unreachable for the same
+reason and a vault outside it cannot be made reachable without the DACL write
+above.
 
 If the backend is missing, or the host forbids creating one, the run stops
 with `platform:sandbox_unavailable` before any process is created. The
