@@ -910,6 +910,14 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			st.errMsg = err.Error()
 			return
 		}
+		// Прерванные шаги — тоже провал. Раньше здесь ставился безусловный "done",
+		// и агент получал "done" для рана, где все шаги упали: err у такой рана nil.
+		// Семантика совпадает с CLI (runExitCode).
+		if !runSucceeded(stats.Aborted, stats.OK, pf.Pipeline.Foreach) {
+			st.status = "failed"
+			st.errMsg = fmt.Sprintf("ран неуспешен: прервано шагов %d, выполнено %d", stats.Aborted, stats.OK)
+			return
+		}
 		st.status = "done"
 	}()
 
@@ -929,6 +937,14 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		status = s.runStatus(runID)
 	}
 	return toJSON(map[string]interface{}{"run_id": runID, "status": status}), false, nil
+}
+
+// runSucceeded — единая семантика «ран успешен» для MCP. Совпадает с CLI
+// (runExitCode): прерванные шаги делают ран неуспешным, кроме foreach-пайплайнов,
+// где abort — штатный способ отфильтровать элементы. Ран, в котором не отработал
+// ни один шаг, "done" не бывает: агент обязан это увидеть в статусе.
+func runSucceeded(aborted, ok int, foreach string) bool {
+	return !(aborted > 0 && foreach == "")
 }
 
 func (s *Server) pruneRunsLocked() {
@@ -951,18 +967,27 @@ func (s *Server) runStatus(runID string) string {
 	s.mu.Lock()
 	st, ok := s.runs[runID]
 	s.mu.Unlock()
-	if !ok {
-		return "unknown"
+	if ok {
+		select {
+		case <-st.done:
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			return st.status
+		default:
+		}
 	}
-	select {
-	case <-st.done:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return st.status
-	default:
-	}
+	// Ран мог быть запущен другим процессом (или до перезапуска сервера), поэтому
+	// журнал — источник истины, а не память процесса. Раньше здесь был ранний
+	// return "unknown", из-за которого get_run отдавал "unknown" вместе с
+	// полным списком событий.
 	dir, err := journal.SafeRunDir(s.runsDir, runID)
 	if err != nil {
+		return "unknown"
+	}
+	// Журнала нет — такого рана не существует. Без этой проверки нечитаемый
+	// каталог выглядел бы как "running", и get_run на выдуманный run_id сообщал
+	// бы, что ран идёт.
+	if _, err := os.Stat(filepath.Join(dir, "journal.jsonl")); err != nil {
 		return "unknown"
 	}
 	// P2 F-03: статус определяется последними событиями журнала (run_end/
@@ -980,25 +1005,21 @@ func (s *Server) runStatus(runID string) string {
 		case "gate_decision":
 			pending = false
 		case "run_end":
-			s.mu.Lock()
-			st.status = "done"
-			s.mu.Unlock()
-			return "done"
-		case "run_cancelled":
-			s.mu.Lock()
-			st.status = "cancelled"
-			if msg, _ := e["error"].(string); msg != "" {
-				st.errMsg = msg
+			// abort в run_end означает провал: агент не должен увидеть "done"
+			// у рана, где прерваны шаги. Для foreach это штатная фильтрация, но
+			// из журнала её не видно — склоняемся к осторожности и не врём про успех.
+			status := "done"
+			if n, _ := e["aborted"].(float64); n > 0 {
+				status = "failed"
 			}
-			s.mu.Unlock()
+			s.recordRunStatus(runID, status, "")
+			return status
+		case "run_cancelled":
+			s.recordRunStatus(runID, "cancelled", "")
 			return "cancelled"
 		case "run_failed":
-			s.mu.Lock()
-			st.status = "failed"
-			if msg, _ := e["error"].(string); msg != "" {
-				st.errMsg = msg
-			}
-			s.mu.Unlock()
+			msg, _ := e["error"].(string)
+			s.recordRunStatus(runID, "failed", msg)
 			return "failed"
 		}
 	}
@@ -1006,6 +1027,23 @@ func (s *Server) runStatus(runID string) string {
 		return "waiting_human"
 	}
 	return "running"
+}
+
+// recordRunStatus — запомнить статус рана, полученный из журнала. Запись может
+// отсутствовать (ран запущен другим процессом), поэтому создаём её, иначе
+// обращение к st было бы разыменованием nil.
+func (s *Server) recordRunStatus(runID, status, errMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.runs[runID]
+	if !ok {
+		st = &runState{id: runID, done: make(chan struct{})}
+		s.runs[runID] = st
+	}
+	st.status = status
+	if errMsg != "" {
+		st.errMsg = errMsg
+	}
 }
 
 // runJournalLimits — потолок окна журнала для инструментов. tail=true —
