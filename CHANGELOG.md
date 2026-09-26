@@ -1,5 +1,14 @@
 # Changelog — WEDRA
 
+## Unreleased
+
+- Windows: сообщение об отказе untrusted-кода теперь прямо говорит, что
+  `--allow-untrusted-plugins` не обходит песочницу — изоляции на Windows нет,
+  и флаг согласия проблему не решает.
+- CI: bwrap-песочница теперь проверяется поведенчески в контейнере с
+  privileged user namespaces (на GitHub-раннерах userns запрещены, поэтому
+  штатный Linux-джоб покрывал только fail-closed ветку и форму аргументов).
+
 ## 0.32a — post-0.32 hardening: plugin trust & OS sandbox
 
 - OS-изоляция внешнего кода: `bwrap` (Linux) и `sandbox-exec` (macOS);
