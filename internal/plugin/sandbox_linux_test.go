@@ -29,14 +29,19 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		"--unshare-uts",
 		"--ro-bind / /",
 		"--proc /proc",
-		"--tmpfs /tmp",
-		"--setenv HOME /tmp",
+		"--tmpfs " + sandboxScratchPath,
+		"--setenv HOME " + sandboxScratchPath,
 		"--unshare-net",
 		"-- /usr/bin/python3 /p/plugin.py",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("в аргументах bwrap нет %q: %s", want, joined)
 		}
+	}
+	// Регрессия: перекрытие /tmp скрывало бы каталог плагина, установленного
+	// во временный каталог, и процесс не смог бы стартовать.
+	if strings.Contains(joined, "--tmpfs /tmp") {
+		t.Errorf("песочница не должна перекрывать /tmp: %s", joined)
 	}
 	// Каталог плагина не должен пробрасываться на запись.
 	if strings.Contains(joined, "--bind "+resolveSandboxPath(dir)) {

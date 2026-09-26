@@ -69,6 +69,13 @@ func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) 
 	return launcher, sandboxArgsUnchecked(m, argv), nil
 }
 
+// sandboxScratchPath — точка монтирования приватного scratch-пространства
+// внутри песочницы. Отдельный путь (а не /tmp) принципиален: перекрытие /tmp
+// скрывало бы каталог плагина, когда плагин установлен во временный каталог
+// (t.TempDir(), распакованный архив) — процесс стартовал бы с невидимым entry.
+// Точка не перекрывает ничего на хосте, поэтому пути плагина остаются видимыми.
+const sandboxScratchPath = "/wedra-sandbox"
+
 // sandboxArgsUnchecked — чистая сборка аргументов bwrap без проверки capability
 // хоста. Вынесена отдельно, чтобы форма команды тестировалась даже там, где
 // раннер запрещает user namespaces и sandboxArgs вернёт отказ.
@@ -82,9 +89,11 @@ func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string) []string {
 		"--ro-bind", "/", "/",
 		"--proc", "/proc",
 		"--dev", "/dev",
-		"--tmpfs", "/tmp",
-		"--setenv", "HOME", "/tmp",
-		"--setenv", "TMPDIR", "/tmp",
+		// Приватный анонимный scratch: запись есть, после выхода процесса
+		// содержимое исчезает, на хосте ничего не остаётся.
+		"--tmpfs", sandboxScratchPath,
+		"--setenv", "HOME", sandboxScratchPath,
+		"--setenv", "TMPDIR", sandboxScratchPath,
 		"--chdir", resolveSandboxPath(m.Dir),
 	}
 	if !declaresNetwork(m) {
