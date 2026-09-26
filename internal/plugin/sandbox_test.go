@@ -19,6 +19,11 @@ func sandboxPlugin(t *testing.T, dir, marker string) *pipeline.Manifest {
 	script := "import sys\n" +
 		"open(" + quotePy(marker) + ", 'w').write('ran')\n" +
 		"sys.stdout.write('{\"status\":\"ok\",\"output\":{}}')\n"
+	return writePlugin(t, dir, script)
+}
+
+func writePlugin(t *testing.T, dir, script string) *pipeline.Manifest {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "plugin.py"), []byte(script), 0o600); err != nil {
 		t.Fatalf("write plugin: %v", err)
 	}
@@ -95,14 +100,22 @@ func TestUntrustedRunsInsideSandbox(t *testing.T) {
 	}
 	requirePython(t)
 	dir := t.TempDir()
-	marker := filepath.Join(dir, "ran")
-	m := sandboxPlugin(t, dir, marker)
+	// Плагин пишет в свой scratch (TMPDIR, который выдаёт песочница) и читает файл
+	// обратно. Каталог плагина намеренно read-only, поэтому маркер туда не пишем.
+	script := "import os, sys\n" +
+		"scratch = os.environ.get('TMPDIR') or '/tmp'\n" +
+		"p = os.path.join(scratch, 'ran')\n" +
+		"open(p, 'w').write('ran')\n" +
+		"assert open(p).read() == 'ran', 'scratch не читается'\n" +
+		"sys.stdout.write('{\"status\":\"ok\",\"output\":{\"scratch_writable\": true}}')\n"
+	m := writePlugin(t, dir, script)
+
 	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 30*time.Second, nil)
 	if !res.OK() {
 		t.Fatalf("untrusted-плагин в песочнице должен работать: %+v (stderr: %s)", res, res.Stderr)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("плагин не отработал: %v", err)
+	if writable, _ := res.Output["scratch_writable"].(bool); !writable {
+		t.Fatalf("песочница должна давать записываемый scratch: %+v", res.Output)
 	}
 }
 

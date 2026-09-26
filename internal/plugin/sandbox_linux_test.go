@@ -3,9 +3,12 @@
 package plugin
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"wedra/internal/pipeline"
 )
@@ -52,6 +55,37 @@ func TestLinuxSandboxArgs(t *testing.T) {
 	// Каталог плагина не должен пробрасываться на запись.
 	if strings.Contains(joined, "--bind "+resolveSandboxPath(dir)) {
 		t.Errorf("каталог плагина не должен быть rw: %s", joined)
+	}
+}
+
+// TestLinuxSandboxBlocksPluginDirWrite — security-регрессия: каталог плагина
+// должен быть read-only, иначе внешний код может модифицировать себя и
+// закрепиться на диске между запусками.
+func TestLinuxSandboxBlocksPluginDirWrite(t *testing.T) {
+	if !sandboxUsable() {
+		t.Skip("песочница недоступна на этом хосте")
+	}
+	requirePython(t)
+	dir := t.TempDir()
+	script := "import os, sys\n" +
+		"here = os.path.dirname(os.path.abspath(__file__))\n" +
+		"try:\n" +
+		"    open(os.path.join(here, 'selfmod.py'), 'w').write('x')\n" +
+		"except OSError:\n" +
+		"    sys.stdout.write('{\"status\":\"ok\",\"output\":{\"plugin_dir_readonly\": true}}')\n" +
+		"else:\n" +
+		"    sys.exit(1)\n"
+	m := writePlugin(t, dir, script)
+
+	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 30*time.Second, nil)
+	if !res.OK() {
+		t.Fatalf("плагин не должен получать запись в свой каталог: %+v (stderr: %s)", res, res.Stderr)
+	}
+	if ro, _ := res.Output["plugin_dir_readonly"].(bool); !ro {
+		t.Fatal("песочница не заблокировала запись в каталог плагина")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "selfmod.py")); err == nil {
+		t.Fatal("плагин смог создать файл в своём каталоге на хосте")
 	}
 }
 
