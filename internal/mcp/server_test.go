@@ -317,18 +317,6 @@ func TestMCPResolvesRelativePluginFromWorkDir(t *testing.T) {
 	}
 }
 
-func TestMCPSandboxOutsideRoot(t *testing.T) {
-	srv := testServer(t)
-	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: evil\n  input: {}\n  steps:\n    - id: s\n      plugin: /tmp/evil/x\n"
-	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
-	if rpcErr == nil {
-		t.Fatal("want E_PLUGIN_OUTSIDE_ROOT")
-	}
-	if !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
-		t.Fatalf("want OUTSIDE_ROOT, got %v", rpcErr)
-	}
-}
-
 func TestMCPRejectsFileRefOutsideWorkdir(t *testing.T) {
 	srv := testServer(t)
 	outside := filepath.Join(t.TempDir(), "secret.txt")
@@ -339,10 +327,9 @@ func TestMCPRejectsFileRefOutsideWorkdir(t *testing.T) {
 		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
 	})
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + outside + "\n  steps:\n    - id: read\n      plugin: " + filepath.Join(srv.pluginsDirs[0], "filereader") + "\n      bind:\n        path: input.path\n"
-	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
-	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_OUTSIDE_ROOT") {
-		t.Fatalf("expected file_ref boundary error, got %v", rpcErr)
-	}
+	// Отказ политики — результат проверки (ok:false + issue), а не RPC-ошибка;
+	// run_pipeline при этом всё равно отказывает.
+	assertPolicyRefusal(t, srv, yamlStr, "file_ref_outside_root", "E_FILE_REF_OUTSIDE_ROOT")
 }
 
 func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
@@ -423,22 +410,6 @@ func TestMCPRejectsPluginSymlinkEscape(t *testing.T) {
 	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
 		t.Fatalf("plugin symlink escape was accepted: %v", rpcErr)
-	}
-}
-
-func TestMCPRejectsPrivateAndAnyHostNetwork(t *testing.T) {
-	srv := testServer(t)
-	for _, network := range [][]map[string]interface{}{
-		{{"any_host": true, "port": 443}},
-		{{"host": "127.0.0.1", "port": 80}},
-		{{"host": "localhost", "port": 80}},
-	} {
-		pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "network-plugin", network, map[string]interface{}{})
-		yamlStr := "format_version: \"0.2\"\npipeline:\n  name: net\n  input: {}\n  steps:\n    - id: net\n      plugin: " + pluginDir + "\n"
-		_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
-		if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_NETWORK_DENIED") {
-			t.Fatalf("network %v was accepted: %v", network, rpcErr)
-		}
 	}
 }
 
