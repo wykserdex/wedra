@@ -256,9 +256,24 @@ jobs:
         with:
           go-version: '1.26.x'
       - run: go vet ./...
-      # -timeout: на Windows периодически зависает тест; вместо молчаливого
-      # ожидания job-таймаута получаем стектрейс зависшего теста за 8 минут.
-      - run: go test ./... -count=1 -timeout 8m
+      # Известный флейк: go test иногда зависает ПОСЛЕ прохождения тестов — держится
+      # pipe, унаследованный осиротевшим потомком тестового процесса. -timeout не
+      # помогает (-alarm живёт в дочернем бинарнике, который уже вышел), поэтому
+      # пакеты гоняем по одному: при зависании в логе видно, на каком пакете
+      # остановились, а результаты предыдущих уже записаны.
+      - name: go test (per package)
+        shell: pwsh
+        run: |
+          $failed = @()
+          foreach ($pkg in (go list ./...)) {
+            Write-Host "=== $pkg ==="
+            go test $pkg -count=1 -timeout 5m
+            if ($LASTEXITCODE -ne 0) { $failed += $pkg }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "FAILED: $($failed -join ', ')"
+            exit 1
+          }
       - run: go build ./cmd/wedra
       - run: go build ./cmd/wedragui
 
