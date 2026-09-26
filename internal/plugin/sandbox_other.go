@@ -20,5 +20,10 @@ func sandboxLauncher() (string, bool) { return "", false }
 func sandboxUsable() bool { return false }
 
 func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) {
-	return "", nil, fmt.Errorf("%w: для %s нет поддерживаемого изолятора (нужен bwrap на Linux или sandbox-exec на macOS)", ErrSandboxUnsupported, runtime.GOOS)
+	// Сообщение намеренно говорит, что --allow-untrusted-plugins не поможет:
+	// оператор не должен искать решение в флагах, когда изолятора нет вовсе.
+	return "", nil, fmt.Errorf("%w: на %s изоляция внешнего кода не реализована "+
+		"(нужен bwrap на Linux или sandbox-exec на macOS); флаг --allow-untrusted-plugins "+
+		"не обходит песочницу, поэтому внешний код на этой платформе запустить нельзя",
+		ErrSandboxUnsupported, runtime.GOOS)
 }
