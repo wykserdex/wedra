@@ -141,9 +141,22 @@ type Manifest struct {
 	Input       map[string]Port `yaml:"input"`
 	Output      map[string]Port `yaml:"output"`
 	Permissions Permissions     `yaml:"permissions"`
+	// Sandbox — доверие к коду плагина: "" (по умолчанию) — доверенный
+	// локальный код с правами пользователя; "untrusted" — внешний код,
+	// который обязан исполняться только в изолированном окружении. Ядро
+	// fail-closed: без isolation backend запуск untrusted невозможен.
+	Sandbox string `yaml:"sandbox"`
 
 	Dir string `yaml:"-"`
 }
+
+// Untrusted — плагин объявил себя внешним кодом (sandbox: untrusted).
+func (m *Manifest) Untrusted() bool { return m != nil && m.Sandbox == SandboxUntrusted }
+
+const (
+	SandboxTrusted   = "trusted"
+	SandboxUntrusted = "untrusted"
+)
 
 const (
 	PlatformAPI       = "0.1"

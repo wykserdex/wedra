@@ -125,6 +125,7 @@ func RunRunsResume(args []string) {
 	pipelineFile := ""
 	yes := false
 	noAuto := false
+	denyUntrusted := false
 	runsDir := ""
 	store := ""
 	dbPath := ""
@@ -137,6 +138,8 @@ func RunRunsResume(args []string) {
 			yes = true
 		case a == "--no-auto-approve":
 			noAuto = true
+		case a == "--deny-untrusted-plugins":
+			denyUntrusted = true
 		case strings.HasPrefix(a, "--runs-dir="):
 			runsDir = strings.TrimPrefix(a, "--runs-dir=")
 		case a == "--runs-dir":
@@ -184,6 +187,9 @@ func RunRunsResume(args []string) {
 	}
 	if noAuto {
 		newArgs = append(newArgs, "--no-auto-approve")
+	}
+	if denyUntrusted {
+		newArgs = append(newArgs, "--deny-untrusted-plugins")
 	}
 	if runsDir != "" {
 		newArgs = append(newArgs, "--runs-dir="+runsDir)

@@ -142,6 +142,11 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		res.ExitCode = 2
 		return res
 	}
+	// Fail-closed: внешний код не запускается без изоляции (process.go —
+	// единственная точка создания plugin-процесса, включая MCP/transport).
+	if denied := enforceTrust(m, TrustPolicyFrom(parent)); denied != nil {
+		return denied
+	}
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()

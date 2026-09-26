@@ -40,6 +40,11 @@ type RunOptions struct {
 	MCPMode bool
 	// Agent-track cancellation context (Ctrl+C, API /cancel, MCP cancel_run).
 	Ctx stdctx.Context
+	// DenyUntrusted — политика доверия: запретить запуск внешнего кода
+	// (плагинов без явного доверия ядра). Fail-closed, включается флагом
+	// --deny-untrusted-plugins; изоляция в этой сборке не реализована, поэтому
+	// untrusted-плагины не запускаются в любом случае.
+	DenyUntrusted bool
 }
 
 // ErrCancelled — ран отменён через RunOptions.Ctx. errors.Is(err, ErrCancelled).
@@ -348,6 +353,9 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	if opts.Ctx == nil {
 		opts.Ctx = stdctx.Background()
 	}
+	// Политика доверия к коду плагинов задаётся ядром (--deny-untrusted-plugins)
+	// и наследуется всеми шагами через ctx; плагин не может её ослабить.
+	opts.Ctx = plugin.WithTrustPolicy(opts.Ctx, plugin.TrustPolicy{DenyUntrusted: opts.DenyUntrusted})
 	if pf.Pipeline.Network != "" && pf.Pipeline.Network != "allow" && pf.Pipeline.Network != "deny" {
 		return stats, runErr("network_policy", "pipeline network=%q: допускаются allow или deny", pf.Pipeline.Network)
 	}

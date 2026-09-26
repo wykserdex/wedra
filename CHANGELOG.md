@@ -1,5 +1,16 @@
 # Changelog — WEDRA
 
+## Unreleased (post-0.32)
+
+- Контракт доверия к коду плагина: поле манифеста `sandbox: trusted|untrusted`.
+- Fail-closed гейт: `sandbox: untrusted` не запускается без OS-изоляции
+  (backend'а в сборке нет) — `platform:sandbox_unavailable` до создания процесса.
+- `untrusted` + `permissions.secrets` отклоняется валидатором манифеста.
+- Политика ядра `--deny-untrusted-plugins` (`pipeline run`, `runs resume`):
+  запрещает запуск любого плагина в ранде; рекомендуется для CI.
+- CI: actionlint-gate на workflow-файлы; `softprops/action-gh-release` 3.0.3
+  (node24, вход `generate_release_notes` подтверждён).
+
 ## 0.32 — audit-complete release
 
 - Закрыты все actionable P0/P1/P2 findings аудита и P3 hardening-хвосты.
