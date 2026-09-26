@@ -9,6 +9,10 @@ import (
 	"wedra/internal/pipeline"
 )
 
+// Аргументы bwrap проверяются без запуска: на CI-раннерах user namespaces могут
+// быть запрещены, и behavioural-тест песочницы там пропускается — форма команды
+// всё равно обязана быть верной.
+
 func TestLinuxSandboxArgs(t *testing.T) {
 	dir := t.TempDir()
 	m := &pipeline.Manifest{
@@ -16,18 +20,19 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:     dir,
 	}
-	_, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/p/plugin.py"})
-	if err != nil {
-		t.Skipf("песочница недоступна: %v", err)
-	}
+	args := sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"})
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"--die-with-parent",
 		"--unshare-pid",
+		"--unshare-ipc",
+		"--unshare-uts",
 		"--ro-bind / /",
+		"--proc /proc",
 		"--tmpfs /tmp",
 		"--setenv HOME /tmp",
 		"--unshare-net",
+		"-- /usr/bin/python3 /p/plugin.py",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("в аргументах bwrap нет %q: %s", want, joined)
@@ -46,11 +51,8 @@ func TestLinuxSandboxKeepsNetworkWhenDeclared(t *testing.T) {
 		Dir:         t.TempDir(),
 		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{Host: "api.example.com", Port: 443}}},
 	}
-	_, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/p/plugin.py"})
-	if err != nil {
-		t.Skipf("песочница недоступна: %v", err)
-	}
-	if strings.Contains(strings.Join(args, " "), "--unshare-net") {
+	joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}), " ")
+	if strings.Contains(joined, "--unshare-net") {
 		t.Error("при объявленной permissions.network netns должен остаться общим")
 	}
 }

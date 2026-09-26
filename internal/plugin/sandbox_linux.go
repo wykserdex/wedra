@@ -66,7 +66,13 @@ func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) 
 	if !sandboxUsable() {
 		return "", nil, fmt.Errorf("%w: bwrap есть, но хост не разрешает user namespaces (--unshare-all) — песочницу собрать нельзя", ErrSandboxUnsupported)
 	}
+	return launcher, sandboxArgsUnchecked(m, argv), nil
+}
 
+// sandboxArgsUnchecked — чистая сборка аргументов bwrap без проверки capability
+// хоста. Вынесена отдельно, чтобы форма команды тестировалась даже там, где
+// раннер запрещает user namespaces и sandboxArgs вернёт отказ.
+func sandboxArgsUnchecked(m *pipeline.Manifest, argv []string) []string {
 	args := []string{
 		"--die-with-parent",
 		"--unshare-pid",
@@ -86,5 +92,5 @@ func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) 
 	}
 	args = append(args, "--")
 	args = append(args, argv...)
-	return launcher, args, nil
+	return args
 }
