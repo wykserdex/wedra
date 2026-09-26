@@ -2,18 +2,18 @@
 
 [English](README.en.md) | Русский
 
-# WEDRA v0.32
+# WEDRA v0.32a
 
 Локальный оркестратор цепочек с человеком в петле. WEDRA принимает YAML-пайплайны, запускает плагины отдельными процессами, проверяет их контракт, пишет журнал и позволяет безопасно продолжить прерванный run.
 
 Это инструмент для доверенного локального пользователя и заранее проверенных плагинов. Для недоверенных community-плагинов и публичного HTTP-сервиса WEDRA не является OS-песочницей.
 
-- Product version: [`VERSION`](VERSION) — `0.32`
+- Product version: [`VERSION`](VERSION) — `0.32a`
 - Protocol version: [`protocol/VERSION`](protocol/VERSION) — `0.2`
 - Primary CLI: `wedra`
 - Legacy compatibility CLI: `tool`
 
-Product version и protocol version независимы. Текущий релиз использует `v0.32`; правила — в [docs/versioning.md](docs/versioning.md).
+Product version и protocol version независимы. Текущий релиз использует `v0.32a`; правила — в [docs/versioning.md](docs/versioning.md).
 
 ## Возможности
 
@@ -164,6 +164,19 @@ MCP ограничивает plugin refs и `file_ref` рабочей дирек
 
 - WEDRA запускает subprocess с правами текущего пользователя.
 - `permissions`, CSP и проверки путей не являются sandbox.
+- Плагин может объявить `sandbox: untrusted` в `plugin.yaml`. Такой плагин
+  запускается только в OS-песочнице и только с явным согласием оператора:
+  - `--allow-untrusted-plugins` — разрешить запуск внешнего кода (он уходит
+    в изолятор; без изолятора на хосте запуск падает, а не выполняется без неё);
+  - `--deny-untrusted-plugins` — запретить запуск любого плагина в ранде
+    (рекомендуется для CI).
+- Backend изоляции: `bwrap` на Linux, `sandbox-exec` на macOS. На Windows
+  изоляции нет и внешний код fail-closed не запускается. Если backend
+  установлен, но хост не даёт ему изолировать (запрещены user namespaces),
+  WEDRA считает его отсутствующим.
+- Песочница ограничивает запись, но не чтение файлов пользователя, и не
+  фильтрует исходящие соединения плагина, объявившего `permissions.network`.
+  Это не полная граница для враждебного кода.
 - Не запускайте недоверенные community plugins или принимайте untrusted MCP без отдельной OS-изоляции.
 - Не передавайте секреты через URL, pipeline input или registry metadata.
 - Сообщения о безопасности: [SECURITY.md](SECURITY.md).
@@ -178,7 +191,7 @@ MCP ограничивает plugin refs и `file_ref` рабочей дирек
 - conformance package, `SHA256SUMS` и SBOM (`sbom.spdx.json`);
 - GitHub build provenance attestation для всех артефактов.
 
-Тег релиза `v0.32` должен совпадать с `VERSION`. Перед публикацией выполняются tests, vet, `govulncheck`, registry validation, conformance и cross-build checks.
+Тег релиза `v0.32a` должен совпадать с `VERSION`. Перед публикацией выполняются tests, vet, `govulncheck`, registry validation, conformance и cross-build checks.
 
 ## Структура репозитория
 

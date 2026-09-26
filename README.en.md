@@ -8,7 +8,7 @@ point for gated actions.
 
 ## Current contract
 
-- Product version: `0.32` from [`VERSION`](VERSION)
+- Product version: `0.32a` from [`VERSION`](VERSION)
 - Pipeline/plugin protocol: `0.2` from [`protocol/VERSION`](protocol/VERSION)
 - Primary CLI: `wedra`
 - Compatibility CLI: `tool` (legacy surface; do not add new behavior there)
@@ -63,5 +63,15 @@ release tags, and explicit registry admission. See [governance](GOVERNANCE.md)
 and [contributing](CONTRIBUTING.md).
 
 Plugin permissions are declarations, not an operating-system sandbox. Review
-network, filesystem, and secret permissions before installing a plugin. Report
-vulnerabilities according to [SECURITY.md](SECURITY.md).
+network, filesystem, and secret permissions before installing a plugin.
+
+A plugin may declare `sandbox: untrusted` in its manifest. Such a plugin only
+runs inside an OS sandbox (`bwrap` on Linux, `sandbox-exec` on macOS) and only
+with explicit operator consent via `--allow-untrusted-plugins`;
+`--deny-untrusted-plugins` refuses every plugin in the run and is the
+recommended flag for CI. On Windows there is no isolation backend, so untrusted
+code is refused outright. A backend that is installed but cannot isolate on the
+host (for example, user namespaces are blocked) counts as absent. The sandbox
+restricts writes but not reads, and does not filter egress for a plugin that
+declares `permissions.network`, so it is not a complete boundary for hostile
+code. Report vulnerabilities according to [SECURITY.md](SECURITY.md).
