@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,9 +16,6 @@ import (
 // без песочницы.
 var ErrSandboxUnsupported = errors.New("os-изоляция внешнего кода недоступна")
 
-// sandboxScratch — доступный плагину каталог записи внутри песочницы.
-func sandboxScratch() string { return os.TempDir() }
-
 // declaresNetwork — плагин объявил сетевые разрешения.
 func declaresNetwork(m *pipeline.Manifest) bool { return m != nil && len(m.Permissions.Network) > 0 }
 
@@ -25,15 +23,30 @@ func declaresNetwork(m *pipeline.Manifest) bool { return m != nil && len(m.Permi
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux,
 // sandbox-exec на macOS); платформы без изолятора возвращают ErrSandboxUnsupported,
 // и процесс не создаётся вовсе.
-func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest) (*exec.Cmd, error) {
+//
+// Возвращает cleanup, который удаляет приватный scratch-каталог: он живёт ровно
+// столько, сколько идёт процесс плагина, и на хосте после запуска не остаётся.
+func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest) (*exec.Cmd, func(), error) {
+	noop := func() {}
 	if len(argv) == 0 {
-		return nil, errors.New("пустая команда плагина")
+		return nil, noop, errors.New("пустая команда плагина")
 	}
-	launcher, args, err := sandboxArgs(m, argv)
+	// Собственный каталог вместо общего os.TempDir(): он приватен этому запуску и
+	// гарантированно существует до монтирования. Точка монтирования, которой нет
+	// на хосте, не годится: после --ro-bind / / создать её уже нельзя, и bwrap
+	// падает с "Read-only file system".
+	scratch, err := os.MkdirTemp("", "wedra-sbx-")
 	if err != nil {
-		return nil, err
+		return nil, noop, fmt.Errorf("scratch для песочницы: %w", err)
 	}
-	return exec.CommandContext(ctx, launcher, args...), nil
+	cleanup := func() { _ = os.RemoveAll(scratch) }
+
+	launcher, args, err := sandboxArgs(m, argv, scratch)
+	if err != nil {
+		cleanup()
+		return nil, noop, err
+	}
+	return exec.CommandContext(ctx, launcher, args...), cleanup, nil
 }
 
 // sandboxBackendName — человекочитаемое имя изолятора (для логов и ошибок).

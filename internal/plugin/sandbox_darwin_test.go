@@ -36,7 +36,7 @@ func TestDarwinSandboxArgs(t *testing.T) {
 		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:     dir,
 	}
-	launcher, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/p/plugin.py"})
+	launcher, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir())
 	if err != nil {
 		t.Skipf("песочница недоступна: %v", err)
 	}

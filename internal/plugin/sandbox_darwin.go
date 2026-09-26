@@ -83,7 +83,7 @@ func sandboxUsable() bool {
 	return darwinProbeOK
 }
 
-func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) {
+func sandboxArgs(m *pipeline.Manifest, argv []string, scratch string) (string, []string, error) {
 	launcher, ok := sandboxLauncher()
 	if !ok {
 		return "", nil, fmt.Errorf("%w: sandbox-exec не найден в PATH", ErrSandboxUnsupported)
@@ -93,6 +93,6 @@ func sandboxArgs(m *pipeline.Manifest, argv []string) (string, []string, error) 
 	}
 	// sandbox-exec не принимает "--": команда плагина идёт сразу после профиля
 	// (это абсолютный путь к интерпретатору, поэтому не начинается с "-").
-	profile := sandboxProfile(resolveSandboxPath(m.Dir), resolveSandboxPath(sandboxScratch()), declaresNetwork(m))
+	profile := sandboxProfile(resolveSandboxPath(m.Dir), resolveSandboxPath(scratch), declaresNetwork(m))
 	return launcher, append([]string{"-p", profile}, argv...), nil
 }

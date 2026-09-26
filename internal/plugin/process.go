@@ -185,12 +185,13 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// недоступен — отказ до создания процесса (fail-closed).
 	var cmd *exec.Cmd
 	if m.Untrusted() {
-		wrapped, err := sandboxCommand(ctx, argv, m)
+		wrapped, cleanup, err := sandboxCommand(ctx, argv, m)
 		if err != nil {
 			res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", err.Error()
 			res.ExitCode = 2
 			return res
 		}
+		defer cleanup()
 		cmd = wrapped
 	} else {
 		cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)

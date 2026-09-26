@@ -3,6 +3,7 @@
 package plugin
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -20,7 +21,8 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:     dir,
 	}
-	args := sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"})
+	scratch := t.TempDir()
+	args := sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}, scratch)
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"--die-with-parent",
@@ -29,8 +31,8 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		"--unshare-uts",
 		"--ro-bind / /",
 		"--proc /proc",
-		"--tmpfs " + sandboxScratchPath,
-		"--setenv HOME " + sandboxScratchPath,
+		"--bind " + resolveSandboxPath(scratch) + " " + resolveSandboxPath(scratch),
+		"--setenv HOME " + resolveSandboxPath(scratch),
 		"--unshare-net",
 		"-- /usr/bin/python3 /p/plugin.py",
 	} {
@@ -39,9 +41,13 @@ func TestLinuxSandboxArgs(t *testing.T) {
 		}
 	}
 	// Регрессия: перекрытие /tmp скрывало бы каталог плагина, установленного
-	// во временный каталог, и процесс не смог бы стартовать.
-	if strings.Contains(joined, "--tmpfs /tmp") {
-		t.Errorf("песочница не должна перекрывать /tmp: %s", joined)
+	// во временный каталог, и процесс не смог бы стартовать. Точка монтирования
+	// также должна существовать заранее: после --ro-bind / / создать её нельзя.
+	if strings.Contains(joined, "--tmpfs") {
+		t.Errorf("песочница не должна использовать tmpfs: %s", joined)
+	}
+	if _, err := os.Stat(resolveSandboxPath(scratch)); err != nil {
+		t.Fatalf("scratch-каталог должен существовать до монтирования: %v", err)
 	}
 	// Каталог плагина не должен пробрасываться на запись.
 	if strings.Contains(joined, "--bind "+resolveSandboxPath(dir)) {
@@ -56,7 +62,7 @@ func TestLinuxSandboxKeepsNetworkWhenDeclared(t *testing.T) {
 		Dir:         t.TempDir(),
 		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{Host: "api.example.com", Port: 443}}},
 	}
-	joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}), " ")
+	joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
 	if strings.Contains(joined, "--unshare-net") {
 		t.Error("при объявленной permissions.network netns должен остаться общим")
 	}
