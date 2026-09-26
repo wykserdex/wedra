@@ -284,6 +284,20 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				v.err(E_BIND_UNKNOWN_PORT, st.ID, b, "pipeline.steps."+st.ID+".bind."+b, fmt.Sprintf("порты плагина: %s", strings.Join(ports, ", ")), &Fix{Op: "bind", Target: "steps." + st.ID + "." + b, Candidates: ports}, "шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input))
 			}
 		}
+		// Источник bind обязан быть ссылкой на контекст ранда. Литерал (например
+		// top_n: 1) не резолвится никогда: для optional-порта движок его молча
+		// пропускал, плагин брал значение по умолчанию, и ран завершался "done",
+		// хотя YAML задавал другое. Это ошибка пайплайна, а не предупреждение.
+		for b, src := range st.Bind {
+			if isContextRef(src) {
+				continue
+			}
+			v.err(E_BIND_SOURCE_INVALID, st.ID, b, "pipeline.steps."+st.ID+".bind."+b,
+				"укажите input.<поле> или steps.<шаг>.<выход>", nil,
+				"шаг %s, порт %s: bind = %q не является ссылкой на контекст "+
+					"(нужно input.* или steps.*; литерал молча игнорируется, плагин возьмёт значение по умолчанию)",
+				st.ID, b, src)
+		}
 		// Путь-литерал в bind при плагине без filesystem: readwrite почти всегда
 		// означает отказ на запуске (path_escape), хотя валидатор знает и
 		// значение, и манифест. Предупреждение, не ошибка: плагину с readwrite
@@ -392,6 +406,12 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		v.warn(W_SECRETS_UNDECLARED, "", "", "pipeline.secrets", "объявите ключ в pipeline.secrets", &Fix{Op: "declare", Target: "pipeline.secrets", Candidates: undeclared}, "secrets: плагину нужен ключ %s — объявите в pipeline secrets (иначе может не быть в env при запуске)", s)
 	}
 	return v.issues
+}
+
+// isContextRef — источник bind является ссылкой на контекст ранда. В контексте
+// лежат только input.* и steps.*, поэтому любой другой литерал нерезолвится.
+func isContextRef(src string) bool {
+	return strings.HasPrefix(src, "input.") || strings.HasPrefix(src, "steps.")
 }
 
 // staticInputKey — имя ключа pipeline.input по выражению вида input.foo[.bar].
