@@ -587,6 +587,14 @@ func ValidateManifest(m *Manifest) error {
 			add("permissions.filesystem %q: допустимы none|read|workspace|write|readwrite", m.Permissions.Filesystem)
 		}
 	}
+	switch m.Sandbox {
+	case "", SandboxTrusted, SandboxUntrusted:
+	default:
+		add("sandbox %q: допустимы trusted|untrusted", m.Sandbox)
+	}
+	if m.Sandbox == SandboxUntrusted && len(m.Permissions.Secrets) > 0 {
+		add("sandbox untrusted: permissions.secrets несовместимы с изоляцией (плагин не должен получать env-секреты)")
+	}
 	seenSecrets := map[string]bool{}
 	for i, secret := range m.Permissions.Secrets {
 		if !environmentNamePattern.MatchString(secret) {
