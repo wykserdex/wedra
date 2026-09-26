@@ -44,6 +44,17 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 | macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
 | Windows | none | fail-closed: untrusted plugins cannot run |
 
+An AppContainer backend for Windows was investigated and is not enabled. The
+blocker is not the AppContainer API but host ACL state: an AppContainer token
+holds neither the user SID nor `Users`/`Everyone`, so the container cannot reach
+a plugin under the user profile without an explicit ACE, and reaching it means
+writing a DACL on the ancestor chain — including `%APPDATA%`. On a measured
+workstation that write (`SetNamedSecurityInfo` on `%USERPROFILE%\AppData`) blocks
+indefinitely, which is consistent with a third-party filesystem minifilter
+intercepting security-descriptor writes. Until that is understood, Windows
+stays fail-closed rather than shipping a backend that can wedge the host or
+leave a stale ACE behind after a crash.
+
 If the backend is missing, or the host forbids creating one, the run stops
 with `platform:sandbox_unavailable` before any process is created. The
 availability probe runs once per process: `bwrap` is verified by actually
