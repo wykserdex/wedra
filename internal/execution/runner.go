@@ -394,11 +394,15 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				return stats, runErr("network_denied", "network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
 			}
 		}
-	} else {
+	} else if pf.Pipeline.Network == "allow" {
 		// network: allow — пайплайн разрешил сеть. Но исполнимо только явное
 		// any_host: true. Список конкретных хостов выглядит как ограничение,
 		// поэтому превращать его в полный доступ молча нельзя: точечный фильтр
 		// не реализован, значит честный ответ — отказать и объяснить.
+		//
+		// Условие именно == "allow", а не "иначе": поле не задано — это не
+		// разрешение, и конвейер без явного network не должен ловить эту
+		// проверку.
 		for i := range pf.Pipeline.Steps {
 			st := &pf.Pipeline.Steps[i]
 			if plugin.IsBuiltin(st.Plugin) || plugin.IsBuiltinNamespace(st.Plugin) {

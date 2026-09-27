@@ -147,3 +147,18 @@ network namespace, so the no-network case is genuinely closed; the gap is the
 the declared destinations, reachable from the sandbox only by a socket or named
 pipe, plus DNS pinned to the same allowlist. The model is ready; the enforcement
 is not written.
+
+### Known gap: an unset `network` field is not "deny"
+
+`network: deny` is the documented default, but the runner only applies its deny
+check when the field is literally `deny`. A pipeline that omits `network`
+entirely runs neither branch and therefore receives **no network check at all**,
+which means a plugin that declares a host gets unrestricted egress. This is
+pre-existing and contradicts the documentation.
+
+Treating unset as deny was tried and reverted: it refuses existing pipelines
+whose plugins declare a host (`crtsh`, the `net_demo` conformance fixtures), so
+it needs its own migration rather than riding along with the granularity work.
+`TestNetworkPolicyMatrix` in `internal/execution` pins the current behaviour and
+names these rows as the known gap, so the day the fix lands the expectations and
+this section move together.
