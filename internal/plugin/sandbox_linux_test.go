@@ -96,15 +96,29 @@ func TestLinuxSandboxBlocksPluginDirWrite(t *testing.T) {
 	}
 }
 
-func TestLinuxSandboxKeepsNetworkWhenDeclared(t *testing.T) {
-	m := &pipeline.Manifest{
+// Сеть даётся только под явный any_host: true. Раньше проверялось обратное —
+// что любой список host:port сохраняет общий netns, то есть декларация
+// «нужен api.example.com:443» молча превращалась в полный доступ.
+func TestLinuxSandboxKeepsNetworkOnlyForAnyHost(t *testing.T) {
+	structured := &pipeline.Manifest{
 		ID:          "x",
 		Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:         t.TempDir(),
 		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{Host: "api.example.com", Port: 443}}},
 	}
-	joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
-	if strings.Contains(joined, "--unshare-net") {
-		t.Error("при объявленной permissions.network netns должен остаться общим")
+	joined := strings.Join(sandboxArgsUnchecked(structured, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
+	if !strings.Contains(joined, "--unshare-net") {
+		t.Error("список host:port неисполним и не должен давать сеть: ожидался --unshare-net")
+	}
+
+	blanket := &pipeline.Manifest{
+		ID:          "y",
+		Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
+		Dir:         t.TempDir(),
+		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{AnyHost: true}}},
+	}
+	joinedAny := strings.Join(sandboxArgsUnchecked(blanket, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
+	if strings.Contains(joinedAny, "--unshare-net") {
+		t.Error("явный any_host: true должен сохранять общий netns")
 	}
 }

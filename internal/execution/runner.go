@@ -394,6 +394,26 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				return stats, runErr("network_denied", "network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
 			}
 		}
+	} else {
+		// network: allow — пайплайн разрешил сеть. Но исполнимо только явное
+		// any_host: true. Список конкретных хостов выглядит как ограничение,
+		// поэтому превращать его в полный доступ молча нельзя: точечный фильтр
+		// не реализован, значит честный ответ — отказать и объяснить.
+		for i := range pf.Pipeline.Steps {
+			st := &pf.Pipeline.Steps[i]
+			if plugin.IsBuiltin(st.Plugin) || plugin.IsBuiltinNamespace(st.Plugin) {
+				continue
+			}
+			m, err := eng.LoadManifest(st.Plugin)
+			if err != nil {
+				continue
+			}
+			if pipeline.NetworkHasStructuredDeclarations(m) {
+				return stats, runErr("network_not_enforceable",
+					"network: шаг %s (плагин %s) заявил сеть по host:port (%s), но точечный egress-фильтр не реализован — полный доступ вместо списка хостов выдавать нельзя. Либо уберите сеть, либо объявите any_host: true, если действительно нужен весь интернет",
+					st.ID, st.Plugin, pipeline.NetworkHosts(m))
+			}
+		}
 	}
 	if opts.RunsDir == "" {
 		opts.RunsDir = "var/runs"
