@@ -42,33 +42,51 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 | --- | --- | --- |
 | Linux | `bwrap` (bubblewrap) | read-only host filesystem (including `/tmp` and the plugin directory), separate PID/IPC/UTS, a private writable scratch directory created per run and deleted afterwards, network namespace dropped unless `permissions.network` is declared |
 | macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
-| Windows | none | fail-closed: untrusted plugins cannot run |
+| Windows | none | fail-closed: untrusted plugins cannot run (blocked on low-integrity sandbox root, see below) |
 
-An AppContainer backend for Windows was investigated and is not enabled. The
-blocker is not the AppContainer API but host ACL state. An AppContainer token
-holds neither the user SID nor `Users`/`Everyone`, so the container can only
-traverse a directory chain that grants one of those, and any plugin that needs
-an explicit grant requires a DACL write on that chain. Measured on a Windows
-workstation, both candidate placements fail without elevation:
+An AppContainer backend for Windows was investigated and is not enabled. This
+section previously blamed host ACL state. That diagnosis was wrong, and the
+measurements behind it probed the wrong operation. Corrected findings, all
+measured on a clean Windows 10 Enterprise 22H2 x64 VM from a non-elevated
+process (`elevated: false`), using `SetNamedSecurityInfo` with
+`PROTECTED_DACL_SECURITY_INFORMATION`:
 
-- inside the user profile (the plugin directory, and `%LOCALAPPDATA%` for a
-  Python interpreter): the `SetNamedSecurityInfo` call on `%LOCALAPPDATA%`
-  blocks indefinitely, reproducibly, from Go, PowerShell and .NET alike. No
-  visible dialog is involved â€” the screen stays idle â€” which is consistent with
-  a filesystem minifilter serialising security-descriptor writes. Defender's
-  Controlled Folder Access is off, so it is not that specific feature.
-- outside the profile (`C:\ProgramData`, the only user-writable root):
-  a DACL-only write returns `ACCESS_DENIED` immediately for a non-elevated
-  process. `Users` may create subdirectories there but not modify its DACL.
+- A non-elevated process **can** create a directory and restrict its DACL to
+  `SYSTEM` + `Administrators` + the container SID. Verified in three
+  placements: `%LOCALAPPDATA%\Temp`, a nested subdirectory of it, and
+  `C:\ProgramData`. All three returned `OK`.
+- The restriction is effective: the acting user's own unelevated token is
+  locked out of the directory immediately afterwards (`ReadDir` â†’
+  `Access is denied`). The `C:\ProgramData` `ACCESS_DENIED` previously recorded
+  for a "DACL-only write" does not reproduce for a directory the process created
+  itself; it applies to rewriting the DACL of an existing subtree.
+- `PROTECTED_DACL_SECURITY_INFORMATION` is load-bearing. Without it the new ACL
+  merges with inherited ACEs (6 ACEs instead of 3) and the user token still
+  passes. With it, inheritance is severed and the user token is excluded.
+- `SetNamedSecurityInfo` on `%LOCALAPPDATA%` itself succeeds in seconds. The
+  previously recorded indefinite block did not reproduce; it looks like a slow
+  operation rather than a hang, and the screen-idle symptom remains unexplained.
+- **Rewriting the DACL of `%LOCALAPPDATA%` is not merely unnecessary, it is
+  destructive.** Doing it locks the user out of their entire profile and breaks
+  unrelated tooling (during this work it broke `go build`, whose scratch
+  directory lives in `%LOCALAPPDATA%\Temp`). Any Windows backend must therefore
+  restrict only directories it created itself.
 
-The remaining options are both rejected on purpose: requiring WEDRA to run
-elevated so a plugin runner can rewrite ACLs in the user's profile, or shipping
-a Windows backend that can wedge the host or leave a stale ACE behind after a
-crash. Windows therefore stays fail-closed, and an untrusted plugin cannot run
-there. This also rules out a "copy the plugin into a sandbox-owned directory"
-workaround, because a vault inside the profile is unreachable for the same
-reason and a vault outside it cannot be made reachable without the DACL write
-above.
+The real remaining blocker is not the DACL but the **integrity level**. A real
+AppContainer token was created via `CreateAppContainerProfile` and a child
+process was launched under it with `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`.
+The container token is still denied: AppContainer tokens run at low integrity,
+the candidate directories are at medium, and the resulting write-up is refused.
+This is a mandatory-label (SACL) decision, not a DACL one. Lowering the label is
+not available to a non-elevated owner â€” `icacls /setintegritylevel` returns
+`Access is denied` because it needs `WRITE_OWNER`.
+
+Windows therefore stays fail-closed, but the requirement is now narrow and
+specific rather than "host ACL state": a Windows backend needs one directory it
+owns created at **low integrity**, which in practice means either an install-time
+or elevated step, or hosting the sandbox root somewhere the OS already creates
+at low integrity. Until that exists, the ACL work above is necessary but not
+sufficient, and the platform stays closed.
 
 If the backend is missing, or the host forbids creating one, the run stops
 with `platform:sandbox_unavailable` before any process is created. The
@@ -91,3 +109,36 @@ boundary.
 The trust decision belongs to the core, not to the plugin: the manifest field
 is enforced by the kernel, and the policy is set once per run and inherited by
 every step.
+
+### Egress is not filtered by destination
+
+A plugin's `permissions.network` already carries structure — `host`, `port`, and
+an explicit `any_host` escape hatch. That structure was never enforced. The
+sandbox collapsed the whole list into "network was declared, so grant the
+network", so a plugin stating `api.telegram.org:443` received unrestricted
+egress, and the manifest read like a constraint that was in force.
+
+A per-destination filter is not implementable inside either backend: `bwrap`
+cannot express one (it either drops the network namespace or shares the host's),
+and `sandbox-exec` only understands `allow`/`deny network*`. Rather than keep an
+unenforced restriction in the manifest, the enforceable case is now explicit:
+
+- `any_host: true` — blanket egress, granted, and now something the author has to
+  write on purpose.
+- a list of concrete hosts without `any_host` — **not** silently widened. The
+  sandbox denies the network, and under `network: allow` the run stops with
+  `network_not_enforceable` and an explanation.
+
+Official LLM plugins that previously declared a precise host were moved to
+`any_host: true` with the intended target kept in `note`. That is not a
+tightening — they already had blanket egress — it removes a false claim from the
+manifests. The declared host lists in those notes are still aspirational.
+
+Consequence to be explicit about: **egress filtering does not exist yet.** Any
+plugin that legitimately needs the network can still read everything its sandbox
+lets it read and send it anywhere. On Linux the default is still a separate
+network namespace, so the no-network case is genuinely closed; the gap is the
+`allow` case. Closing it needs an egress proxy outside the sandbox that enforces
+the declared destinations, reachable from the sandbox only by a socket or named
+pipe, plus DNS pinned to the same allowlist. The model is ready; the enforcement
+is not written.
