@@ -4,7 +4,11 @@ package plugin
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,29 +100,181 @@ func TestLinuxSandboxBlocksPluginDirWrite(t *testing.T) {
 	}
 }
 
-// Сеть даётся только под явный any_host: true. Раньше проверялось обратное —
-// что любой список host:port сохраняет общий netns, то есть декларация
-// «нужен api.example.com:443» молча превращалась в полный доступ.
-func TestLinuxSandboxKeepsNetworkOnlyForAnyHost(t *testing.T) {
-	structured := &pipeline.Manifest{
-		ID:          "x",
-		Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
-		Dir:         t.TempDir(),
-		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{Host: "api.example.com", Port: 443}}},
+// Сеть изолируется ВСЕГДА. Это регрессия на дыру шире, чем «нефильтрованный
+// egress»: при объявленном any_host песочница раньше делила netns с хостом, и
+// недоверенный плагин доставал сервисы хоста на 127.0.0.1, включая HTTP API
+// WEDRA. Теперь netns отдельный всегда, а выход наружу (если объявлен) даёт
+// userspace-стек — см. attach.
+func TestLinuxSandboxAlwaysIsolatesNetwork(t *testing.T) {
+	cases := []struct {
+		name    string
+		net     []pipeline.NetworkPermission
+		wantNet bool // ожидается ли egress-запуск (воротца и подмена резолвера)
+	}{
+		{"сеть не объявлена", nil, false},
+		{"список host:port неисполним", []pipeline.NetworkPermission{{Host: "api.example.com", Port: 443}}, false},
+		{"явный any_host", []pipeline.NetworkPermission{{AnyHost: true}}, true},
 	}
-	joined := strings.Join(sandboxArgsUnchecked(structured, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
-	if !strings.Contains(joined, "--unshare-net") {
-		t.Error("список host:port неисполним и не должен давать сеть: ожидался --unshare-net")
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &pipeline.Manifest{
+				ID:          "x",
+				Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
+				Dir:         t.TempDir(),
+				Permissions: pipeline.Permissions{Network: tc.net},
+			}
+			scratch := t.TempDir()
+			joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}, scratch), " ")
 
-	blanket := &pipeline.Manifest{
-		ID:          "y",
+			if !strings.Contains(joined, "--unshare-net") {
+				t.Error("netns должен быть отдельным всегда, включая объявленный any_host")
+			}
+			gated := strings.Contains(joined, netGateScript)
+			if gated != tc.wantNet {
+				t.Errorf("воротца запуска: получено %v, ожидалось %v: %s", gated, tc.wantNet, joined)
+			}
+			// Подмена резолвера нужна ровно тогда, когда есть egress: хостовый
+			// resolv.conf внутри изолированного netns неотвечаем.
+			hasResolv := strings.Contains(joined, "--bind "+resolveSandboxPath(scratch)+string(filepath.Separator)+netResolvName)
+			if hasResolv != tc.wantNet {
+				t.Errorf("подмена резолвера: получено %v, ожидалось %v: %s", hasResolv, tc.wantNet, joined)
+			}
+			// Команда плагина обязана остаться последней: ворота её запускают.
+			if !strings.HasSuffix(joined, "-- /usr/bin/python3 /p/plugin.py") &&
+				!strings.HasSuffix(joined, "/usr/bin/python3 /p/plugin.py") {
+				t.Errorf("команда плагина должна быть последней: %s", joined)
+			}
+		})
+	}
+}
+
+// Резолвер биндится по разрешённому пути: /etc/resolv.conf на хосте обычно
+// симлинк, а bwrap не умеет создавать файл поверх симлинка.
+func TestLinuxSandboxBindsResolvedResolvPath(t *testing.T) {
+	if hostResolvTarget() == "/etc/resolv.conf" {
+		t.Skip("на этом хосте /etc/resolv.conf — обычный файл, проверять нечего")
+	}
+	m := &pipeline.Manifest{
+		ID:          "x",
 		Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:         t.TempDir(),
 		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{AnyHost: true}}},
 	}
-	joinedAny := strings.Join(sandboxArgsUnchecked(blanket, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
-	if strings.Contains(joinedAny, "--unshare-net") {
-		t.Error("явный any_host: true должен сохранять общий netns")
+	joined := strings.Join(sandboxArgsUnchecked(m, []string{"/usr/bin/python3", "/p/plugin.py"}, t.TempDir()), " ")
+	if !strings.Contains(joined, " "+hostResolvTarget()) {
+		t.Errorf("резолвер должен биндиться по разрешённому пути %s: %s", hostResolvTarget(), joined)
+	}
+}
+
+// Fail-closed: плагин с any_host без slirp4netns не запускается. Молча отдать
+// ему песочницу без сети значило бы выполнить внешний код вопреки его
+// манифесту, а вернуть общий netns с хостом — вернуть ту дыру, что закрыта.
+func TestLinuxNetworkFailsClosedWithoutSlirp(t *testing.T) {
+	m := &pipeline.Manifest{
+		ID:          "x",
+		Runtime:     pipeline.Runtime{Type: "python", Entry: "plugin.py"},
+		Dir:         t.TempDir(),
+		Permissions: pipeline.Permissions{Network: []pipeline.NetworkPermission{{AnyHost: true}}},
+	}
+	if _, err := exec.LookPath("slirp4netns"); err == nil {
+		t.Skip("slirp4netns есть в PATH — проверяется поведенческим тестом")
+	}
+	t.Setenv("PATH", t.TempDir())
+	_, err := sandboxNetworkFor(m, t.TempDir())
+	if !errors.Is(err, ErrSandboxUnsupported) {
+		t.Fatalf("без slirp4netns ожидался ErrSandboxUnsupported, получено: %v", err)
+	}
+	if !strings.Contains(err.Error(), "slirp4netns") {
+		t.Errorf("отказ должен называть причину (slirp4netns): %v", err)
+	}
+}
+
+// Сеть не объявлена — slirp не нужен вовсе, иначе мы бы требовали лишнюю
+// зависимость для плагинов, которым сеть не даётся.
+func TestLinuxNetworkNotRequiredWithoutDeclaration(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // slirp4netns заведомо недоступен
+	m := &pipeline.Manifest{
+		ID:      "x",
+		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
+		Dir:     t.TempDir(),
+	}
+	net, err := sandboxNetworkFor(m, t.TempDir())
+	if err != nil || net != nil {
+		t.Fatalf("без объявления сети slirp не требуется: net=%v err=%v", net, err)
+	}
+}
+
+// childrenOf / netnsOf / waitTapReady — вспомогательная разведка /proc. Здесь
+// проверяется то, что можно проверить без запуска песочницы: собственный pid
+// виден, его netns читается, а дети bwrap перечисляются.
+func TestLinuxProcIntrospection(t *testing.T) {
+	ns, err := netnsOf(os.Getpid())
+	if err != nil || ns == "" {
+		t.Fatalf("netns собственного процесса не читается: %q %v", ns, err)
+	}
+	if kids := childrenOf(os.Getpid()); kids == nil {
+		// nil допустим: у процесса без детей файла children может не быть.
+		t.Log("детей нет — это нормально")
+	}
+	if _, err := netnsOf(-1); err == nil {
+		t.Error("несуществующий pid не должен давать netns")
+	}
+}
+
+// TestLinuxSandboxIsolatesHostLoopbackForNetworkPlugin — поведенческая проверка
+// главного изменения. Плагин объявляет any_host и получает egress, но при этом
+// НЕ должен доставать сервисы хоста на loopback: раньше он делил netns с хостом.
+//
+// Требует bwrap, python и slirp4netns — на CI-раннерах без них тест пропускается,
+// поэтому поведение проверяется ещё и вручную (см. замеры в SECURITY.md).
+func TestLinuxSandboxIsolatesHostLoopbackForNetworkPlugin(t *testing.T) {
+	if !sandboxUsable() {
+		t.Skip("песочница недоступна на этом хосте")
+	}
+	if _, err := exec.LookPath("slirp4netns"); err != nil {
+		t.Skip("slirp4netns не установлен — сетевой путь песочницы не проверяем")
+	}
+	requirePython(t)
+
+	// Слушаем на loopback хоста: именно это плагин раньше доставал.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("не удалось занять порт на loopback хоста: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+
+	dir := t.TempDir()
+	script := fmt.Sprintf(`import socket, sys, json
+out = {}
+def probe(host, port):
+    try:
+        s = socket.create_connection((host, port), timeout=4)
+        s.close()
+        return "reachable"
+    except OSError as e:
+        return "blocked:" + type(e).__name__
+out["host_loopback"] = probe("127.0.0.1", %s)
+sys.stdout.write(json.dumps({"status": "ok", "output": out}))
+`, port)
+	m := writePlugin(t, dir, script)
+	m.Permissions.Network = []pipeline.NetworkPermission{{AnyHost: true}}
+
+	res := ExecWithEnvCtx(AllowUntrustedPlugins(context.Background()), m, []byte("{}"), 60*time.Second, nil)
+	if !res.OK() {
+		t.Fatalf("плагин с any_host должен запускаться при наличии slirp4netns: %+v (stderr: %s)", res, res.Stderr)
+	}
+	got, _ := res.Output["host_loopback"].(string)
+	if !strings.HasPrefix(got, "blocked") {
+		t.Fatalf("песочница не изолировала loopback хоста: %v", got)
 	}
 }

@@ -54,7 +54,7 @@ func TestPlatformSandboxFailsClosedWithoutBackend(t *testing.T) {
 		t.Skip("песочница на этом хосте работает — проверяется в TestUntrustedRunsInsideSandbox")
 	}
 	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
-	_, _, err := sandboxArgs(m, []string{"/bin/true"}, t.TempDir())
+	_, _, _, err := sandboxArgs(m, []string{"/bin/true"}, t.TempDir())
 	if !errors.Is(err, ErrSandboxUnsupported) {
 		t.Fatalf("без рабочей песочницы ожидался ErrSandboxUnsupported, получено: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestSandboxArgsKeepPluginCommandLast(t *testing.T) {
 		t.Skip("песочница на этом хосте не работает — аргументы не собрать")
 	}
 	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
-	launcher, args, err := sandboxArgs(m, []string{"/usr/bin/python3", "/plug/plugin.py"}, t.TempDir())
+	launcher, args, _, err := sandboxArgs(m, []string{"/usr/bin/python3", "/plug/plugin.py"}, t.TempDir())
 	if err != nil {
 		t.Fatalf("sandboxArgs: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestWindowsRefusalIsActionable(t *testing.T) {
 		t.Skip("проверка только для платформ без изолятора")
 	}
 	m := &pipeline.Manifest{ID: "x", Runtime: pipeline.Runtime{Type: "python"}, Sandbox: pipeline.SandboxUntrusted, Dir: t.TempDir()}
-	_, _, err := sandboxArgs(m, []string{"/bin/true"}, t.TempDir())
+	_, _, _, err := sandboxArgs(m, []string{"/bin/true"}, t.TempDir())
 	if !errors.Is(err, ErrSandboxUnsupported) {
 		t.Fatalf("ожидался ErrSandboxUnsupported, получено: %v", err)
 	}

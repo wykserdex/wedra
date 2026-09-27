@@ -27,10 +27,10 @@ func sandboxLauncher() (string, bool) { return "", false }
 
 func sandboxUsable() bool { return false }
 
-func sandboxArgs(m *pipeline.Manifest, argv []string, scratch string) (string, []string, error) {
+func sandboxArgs(m *pipeline.Manifest, argv []string, scratch string) (string, []string, sandboxNetwork, error) {
 	// Сообщение намеренно говорит, что --allow-untrusted-plugins не поможет:
 	// оператор не должен искать решение в флагах, когда изолятора нет вовсе.
-	return "", nil, fmt.Errorf("%w: на %s изоляция внешнего кода не реализована "+
+	return "", nil, nil, fmt.Errorf("%w: на %s изоляция внешнего кода не реализована "+
 		"(нужен bwrap на Linux; бэкенд для macOS отключён — см. SECURITY.md); "+
 		"флаг --allow-untrusted-plugins не обходит песочницу, поэтому внешний код "+
 		"на этой платформе запустить нельзя",
