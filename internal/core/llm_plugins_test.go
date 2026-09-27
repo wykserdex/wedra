@@ -127,6 +127,48 @@ func TestGeminiNoKey(t *testing.T) {
 
 // ── OpenAI-совместимый (Grok через env) ─────────────────────────────────
 
+// readLLMRequest читает и разбирает тело запроса.
+//
+// Тело обязано быть прочитано ДО ответа, и это не стиль, а условие работоспо-
+// собности. Проверено на Windows: хендлер, вернувшийся без чтения body,
+// оставляет в receive-буфере непрочитанные данные, и net/http закрывает
+// соединение через RST, а не FIN. Python-клиент (urllib) в этом случае видит
+// WSAECONNRESET (10054) и падает ДО того, как прочитает ответ. Симптом —
+// флакающий тест, который в изоляции проходит всегда: в этом файле флакали
+// ровно те два хендлера, которые не читали body, и не флакали те, что читали.
+//
+// Заодно тест перестаёт быть «сервер ответил»: он проверяет, что плагин ушёл
+// с корректным payload, чего раньше не проверял вообще.
+func readLLMRequest(t *testing.T, r *http.Request) map[string]interface{} {
+	t.Helper()
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Errorf("чтение тела запроса: %v", err)
+		return nil
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Errorf("тело запроса не JSON (%v): %s", err, raw)
+		return nil
+	}
+	return body
+}
+
+// llmMessages — плоский список content из messages, для проверки без знания
+// о порядке и составе ролей.
+func llmMessages(body map[string]interface{}) []string {
+	raw, _ := body["messages"].([]interface{})
+	out := make([]string, 0, len(raw))
+	for _, m := range raw {
+		if msg, ok := m.(map[string]interface{}); ok {
+			if content, ok := msg["content"].(string); ok {
+				out = append(out, content)
+			}
+		}
+	}
+	return out
+}
+
 func TestOpenAICompatOK(t *testing.T) {
 	requirePython(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +179,20 @@ func TestOpenAICompatOK(t *testing.T) {
 			t.Errorf("нет Bearer-авторизации")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
+		}
+		body := readLLMRequest(t, r)
+		if body == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, ok := body["model"]; !ok {
+			t.Errorf("в payload нет model: %v", body)
+		}
+		joined := strings.Join(llmMessages(body), "\n")
+		for _, want := range []string{"черновик", "Ты — редактор"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("в messages нет %q: %v", want, body["messages"])
+			}
 		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"доработанный текст про арбузы"}}]}`)
 	}))
@@ -168,6 +224,23 @@ func TestAnthropicOK(t *testing.T) {
 			t.Errorf("нет заголовков anthropic")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
+		}
+		// body читается до ответа — см. readLLMRequest: без этого Windows-клиент
+		// ловит WSAECONNRESET вместо ответа.
+		body := readLLMRequest(t, r)
+		if body == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, ok := body["max_tokens"]; !ok {
+			t.Errorf("в payload нет max_tokens: %v", body)
+		}
+		if joined := strings.Join(llmMessages(body), "\n"); !strings.Contains(joined, "тема") {
+			t.Errorf("в messages нет промпта: %v", body["messages"])
+		}
+		// system уходит отдельным полем, а не сообщением.
+		if system, _ := body["system"].(string); system != "" {
+			t.Errorf("system должен быть пуст, а пришёл %q", system)
 		}
 		fmt.Fprint(w, `{"content":[{"text":"ответ клода"}]}`)
 	}))
