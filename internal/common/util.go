@@ -6,11 +6,24 @@ import (
 	"unicode/utf8"
 )
 
-const HumanGatePluginRef = "core/human_gate"
+// Встроенные модули. В отличие от плагинов это доверенный код, исполняемый
+// в процессе ядра: никакой subprocess-модели, манифеста на диске и песочницы.
+// Поэтому список короткий и закрытый — добавлять сюда модуль с доступом к
+// файлам или сети нельзя, это осознанная граница (см. SECURITY.md).
+const (
+	HumanGatePluginRef = "core/human_gate"
+	TextStatsPluginRef = "core/text_stats"
+)
+
+// builtinRefs — закрытый реестр встроенных модулей. Порядок не важен.
+var builtinRefs = map[string]bool{
+	HumanGatePluginRef: true,
+	TextStatsPluginRef: true,
+}
 
 func CanonicalBuiltinRef(ref string) (string, bool) {
 	normalized := strings.ReplaceAll(strings.TrimSpace(ref), `\`, "/")
-	if normalized == HumanGatePluginRef {
+	if builtinRefs[normalized] {
 		return normalized, true
 	}
 	return "", false

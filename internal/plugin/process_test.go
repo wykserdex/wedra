@@ -108,13 +108,43 @@ func parsePID(s string, out *int) (int, error) {
 
 func TestBuiltinNamespaceIsClosed(t *testing.T) {
 	eng := NewEngine()
-	for _, ref := range []string{"core/human_gate", `core\human_gate`} {
+	for _, ref := range []string{"core/human_gate", `core\human_gate`, "core/text_stats", `core\text_stats`} {
 		manifest, err := eng.LoadManifest(ref)
-		if err != nil || manifest.ID != "core/human_gate" {
-			t.Fatalf("builtin %q: manifest=%+v err=%v", ref, manifest, err)
+		if err != nil {
+			t.Fatalf("builtin %q: err=%v", ref, err)
+		}
+		// Раньше LoadManifest отдавал один и тот же манифест human_gate на любой
+		// ref из core/, потому что builtin был ровно один. С появлением
+		// core/text_stats манифест обязан совпадать с запрошенным модулем,
+		// иначе шаг получил бы чужой контракт.
+		want := strings.ReplaceAll(ref, `\`, "/")
+		if manifest.ID != want {
+			t.Fatalf("builtin %q: manifest.ID=%q, ожидалось %q", ref, manifest.ID, want)
 		}
 	}
-	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core"} {
+	// Контракт data-модуля обязан быть непустым: пустой манифест означал бы, что
+	// выход не проверяется по типам и bind не проверяется по портам.
+	ts, err := eng.LoadManifest("core/text_stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts.Input) == 0 || len(ts.Output) == 0 {
+		t.Fatalf("контракт core/text_stats пуст: input=%v output=%v", ts.Input, ts.Output)
+	}
+	if _, ok := ts.Input["text"]; !ok {
+		t.Errorf("в core/text_stats нет входа text: %v", ts.Input)
+	}
+	for _, port := range []string{"lines", "words", "unique_words", "longest_word"} {
+		if _, ok := ts.Output[port]; !ok {
+			t.Errorf("в core/text_stats нет выхода %q: %v", port, ts.Output)
+		}
+	}
+	// У встроенного модуля нет ни сети, ни секретов, ни файлов: он доверенный
+	// код в процессе ядра, и declare-now-проверки на нём не должны срабатывать.
+	if len(ts.Permissions.Network) != 0 || len(ts.Permissions.Secrets) != 0 {
+		t.Errorf("встроенный модуль не должен ничего заявлять: %+v", ts.Permissions)
+	}
+	for _, ref := range []string{"core/does_not_exist", "core/human_gate/extra", "core", "core/text_statz"} {
 		if _, err := eng.LoadManifest(ref); err == nil {
 			t.Fatalf("reserved builtin %q was accepted", ref)
 		}

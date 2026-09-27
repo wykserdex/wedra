@@ -978,6 +978,13 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 
 func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if plugin.IsBuiltin(st.Plugin) {
+		// Встроенных модулей больше одного, и гейт — не единственный из них.
+		// Раньше здесь стояло безусловное «builtin значит гейт», что молча
+		// отправляло любой будущий core/* в gate.Service.
+		canonical, _ := common.CanonicalBuiltinRef(st.Plugin)
+		if canonical != common.HumanGatePluginRef {
+			return runBuiltinDataStep(eng, st, ctx, j, opts)
+		}
 		var svc *gate.Service
 		if opts.GateUI != nil {
 			svc = gate.NewServiceWithUI(opts.GateUI(st))
