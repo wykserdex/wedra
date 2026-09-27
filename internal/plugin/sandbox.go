@@ -52,8 +52,8 @@ func sandboxEgress(ctx context.Context, m *pipeline.Manifest) ([]string, func(),
 }
 
 // sandboxCommand — обёртка для запуска внешнего кода. Launcher и его аргументы
-// собираются платформенной реализацией sandboxArgs (bubblewrap на Linux,
-// sandbox-exec на macOS); платформы без изолятора возвращают ErrSandboxUnsupported,
+// собираются платформенной реализацией sandboxArgs (bubblewrap на Linux; на
+// macOS бэкенд отключён и лежит в attic/, поэтому и изолятора там нет),
 // и процесс не создаётся вовсе.
 func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, scratch string) (*exec.Cmd, error) {
 	if len(argv) == 0 {
