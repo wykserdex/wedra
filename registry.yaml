@@ -47,14 +47,14 @@ plugins:
   llm_anthropic:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_anthropic
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: 6478d51fb08eb224633e396e3e8099ad5476c782
     description: Anthropic-вызов (ключ из env)
   llm_gemini:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_gemini
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: 6478d51fb08eb224633e396e3e8099ad5476c782
     description: Gemini-вызов (ключ из env)
   # community
   csv_loader:
@@ -158,8 +158,8 @@ plugins:
   crtsh:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/crtsh
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: dde35e6fef7564d052b011ccf6ab45fc456bb586
     description: "crt.sh (Certificate Transparency) — сертификаты по домену. Без зависимостей (stdlib-HTTP)."
   the_harvester:
     source: https://github.com/wykserdex/wedra
@@ -183,14 +183,14 @@ presets:
   email_check:
     source: https://github.com/wykserdex/wedra
     path: examples/email_check.yaml
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: dde35e6fef7564d052b011ccf6ab45fc456bb586
     description: "email: синтаксис + disposable + MX"
   email_triage_chain:
     source: https://github.com/wykserdex/wedra
     path: examples/email_triage_chain.yaml
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: dde35e6fef7564d052b011ccf6ab45fc456bb586
     description: email → triage → human review
   dir_snapshots:
     source: https://github.com/wykserdex/wedra
@@ -201,8 +201,8 @@ presets:
   llm_text_chain:
     source: https://github.com/wykserdex/wedra
     path: examples/llm_text_chain.yaml
-    version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    version: v0.32c
+    commit: dde35e6fef7564d052b011ccf6ab45fc456bb586
     description: LLM-цепочка (ключ — через secrets/env)
   iban_check:
     source: https://github.com/wykserdex/wedra
