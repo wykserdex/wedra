@@ -66,12 +66,18 @@ Plugin permissions are declarations, not an operating-system sandbox. Review
 network, filesystem, and secret permissions before installing a plugin.
 
 A plugin may declare `sandbox: untrusted` in its manifest. Such a plugin only
-runs inside an OS sandbox (`bwrap` on Linux, `sandbox-exec` on macOS) and only
-with explicit operator consent via `--allow-untrusted-plugins`;
-`--deny-untrusted-plugins` refuses every plugin in the run and is the
-recommended flag for CI. On Windows there is no isolation backend, so untrusted
-code is refused outright. A backend that is installed but cannot isolate on the
-host (for example, user namespaces are blocked) counts as absent. The sandbox
-restricts writes but not reads, and does not filter egress for a plugin that
-declares `permissions.network`, so it is not a complete boundary for hostile
-code. Report vulnerabilities according to [SECURITY.md](SECURITY.md).
+runs inside an OS sandbox and only with explicit operator consent via
+`--allow-untrusted-plugins`; `--deny-untrusted-plugins` refuses every plugin in
+the run and is the recommended flag for CI. On Linux the backend is `bwrap`
+(read-only filesystem, separate PID/IPC/UTS namespaces, and a network namespace
+that is always its own - egress comes from a userspace stack, `slirp4netns`, and
+without it a plugin that declared `permissions.network` is refused rather than
+run). On macOS and Windows there is no isolation backend, so untrusted code is
+refused outright; the former `sandbox-exec` implementation is kept at
+`attic/sandbox_darwin.go.archived` and is not built. A backend that is installed
+but cannot isolate on the host (for example, user namespaces are blocked) counts
+as absent. The sandbox restricts writes but not reads, and does not filter egress
+by destination for a plugin that declares `permissions.network` - it gets
+unfiltered egress, just not inside the host's network namespace. So it is not a
+complete boundary for hostile code. Report vulnerabilities according to
+[SECURITY.md](SECURITY.md).
