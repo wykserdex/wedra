@@ -41,8 +41,29 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 | Platform | Backend | Notes |
 | --- | --- | --- |
 | Linux | `bwrap` (bubblewrap) | read-only host filesystem (including `/tmp` and the plugin directory), separate PID/IPC/UTS, a private writable scratch directory created per run and deleted afterwards, network namespace dropped unless `permissions.network` is declared |
-| macOS | `sandbox-exec` | writes limited to the plugin directory and scratch; the plugin directory is writable because `sandbox-exec` cannot express a read-only bind mount |
+| macOS | none | fail-closed: backend archived, see below |
 | Windows | none | fail-closed: untrusted plugins cannot run (blocked on low-integrity sandbox root, see below) |
+
+### macOS: backend archived
+
+The `sandbox-exec` backend was removed from the build and kept at
+`attic/sandbox_darwin.go.archived`, with its behavioural test at
+`attic/sandbox_darwin_test.go.archived`. macOS now resolves through the same
+fail-closed path as Windows: an untrusted plugin is refused rather than run
+without isolation.
+
+The reason is integrity, not egress. `sandbox-exec` cannot express a read-only
+bind mount, so the backend had to open the plugin directory for write, and a
+plugin could rewrite itself and persist on disk. The Linux backend states the
+opposite as a property it provides; on macOS that property did not hold. Note
+also that the refusal message no longer points macOS users at `sandbox-exec`,
+since recommending an isolator that is not wired up would be worse than saying
+nothing.
+
+Restoring it is a revert, but it should not happen before there is an answer for
+the writable plugin directory. The archived test is the only behavioural
+verification of a real isolator on real hardware in this repository, so it is
+kept rather than deleted.
 
 An AppContainer backend for Windows was investigated and is not enabled. This
 section previously blamed host ACL state. That diagnosis was wrong, and the
