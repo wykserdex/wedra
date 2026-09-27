@@ -55,11 +55,16 @@ process (`elevated: false`), using `SetNamedSecurityInfo` with
   `SYSTEM` + `Administrators` + the container SID. Verified in three
   placements: `%LOCALAPPDATA%\Temp`, a nested subdirectory of it, and
   `C:\ProgramData`. All three returned `OK`.
-- The restriction is effective: the acting user's own unelevated token is
+- The restriction is effective: the acting user's own **unelevated** token is
   locked out of the directory immediately afterwards (`ReadDir` â†’
-  `Access is denied`). The `C:\ProgramData` `ACCESS_DENIED` previously recorded
-  for a "DACL-only write" does not reproduce for a directory the process created
-  itself; it applies to rewriting the DACL of an existing subtree.
+  `Access is denied`). The user's SID is gone from the DACL entirely, which is
+  what is asserted by the test. Note the scope: an *elevated* token, or one whose
+  `Administrators` SID is enabled rather than deny-only, still gets in through
+  the `Administrators` ACE â€” and it could reclaim the directory regardless, so
+  that is the correct outcome and not a gap. The `C:\ProgramData`
+  `ACCESS_DENIED` previously recorded for a "DACL-only write" does not reproduce
+  for a directory the process created itself; it applies to rewriting the DACL
+  of an existing subtree.
 - `PROTECTED_DACL_SECURITY_INFORMATION` is load-bearing. Without it the new ACL
   merges with inherited ACEs (6 ACEs instead of 3) and the user token still
   passes. With it, inheritance is severed and the user token is excluded.
@@ -112,7 +117,7 @@ every step.
 
 ### Egress is not filtered by destination
 
-A plugin's `permissions.network` already carries structure — `host`, `port`, and
+A plugin's `permissions.network` already carries structure ï¿½ `host`, `port`, and
 an explicit `any_host` escape hatch. That structure was never enforced. The
 sandbox collapsed the whole list into "network was declared, so grant the
 network", so a plugin stating `api.telegram.org:443` received unrestricted
@@ -123,15 +128,15 @@ cannot express one (it either drops the network namespace or shares the host's),
 and `sandbox-exec` only understands `allow`/`deny network*`. Rather than keep an
 unenforced restriction in the manifest, the enforceable case is now explicit:
 
-- `any_host: true` — blanket egress, granted, and now something the author has to
+- `any_host: true` ï¿½ blanket egress, granted, and now something the author has to
   write on purpose.
-- a list of concrete hosts without `any_host` — **not** silently widened. The
+- a list of concrete hosts without `any_host` ï¿½ **not** silently widened. The
   sandbox denies the network, and under `network: allow` the run stops with
   `network_not_enforceable` and an explanation.
 
 Official LLM plugins that previously declared a precise host were moved to
 `any_host: true` with the intended target kept in `note`. That is not a
-tightening — they already had blanket egress — it removes a false claim from the
+tightening ï¿½ they already had blanket egress ï¿½ it removes a false claim from the
 manifests. The declared host lists in those notes are still aspirational.
 
 Consequence to be explicit about: **egress filtering does not exist yet.** Any
