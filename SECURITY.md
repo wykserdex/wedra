@@ -40,7 +40,7 @@ only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
 
 | Platform | Backend | Notes |
 | --- | --- | --- |
-| Linux | `bwrap` (bubblewrap) | read-only host filesystem (including `/tmp` and the plugin directory), separate PID/IPC/UTS, a private writable scratch directory created per run and deleted afterwards, network namespace dropped unless `permissions.network` is declared |
+| Linux | `bwrap` (bubblewrap) | read-only host filesystem (including `/tmp` and the plugin directory), separate PID/IPC/UTS, a private writable scratch directory created per run and deleted afterwards, **network namespace always separate**. A plugin that declares `any_host` gets egress through a userspace stack (`slirp4netns`); without it there is no network at all, and without `slirp4netns` installed the run is refused |
 | macOS | none | fail-closed: backend archived, see below |
 | Windows | none | fail-closed: untrusted plugins cannot run (blocked on low-integrity sandbox root, see below) |
 
@@ -170,38 +170,74 @@ is restricted to TLS ports, and `stop` closes hijacked tunnels explicitly becaus
 `http.Server.Shutdown` does not. If the proxy cannot start, the plugin does not
 run (`sandbox_unavailable`).
 
-**What this does not yet buy.** On Linux the plugin still shares the host network
-namespace, so `HTTP_PROXY` is advisory, not enforced: a plugin that ignores the
-variable can open a socket directly.
+**The proxy is currently dormant, and saying otherwise would be the easy mistake.**
+A plugin inside a separate network namespace cannot reach the host: measured on
+WSL2 with `bwrap` and `slirp4netns`, a service listening on the host's
+`127.0.0.1` is refused from inside, and the stack's gateway address is
+unreachable too. So the proxy's loopback address is simply not visible to a
+sandboxed plugin, and `HTTP_PROXY` is not handed to it — pointing a cooperative
+plugin at a dead address would only hand it a refusal on every request. The
+allowlist code stays in the tree with its tests, but no current backend gives a
+plugin a reachable host loopback, so nothing calls it. It is plumbing for a
+future shared-netns backend, not a control in force today.
 
-The obvious fix — put the plugin in its own network namespace and filter with
-nftables from inside — was tested and does not work. Inside
-`unshare -Ur -n`, which is the same pair of primitives `bwrap` uses, the sandbox
-is `UID=0` in a user namespace that owns the network namespace, and on both a
-Debian 13.7 host (kernel `6.12.107+deb13-amd64`) and WSL2 (kernel
-`6.18.33.2-microsoft-standard-WSL2`) it can `ip link set lo up`, `nft add table`,
-`nft add chain`, and `nft delete table`. Rules installed inside the plugin's own
-namespace are therefore not a control: the plugin can delete them, or run
-`nft flush ruleset`, before dialling. A userspace network stack
-(`pasta`/`slirp4netns`, the mechanism rootless Podman uses) does not close this
-either, because it hands the whole namespace outbound connectivity, and the
-plugin shares that stack — it would dial directly through it rather than through
-the proxy.
+### The plugin's network namespace is now always its own
 
-Enforcing per-destination egress on Linux therefore needs privilege on the *host*,
-which is a different answer from the Windows one rather than an improvement to
-it: a veth pair with nftables applied in the host namespace (requires
-`CAP_NET_ADMIN` or a privileged helper), or cgroup-scoped egress (as systemd
-applies it). The sandbox's user namespace cannot reach the host's nftables, so
-host-side rules would hold, but they cannot be installed unprivileged. Without
-that privilege the only enforceable option is the all-or-nothing `--unshare-net`
-that `bwrap` already provides, which leaves the plugin with no network at all
-instead of a filtered one.
+`--unshare-net` used to be added only when the plugin declared no network, which
+meant a plugin declaring `any_host: true` ran with the **host's** network
+namespace. That was a wider hole than unfiltered egress: the plugin could reach
+every service bound to the host's loopback, including WEDRA's own HTTP API.
 
-So on Linux today the filter is honest for cooperative plugins and bypassable for
-hostile ones, and this document should not claim otherwise. It also does not
-address exfiltration through a file in the scratch directory, through stdout, or
-through a DNS tunnel carried inside request names.
+The namespace is now always separate, and egress is provided by a userspace
+stack (`slirp4netns`): `tap0` inside the plugin's namespace, traffic NAT-ed by the
+host. Measured inside such a sandbox:
+
+| From inside the plugin | Result |
+| --- | --- |
+| host service on `127.0.0.1` | refused (`ConnectionRefusedError`) |
+| the stack's gateway `10.0.2.2` | unreachable |
+| internet by IP (`1.1.1.1:443`) | reachable |
+| DNS via the stack's forwarder | resolves |
+
+Two details the implementation depends on, both found the hard way:
+
+- The plugin must not start before `tap0` exists, or its first requests fail.
+  WEDRA runs the command behind a gate: `/bin/sh -c 'while [ ! -e "$1" ]; ...;
+  exec "$@"'`, and the gate file is created only after the interface is up. The
+  internal `$$` cannot be used to find the namespace either — under `--unshare-pid`
+  it is a PID-namespace-relative pid, useless to `slirp4netns`. The host-visible
+  pid comes from `/proc/<bwrap>/task/*/children`, and **its network namespace is
+  checked before attaching**: aiming `slirp4netns` at the `bwrap` process itself
+  adds `tap0` to the *host* namespace, which breaks the host.
+- `/etc/resolv.conf` is a symlink on most hosts, and `bwrap` cannot create a file
+  over a symlink (`Can't create file`). The override is bound at the *resolved*
+  path. It is needed at all because the host's resolver address is not reachable
+  from inside the isolated namespace, so without the override every DNS lookup
+  times out.
+
+**What this still does not buy.** Per-destination filtering. Inside
+`unshare -Ur -n` — the same primitives `bwrap` uses — the sandbox is `UID=0` in a
+user namespace that owns the network namespace, and on both a Debian 13.7 host
+(kernel `6.12.107+deb13-amd64`) and WSL2 (kernel `6.18.33.2-microsoft-standard-WSL2`)
+it can `ip link set lo up`, `nft add table`, `nft add chain` and `nft delete
+table`. Rules installed inside the plugin's own namespace are not a control: the
+plugin deletes them, or runs `nft flush ruleset`, before dialling. A userspace
+stack does not change that — it hands the whole namespace outbound connectivity,
+and the plugin dials through it directly rather than through a proxy.
+
+So a plugin that declares `any_host: true` gets **unfiltered** egress, but no
+longer inside the host's network namespace. That is the trade: the host's own
+services are out of reach, the destination is not filtered.
+
+Enforcing per-destination egress on Linux needs privilege on the *host*: a veth
+pair with nftables applied in the host namespace (`CAP_NET_ADMIN` or a privileged
+helper), or cgroup-scoped egress as systemd applies it. A user namespace cannot
+reach the host's nftables, so host-side rules would hold — but they cannot be
+installed unprivileged, and a setuid helper in a CLI people install without
+reading is a poor trade.
+
+This still does not address exfiltration through a file in the scratch
+directory, through stdout, or through a DNS tunnel carried inside request names.
 
 ### Fixed: an unset `network` field is now "deny"
 

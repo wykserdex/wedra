@@ -51,19 +51,31 @@ func sandboxEgress(ctx context.Context, m *pipeline.Manifest) ([]string, func(),
 	return eg.env(), stop, nil
 }
 
+// sandboxNetwork — платформенная работа с сетью песочницы, которая нужна
+// ПОСЛЕ старта процесса: поднять egress и только потом выпустить плагин.
+//
+// nil означает «ничего делать не надо» — либо сеть не объявлена, либо платформе
+// нечего делать.
+type sandboxNetwork interface {
+	// attach вызывается сразу после cmd.Start() и до ожидания завершения.
+	// Возвращает release, который обязан быть вызван; при ошибке процесс
+	// плагина не запускается (fail-closed).
+	attach(cmd *exec.Cmd) (release func(), err error)
+}
+
 // sandboxCommand — обёртка для запуска внешнего кода. Launcher и его аргументы
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux; на
 // macOS бэкенд отключён и лежит в attic/, поэтому и изолятора там нет),
 // и процесс не создаётся вовсе.
-func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, scratch string) (*exec.Cmd, error) {
+func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, scratch string) (*exec.Cmd, sandboxNetwork, error) {
 	if len(argv) == 0 {
-		return nil, errors.New("пустая команда плагина")
+		return nil, nil, errors.New("пустая команда плагина")
 	}
-	launcher, args, err := sandboxArgs(m, argv, scratch)
+	launcher, args, net, err := sandboxArgs(m, argv, scratch)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return exec.CommandContext(ctx, launcher, args...), nil
+	return exec.CommandContext(ctx, launcher, args...), net, nil
 }
 
 // newSandboxScratch — приватный записываемый каталог на один запуск плагина.

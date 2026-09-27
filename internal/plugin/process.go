@@ -184,13 +184,14 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// Внешний код запускается только внутри изолятора; если изолятор на хосте
 	// недоступна — отказ до создания процесса (fail-closed).
 	var cmd *exec.Cmd
+	var netSetup sandboxNetwork
 	scratch := ""
 	if m.Untrusted() {
 		var cleanup func()
 		var err error
 		scratch, cleanup, err = newSandboxScratch()
 		if err == nil {
-			cmd, err = sandboxCommand(ctx, argv, m, scratch)
+			cmd, netSetup, err = sandboxCommand(ctx, argv, m, scratch)
 		}
 		if err != nil {
 			if cleanup != nil {
@@ -213,9 +214,17 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		// HOME/USERPROFILE/APPDATA вырезаются, секреты не передаются вовсе.
 		// HOME/TMPDIR указывают на приватный scratch этого запуска.
 		baseEnv = append(untrustedBaseEnv(), sandboxScratchEnv(scratch)...)
-		// Egress-фильтр: любой разрешённый доступ идёт через прокси WEDRA, а не
-		// напрямую. Если прокси не поднялся — отказ, а не запуск без фильтра.
-		if declaresNetwork(m) {
+		// Egress-прокси поднимается только когда плагину достаётся сеть,
+		// которой он может дотянуться. Изолированная песочница до хоста не
+		// дотягивается вовсе (проверено: и loopback хоста, и шлюз
+		// userspace-стека изнутри недоступны), поэтому прокси там бесполезен,
+		// а HTTP_PROXY с адресом хоста только вводил бы честный плагин в
+		// заблуждение — он получал бы отказ на каждый запрос.
+		//
+		// Прокси остаётся в коде для будущего бэкенда с общим netns; на
+		// текущих платформах он не вызывается, и это не должно читаться как
+		// «фильтр работает».
+		if declaresNetwork(m) && netSetup == nil {
 			env, stop, err := sandboxEgress(ctx, m)
 			if err != nil {
 				res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", err.Error()
@@ -278,6 +287,30 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		<-ctx.Done()
 		killProcessGroup(cmd)
 	}()
+
+	// Сеть поднимается ПОСЛЕ старта процесса и ДО его фактического выполнения:
+	// плагин запущен, но заперт на воротах, пока tap0 не поднят. Ошибка здесь —
+	// отказ, а не запуск без запрошенной сети.
+	if netSetup != nil {
+		release, aerr := netSetup.attach(cmd)
+		if aerr != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			cleanupProcessGroup(cmd)
+			if markContextResult(parent, ctx, res) {
+				return res
+			}
+			// stderr изолятора — единственное, что объяснит отказ: сам bwrap
+			// молчит и в журнал не пишет.
+			if s := strings.TrimSpace(stderr.String()); s != "" {
+				aerr = fmt.Errorf("%w (изолятор: %s)", aerr, s)
+			}
+			res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", aerr.Error()
+			res.ExitCode = 2
+			return res
+		}
+		defer release()
+	}
 
 	start := time.Now()
 	runErr := cmd.Wait()

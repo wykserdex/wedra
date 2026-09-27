@@ -221,7 +221,7 @@ func TestWindowsNoWindowsBackendRemainsFailClosed(t *testing.T) {
 		Runtime: pipeline.Runtime{Type: "python", Entry: "plugin.py"},
 		Dir:     t.TempDir(),
 	}
-	if _, _, err := sandboxArgs(m, []string{"/bin/sh", "-c", "true"}, t.TempDir()); err == nil {
+	if _, _, _, err := sandboxArgs(m, []string{"/bin/sh", "-c", "true"}, t.TempDir()); err == nil {
 		t.Fatal("Р±РµР· Windows-Р±СЌРєРµРЅРґР° Р·Р°РїСѓСЃРє РІРЅРµС€РЅРµРіРѕ РєРѕРґР° РѕР±СЏР·Р°РЅ Р±С‹С‚СЊ РѕС‚РєР°Р·, Р° РЅРµ СЂР°Р·СЂРµС€С‘РЅ")
 	}
 }
