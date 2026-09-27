@@ -41,7 +41,13 @@ func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]inte
 		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
 		"input":   input, "output": output,
 		"permissions": map[string]interface{}{
-			"network":    []map[string]interface{}{{"host": "api.example.com", "port": 443}},
+			// Сеть не заявлена: фикстура проверяет механики MCP (запуск,
+			// разрешение путей, границы wait, file_ref), а не сетевую политику.
+			// У MCP собственная проверка жёстче рантаймной (checkPipelineSafety
+			// отказывает любой сетевой декларации), поэтому плагин с сетью здесь
+			// ломал бы тест не по своему предмету. Сетевые кейсы — через
+			// writePolicyPlugin.
+			"network":    []map[string]interface{}{},
 			"filesystem": "workspace", "secrets": []string{"DEMO_TOKEN"},
 		},
 	}

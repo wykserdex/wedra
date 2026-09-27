@@ -305,9 +305,17 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		warnHostPathInBind(&v, pf, st, m)
 		if len(m.Permissions.Network) > 0 {
 			hosts := NetworkHosts(m)
-			if p.Network == "deny" {
-				v.err(E_NETWORK_DENIED, st.ID, "", "pipeline.steps."+st.ID, "уберите сеть из манифеста или снимите network: deny", nil, "шаг %s: плагин %s заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, hosts)
-			} else {
+			// Тот же отказ, что и в рантайме (network_not_enforceable):
+			// валидатор не должен зелёным светом пускать пайплайн, который
+			// ран затем откажет. Обе ветки независимы: шаг может быть плохим
+			// и по сети, и по bind, и обе проверки должны прозвучать.
+			notEnforceable := EffectiveNetwork(p) == NetworkAllow && NetworkHasStructuredDeclarations(m)
+			switch {
+			case EffectiveNetwork(p) == NetworkDeny:
+				v.err(E_NETWORK_DENIED, st.ID, "", "pipeline.steps."+st.ID, "уберите сеть из манифеста или укажите network: allow", nil, "шаг %s: плагин %s заявил сеть (%s), а %s", st.ID, st.Plugin, hosts, networkDenyBecause(p.Network))
+			case notEnforceable:
+				v.err(E_NETWORK_NOT_ENFORCEABLE, st.ID, "", "pipeline.steps."+st.ID, "объявите any_host: true (точечный фильтр не реализован) или уберите сеть", nil, "шаг %s: плагин %s заявил сеть по host:port (%s), но точечный egress-фильтр не реализован — полный доступ вместо списка хостов выдавать нельзя", st.ID, st.Plugin, hosts)
+			default:
 				v.warn(W_NETWORK_DECLARED, st.ID, "", "pipeline.steps."+st.ID, "аудит сети — в журнале запуска", nil, "шаг %s: плагин заявил сеть: %s (declare-now, аудит — журнал)", st.ID, hosts)
 			}
 		}

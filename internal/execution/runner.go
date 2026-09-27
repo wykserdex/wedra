@@ -376,8 +376,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	if len(missingSecrets) > 0 {
 		return stats, runErr("secrets_missing", "secrets: не заданы переменные окружения: %s (export перед запуском, значения в YAML не живут)", strings.Join(missingSecrets, ", "))
 	}
-	// v0.17: network: deny — до любого эффекта, не доверяем validate
-	if pf.Pipeline.Network == "deny" {
+	// v0.17: network: deny — до любого эффекта, не доверяем validate.
+	// Поле не задано — тоже deny: задокументированный дефолт не должен
+	// отличаться от фактического, иначе пайплайн без network прогоняет
+	// плагин с заявленной сетью вообще без гейта.
+	netPolicy := pipeline.EffectiveNetwork(&pf.Pipeline)
+	if netPolicy == pipeline.NetworkDeny {
 		for i := range pf.Pipeline.Steps {
 			st := &pf.Pipeline.Steps[i]
 			if plugin.IsBuiltin(st.Plugin) {
@@ -391,18 +395,21 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 				continue // ошибка резолвинга всплывает ниже
 			}
 			if len(m.Permissions.Network) > 0 {
-				return stats, runErr("network_denied", "network: шаг %s (плагин %s) заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, pipeline.NetworkHosts(m))
+				why := "пайплайн запрещает (network: deny)"
+				if pf.Pipeline.Network == "" {
+					why = "поле network не задано, а пустое поле означает deny — укажите network: allow, чтобы разрешить"
+				}
+				return stats, runErr("network_denied", "network: шаг %s (плагин %s) заявил сеть (%s), а %s", st.ID, st.Plugin, pipeline.NetworkHosts(m), why)
 			}
 		}
-	} else if pf.Pipeline.Network == "allow" {
+	} else if netPolicy == pipeline.NetworkAllow {
 		// network: allow — пайплайн разрешил сеть. Но исполнимо только явное
 		// any_host: true. Список конкретных хостов выглядит как ограничение,
 		// поэтому превращать его в полный доступ молча нельзя: точечный фильтр
 		// не реализован, значит честный ответ — отказать и объяснить.
 		//
-		// Условие именно == "allow", а не "иначе": поле не задано — это не
-		// разрешение, и конвейер без явного network не должен ловить эту
-		// проверку.
+		// Ветка == allow, а не «иначе»: сеть выдаётся только явным решением
+		// пайплайна, поле не задано — это deny (см. EffectiveNetwork).
 		for i := range pf.Pipeline.Steps {
 			st := &pf.Pipeline.Steps[i]
 			if plugin.IsBuiltin(st.Plugin) || plugin.IsBuiltinNamespace(st.Plugin) {
@@ -1043,9 +1050,12 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 	if attempts > pipeline.MaxRetryAttempts {
 		attempts = pipeline.MaxRetryAttempts
 	}
-	// v0.17: declare-now — subprocess получает контракт сети (deny → честный плагин откажется от сети)
+	// v0.17: declare-now — subprocess получает контракт сети. Значение по
+	// умолчанию — deny, а не allow: раньше здесь стоял literal "allow", и
+	// пайплайн с незаполненным полем network отдавал плагину WEDRA_NETWORK=allow,
+	// то есть пустое поле молча разрешало сеть.
 	netEnv := "allow"
-	if pf.Pipeline.Network == "deny" {
+	if pipeline.EffectiveNetwork(&pf.Pipeline) == pipeline.NetworkDeny {
 		netEnv = "deny"
 	}
 	var res *plugin.ExecResult

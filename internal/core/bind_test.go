@@ -132,10 +132,12 @@ func TestBindSamePluginTwiceEndToEnd(t *testing.T) {
 		FormatVersion: "0.2",
 		Pipeline: Pipeline{
 			Name: "t_same_provider",
+			// llm_gemini заявляет сеть; пустое поле network равно deny.
+			Network: "allow",
 			Input: map[string]interface{}{
-				"topic":         "арбузы",
-				"draft_system":  "пиши",
-				"refine_system": "правь",
+				"topic":         "тема",
+				"draft_system":  "система",
+				"refine_system": "строже",
 			},
 			Steps: []Step{
 				{ID: "draft", Plugin: absLLM, OnError: "stop", Timeout: sec(10)},
@@ -186,6 +188,8 @@ func TestBindMissingPathRuntimeError(t *testing.T) {
 		FormatVersion: "0.2",
 		Pipeline: Pipeline{
 			Name: "t_bindgap",
+			// llm_gemini заявляет сеть; пустое поле network равно deny.
+			Network: "allow",
 			Input: map[string]interface{}{
 				"topic": "x",
 			},

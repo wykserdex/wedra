@@ -147,7 +147,7 @@ pipeline:
   secrets: [OPENAI_API_KEY]
 ```
 
-Subprocess получает allowlist environment и только явно объявленные secrets. `network: deny` запрещает шаги с сетевыми permissions; `allow` передаёт плагину `WEDRA_NETWORK=allow` и оставляет декларацию в журнале.
+Subprocess получает allowlist environment и только явно объявленные secrets. Сеть по умолчанию запрещена: `network: deny` и незаполненное поле `network` означают одно и то же, поэтому шаги с сетевыми permissions требуют явного `network: allow`. Тогда плагин получает `WEDRA_NETWORK=allow`, а декларация остаётся в журнале. Перечислить конкретные хосты нельзя: точечный фильтр не реализован, поэтому `allow` вместе со списком `host:port` отвергается — нужен `any_host: true`.
 
 ## GUI и MCP
 

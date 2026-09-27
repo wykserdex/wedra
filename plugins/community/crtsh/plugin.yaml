@@ -31,6 +31,10 @@ output:
   expired:   { type: number }
 
 permissions:
-  network: [ { host: crt.sh, port: 443 } ]
+  # Цель — crt.sh:443, но точечный egress-фильтр по host:port не реализован ни
+  # на одной платформе, поэтому список хостов был бы ограничением только
+  # на бумаге: рантайм всё равно выдаёт полный доступ. Запрашиваем его явно,
+  # с настоящей целью в note — иначе объявление вводит в заблуждение.
+  network: [ { any_host: true, port: 443, note: "target: crt.sh:443; per-host egress is not enforced yet, so blanket egress is requested explicitly" } ]
   filesystem: none
   secrets: []

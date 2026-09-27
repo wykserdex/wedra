@@ -329,12 +329,18 @@ func validateLegacy(pf *PipelineFile, eng Engine) (errs, warns []string) {
 				errs = append(errs, fmt.Sprintf("шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input)))
 			}
 		}
-		// v0.17: declare-now — плагин заявил сеть в манифесте
+		// v0.17: declare-now — плагин заявил сеть в манифесте.
+		// Пустое поле network равно deny, иначе валидатор молчал бы там, где
+		// рантайм отказывает. allow + список host:port — тоже отказ рантайма,
+		// поэтому валидатор обязан его повторить.
 		if len(m.Permissions.Network) > 0 {
 			hosts := NetworkHosts(m)
-			if p.Network == "deny" {
-				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть (%s), а пайплайн запрещает (network: deny)", st.ID, st.Plugin, hosts))
-			} else {
+			switch {
+			case EffectiveNetwork(p) == NetworkDeny:
+				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть (%s), а %s", st.ID, st.Plugin, hosts, networkDenyBecause(p.Network)))
+			case EffectiveNetwork(p) == NetworkAllow && NetworkHasStructuredDeclarations(m):
+				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть по host:port (%s), но точечный egress-фильтр не реализован — полный доступ вместо списка хостов выдавать нельзя", st.ID, st.Plugin, hosts))
+			default:
 				warns = append(warns, fmt.Sprintf("шаг %s: плагин заявил сеть: %s (declare-now, аудит — журнал)", st.ID, hosts))
 			}
 		}

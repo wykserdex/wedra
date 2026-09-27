@@ -172,26 +172,70 @@ run (`sandbox_unavailable`).
 
 **What this does not yet buy.** On Linux the plugin still shares the host network
 namespace, so `HTTP_PROXY` is advisory, not enforced: a plugin that ignores the
-variable can open a socket directly. Kernel enforcement needs the plugin in its
-own namespace with no route out, reachable only by loopback — which in practice
-means a userspace network stack (`pasta`/`slirp4netns`, the mechanism rootless
-Podman uses) and plumbing `bwrap` does not currently expose. Until that lands,
-the filter is honest for cooperative plugins and bypassable for hostile ones, and
-this document should not claim otherwise. It also does not address exfiltration
-through a file in the scratch directory, through stdout, or through a DNS tunnel
-carried inside request names.
+variable can open a socket directly.
 
-### Known gap: an unset `network` field is not "deny"
+The obvious fix — put the plugin in its own network namespace and filter with
+nftables from inside — was tested and does not work. Inside
+`unshare -Ur -n`, which is the same pair of primitives `bwrap` uses, the sandbox
+is `UID=0` in a user namespace that owns the network namespace, and on both a
+Debian 13.7 host (kernel `6.12.107+deb13-amd64`) and WSL2 (kernel
+`6.18.33.2-microsoft-standard-WSL2`) it can `ip link set lo up`, `nft add table`,
+`nft add chain`, and `nft delete table`. Rules installed inside the plugin's own
+namespace are therefore not a control: the plugin can delete them, or run
+`nft flush ruleset`, before dialling. A userspace network stack
+(`pasta`/`slirp4netns`, the mechanism rootless Podman uses) does not close this
+either, because it hands the whole namespace outbound connectivity, and the
+plugin shares that stack — it would dial directly through it rather than through
+the proxy.
 
-`network: deny` is the documented default, but the runner only applies its deny
-check when the field is literally `deny`. A pipeline that omits `network`
-entirely runs neither branch and therefore receives **no network check at all**,
-which means a plugin that declares a host gets unrestricted egress. This is
-pre-existing and contradicts the documentation.
+Enforcing per-destination egress on Linux therefore needs privilege on the *host*,
+which is a different answer from the Windows one rather than an improvement to
+it: a veth pair with nftables applied in the host namespace (requires
+`CAP_NET_ADMIN` or a privileged helper), or cgroup-scoped egress (as systemd
+applies it). The sandbox's user namespace cannot reach the host's nftables, so
+host-side rules would hold, but they cannot be installed unprivileged. Without
+that privilege the only enforceable option is the all-or-nothing `--unshare-net`
+that `bwrap` already provides, which leaves the plugin with no network at all
+instead of a filtered one.
 
-Treating unset as deny was tried and reverted: it refuses existing pipelines
-whose plugins declare a host (`crtsh`, the `net_demo` conformance fixtures), so
-it needs its own migration rather than riding along with the granularity work.
-`TestNetworkPolicyMatrix` in `internal/execution` pins the current behaviour and
-names these rows as the known gap, so the day the fix lands the expectations and
-this section move together.
+So on Linux today the filter is honest for cooperative plugins and bypassable for
+hostile ones, and this document should not claim otherwise. It also does not
+address exfiltration through a file in the scratch directory, through stdout, or
+through a DNS tunnel carried inside request names.
+
+### Fixed: an unset `network` field is now "deny"
+
+`network: deny` has always been the documented default, but the gate only ran
+when the field was literally `deny`. A pipeline that omitted `network` matched
+neither branch, so it got **no network check at all**, and the subprocess was
+handed `WEDRA_NETWORK=allow` — the empty field granted network while the docs
+promised it denied it.
+
+An earlier attempt at this was reverted because it refused existing pipelines
+whose plugins declare a host. That migration has now been done, so the fix is
+in place. `pipeline.EffectiveNetwork` is the single place that resolves the
+field, and the runner, both validators and the editor all go through it — the
+bug existed because four layers each re-implemented `p.Network == "deny"` and
+drifted apart.
+
+Making the empty field mean `deny` surfaced two more consequences of the same
+drift, both fixed here:
+
+- The validators reported "valid" for a pipeline the runner then refused
+  (`network: allow` plus a `host:port` list, which is not enforceable). There is
+  now `E_NETWORK_NOT_ENFORCEABLE`, so `validate` and `run` agree.
+- The GUI editor treated `allow` as the default and dropped it when serializing,
+  because the empty field used to mean `allow`. Under the new meaning that
+  silently turned a permission into a prohibition: a pipeline round-tripped
+  through the editor stopped being able to reach the network. An explicit
+  `network: allow` now survives the round-trip, while a genuinely unset field
+  stays unset.
+
+MCP keeps its own, stricter check (`checkPipelineSafety` refuses any network
+declaration outright, whatever the pipeline asks for) — that is deliberate and
+separate from the pipeline-level gate.
+
+`TestNetworkPolicyMatrix` in `internal/execution` pins the resulting matrix,
+including the two unset rows that used to be the known gap, and
+`TestRunNetworkUnsetEnvIsDeny` in `internal/core` pins the value the subprocess
+actually receives.

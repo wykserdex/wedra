@@ -910,6 +910,30 @@ permissions:
   secrets: []
 `
 
+// netAnyFixturePlugin — манифест с явным any_host: единственное сетевое
+// объявление, которое песочница умеет исполнить, поэтому network: allow
+// с ним валиден.
+const netAnyFixturePlugin = `id: net-any-fixture
+version: 0.1.0
+platform_api: "^0.1"
+runtime:
+  type: python
+  entry: main.py
+  requires: []
+input:
+  item:
+    from: input.item
+    type: string
+    format: text
+output:
+  done: { type: boolean }
+permissions:
+  network:
+    - { any_host: true, port: 443 }
+  filesystem: none
+  secrets: []
+`
+
 // netTestServer — flowTestServer + фикстурный плагин, заявляющий сеть.
 func netTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
@@ -919,6 +943,12 @@ func netTestServer(t *testing.T) (*httptest.Server, string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(plugins, "net-fixture", "plugin.yaml"), []byte(netFixturePlugin), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(plugins, "net-any-fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plugins, "net-any-fixture", "plugin.yaml"), []byte(netAnyFixturePlugin), 0644); err != nil {
 		t.Fatal(err)
 	}
 	return srv, runs
@@ -1047,15 +1077,51 @@ pipeline:
 	if !strings.Contains(joined, "network: deny") {
 		t.Fatalf("ошибка без network: deny: %s", joined)
 	}
-	// без deny: то же самое пайплайн валиден, warning про заявленную сеть
-	raw2 := []byte(`format_version: "0.2"
+	// allow + список host:port — тоже ошибка: точечный фильтр не реализован,
+	// поэтому выдать полный доступ вместо списка нельзя. Валидатор обязан
+	// повторять отказ рантайма, а не пропускать пайплайн зелёным.
+	rawAllowHost := []byte(`format_version: "0.2"
 pipeline:
-  name: net_ok
+  name: net_allow_host
+  network: allow
   input:
     x: "hi"
   steps:
     - id: fx
       plugin: net-fixture
+      bind:
+        item: input.x
+`)
+	_, docA := postBytes(t, ts.URL+"/api/parse/pipeline", rawAllowHost)
+	dA, _ := json.Marshal(docA)
+	code, outA := postBytes(t, ts.URL+"/api/serialize/pipeline", dA)
+	if code != 200 {
+		t.Fatalf("code=%d body=%v", code, outA)
+	}
+	if outA["ok"] != false {
+		t.Fatalf("allow + host:port принят, но рантайм его отвергнет: %v", outA)
+	}
+	joinedA := ""
+	for _, e := range outA["errors"].([]interface{}) {
+		joinedA += e.(string) + " "
+	}
+	if !strings.Contains(joinedA, "example.com:443") {
+		t.Fatalf("ошибка без упоминания заявленного хоста: %s", joinedA)
+	}
+
+	// allow + явный any_host: валидно, warning про заявленную сеть.
+	// Раньше здесь был пайплайн вовсе без поля network, и он считался
+	// валидным; теперь пустое поле равно deny, поэтому «разрешить» — это
+	// явное network: allow плюс исполнимое объявление.
+	raw2 := []byte(`format_version: "0.2"
+pipeline:
+  name: net_ok
+  network: allow
+  input:
+    x: "hi"
+  steps:
+    - id: fx
+      plugin: net-any-fixture
       bind:
         item: input.x
 `)
@@ -1072,8 +1138,8 @@ pipeline:
 	for _, w := range out2["warnings"].([]interface{}) {
 		warns += w.(string) + " "
 	}
-	if !strings.Contains(warns, "example.com:443") {
-		t.Fatalf("нет warning про заявленную сеть example.com:443: %s", warns)
+	if !strings.Contains(warns, "*:443") {
+		t.Fatalf("нет warning про заявленную сеть *:443: %s", warns)
 	}
 }
 

@@ -34,22 +34,20 @@ var structuredNet = []pipeline.NetworkPermission{{Host: "api.example.com", Port:
 
 var blanketNet = []pipeline.NetworkPermission{{AnyHost: true}}
 
-// The network gate as it behaves today. deny is the documented default,
-// "allow" is an explicit opt-in, and only an any_host declaration is actually
-// enforceable.
+// The network gate. deny is the default, "allow" is an explicit opt-in, and
+// only an any_host declaration is actually enforceable.
+//
+// An omitted `network` field is deny, exactly like an explicit `network: deny`.
+// It used to be neither: the gate compared `p.Network == "deny"` and
+// `== "allow"`, so an empty field matched no branch, ran no check at all, and
+// the subprocess was handed WEDRA_NETWORK=allow — fail-open while the docs
+// promised deny. The unset rows below are the regression for that.
 //
 // Assertions use ASCII markers on purpose: the messages this gate produces are
 // Russian, and a test matching on Russian literals was silently corrupted by an
 // editor rewriting the file in another encoding, reddening a passing suite for
-// the wrong reason.
-//
-// KNOWN GAP, asserted here so it cannot go unnoticed: a pipeline that omits the
-// `network` field entirely runs neither branch and therefore gets no network
-// check at all, which is fail-open even though the documentation says deny is
-// the default. Fixing that means treating unset as deny, which refuses existing
-// pipelines whose plugins declare a host, so it needs its own migration. If
-// this row ever starts failing, that fix landed and the expectations below plus
-// SECURITY.md need updating together.
+// the wrong reason. The unset rows match on "не задано", which is present in
+// both the refusal and the fix hint and does not depend on the full wording.
 func TestNetworkPolicyMatrix(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -62,10 +60,12 @@ func TestNetworkPolicyMatrix(t *testing.T) {
 		{"allow, host:port declared", "allow", structuredNet, true, "host:port"},
 		{"allow, explicit any_host", "allow", blanketNet, false, ""},
 		{"allow, no network declared", "allow", nil, false, ""},
+		// Nothing to refuse: the plugin asks for no network at all.
 		{"unset field, no network declared", "", nil, false, ""},
-		// Known gap: unset means "no gate", so a declared host is not refused.
-		{"unset field, host:port declared (known gap)", "", structuredNet, false, ""},
-		{"unset field, any_host declared (known gap)", "", blanketNet, false, ""},
+		// Unset is deny, so a declared host is refused and the message must not
+		// blame a "network: deny" the user never wrote.
+		{"unset field, host:port declared", "", structuredNet, true, "не задано"},
+		{"unset field, any_host declared", "", blanketNet, true, "не задано"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
