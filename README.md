@@ -16,40 +16,46 @@
 
 ## Быстрый старт за 2 минуты (без сборки)
 
+Скачай бинарник — и всё. Дальше `wedra demo`: цепочка целиком из встроенных
+модулей, поэтому не нужны ни git, ни Python, ни сеть.
+
 ```bash
-# 1. Скачай бинарник (Linux; для macOS/Windows — тот же путь в Releases)
 curl -L -o wedra https://github.com/wykserdex/wedra/releases/latest/download/wedra-linux-amd64
 chmod +x wedra
-
-# 2. Возьми примеры и плагины
-git clone --depth 1 https://github.com/wykserdex/wedra
-cd wedra
-
-# 3. Запусти офлайн-демо: текст → метрики → человек подтверждает
-./wedra pipeline run examples/text_stats.yaml --yes
+./wedra demo
 ```
 
 Ожидаемый итог:
 
 ```text
-→ stats        (попытка 1/1)
+▶ запуск "demo"  (журнал: /tmp/wedra-demo-…/20260927-…-demo-…)
 
 ══ human_gate · review ══
     steps.stats.lines = 3
-    steps.stats.words = 18
-    steps.stats.unique_words = 16
+    steps.stats.words = 11
+    steps.stats.unique_words = 11
     steps.stats.longest_word = "Оркестратор"
   [--yes] auto-accept
 
 ■ ран завершён: ok=1 aborted=0
 ```
 
-Без `--yes` гейт спросит решение интерактивно: `a` — принять, `r` — отклонить.
-`--yes` не обходит `approval: human` и `pipeline.gates: human_only`.
+Это тот же ран, что `pipeline run`, с теми же журналом, гейтом и `resume` —
+просто собранный из встроенного `core/text_stats` и встроенного гейта, без
+внешних плагинов.
 
-Требования: Python 3.9+ в `PATH` для Python-плагинов. Go 1.22+ нужен только для сборки
-из исходников. Для untrusted-плагинов на Linux нужен `bwrap`, а для их сетевого доступа —
-ещё и `slirp4netns`, иначе ран будет отклонён, а не запущен без изоляции.
+Когда захочется настоящих плагинов и примеров — клонируй репозиторий:
+
+```bash
+git clone --depth 1 https://github.com/wykserdex/wedra
+cd wedra
+./wedra pipeline run examples/text_stats.yaml --yes
+```
+
+Требования: Python 3.9+ в `PATH` — только для Python-плагинов (встроенным и
+`wedra demo` он не нужен). Go 1.22+ нужен только для сборки из исходников. Для
+untrusted-плагинов на Linux нужен `bwrap`, а для их сетевого доступа — ещё и
+`slirp4netns`, иначе ран будет отклонён, а не запущен без изоляции.
 
 ## Минимальный pipeline
 
@@ -79,9 +85,11 @@ pipeline:
 ./wedra pipeline run hello.yaml       # запуск с гейтом человека
 ```
 
-`core/human_gate` — единственный встроенный plugin; другие `core/*` отклоняются.
-Полный формат и коды ошибок — в [protocol/v0.2/PROTOCOL.md](protocol/v0.2/PROTOCOL.md)
-и [protocol/v0.2/ERRORS.md](protocol/v0.2/ERRORS.md).
+Встроенные модули: `core/human_gate` (шлюз) и `core/text_stats` (метрики
+текста). Namespace `core/` закрыт — любой другой `core/*` отвергается, а не
+ищется на диске. Полный формат, список встроенных и коды ошибок — в
+[protocol/v0.2/PROTOCOL.md](protocol/v0.2/PROTOCOL.md) и
+[protocol/v0.2/ERRORS.md](protocol/v0.2/ERRORS.md).
 
 ## Что умеет
 
@@ -131,8 +139,10 @@ loopback/private hosts и symlink escape. Это policy boundary, а не зам
 
 ## Плагины и реестр
 
-Плагин — отдельный процесс: читает JSON из stdin, пишет JSON-конверт в stdout,
-объявляет манифест с типами входов/выходов и разрешениями:
+Встроенные модули `core/*` — доверенный код в процессе ядра: `human_gate`
+(шлюз) и `text_stats` (метрики текста). Их список закрыт, в `permissions` они
+ничего не заявляют, а наружу не ходят. Остальное — плагины: отдельный процесс,
+JSON по stdin/stdout, контракт и разрешения в манифесте:
 
 ```bash
 ./wedra plugin create ./my_plugin --example array  # скелет, сразу зелёный
@@ -178,6 +188,7 @@ pipeline:
 ## CLI
 
 ```text
+wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
 wedra pipeline validate <file.yaml> [--json]
 wedra pipeline lint <file.yaml>
 wedra pipeline plan <file.yaml>

@@ -77,6 +77,12 @@ func Run() {
 			return
 		}
 		RunApprove(os.Args[2:])
+	case "demo":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
+		RunDemo(os.Args[2:])
 	default:
 		fmt.Printf("неизвестная команда %q\n", cmd)
 		printHelp()
@@ -113,6 +119,7 @@ func printHelp() {
   wedra gui [--port 8765] [--open] [--no-session] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]  # консоль; мутации — по ссылке ?k= из терминала
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY
+  wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
 
 Совместимость:
   wedra run <file.yaml> == pipeline run

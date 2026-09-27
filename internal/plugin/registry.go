@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"wedra/internal/common"
 	"wedra/internal/pipeline"
 	"wedra/internal/registry"
 )
@@ -31,9 +32,49 @@ func IsBuiltinNamespace(ref string) bool {
 	return pipeline.IsBuiltinNamespace(ref)
 }
 
+// builtinManifests — контракты встроенных модулей. Раньше здесь возвращался
+// один захардкоженный манифест human_gate на ЛЮБОЙ ref из namespace core/,
+// потому что встроенным был ровно один модуль. С появлением core/text_stats
+// манифест выбирается по ref: иначе шаг с text_stats получил бы контракт гейта
+// (у него нет ни input, ни output) и его выход просто не проверялся бы.
+func builtinManifests() map[string]*pipeline.Manifest {
+	return map[string]*pipeline.Manifest{
+		common.HumanGatePluginRef: {
+			ID:          common.HumanGatePluginRef,
+			Version:     pipeline.PlatformAPI,
+			PlatformAPI: pipeline.PlatformAPI,
+			// У гейта нет ни входов, ни выходов: он не читает данные и его
+			// результат — решение человека, а не значение для steps.*.
+		},
+		common.TextStatsPluginRef: {
+			ID:          common.TextStatsPluginRef,
+			Version:     pipeline.PlatformAPI,
+			PlatformAPI: pipeline.PlatformAPI,
+			Description: "Метрики текста: строки, слова, уникальные слова, длиннейшее слово. Встроенный, не требует Python",
+			Input: map[string]pipeline.Port{
+				"text": {From: "input.text", Type: "string", Format: "text"},
+			},
+			Output: map[string]pipeline.Port{
+				"lines":        {Type: "number"},
+				"words":        {Type: "number"},
+				"unique_words": {Type: "number"},
+				"longest_word": {Type: "string"},
+			},
+			// Порт встроенного модуля по построению не трогает ни сеть, ни
+			// файлы, ни секреты — объявлять тут нечего, и declare-now-проверки
+			// сети на нём не срабатывают.
+			Permissions: pipeline.Permissions{Filesystem: "none"},
+		},
+	}
+}
+
 func (e *Engine) LoadManifest(ref string) (*pipeline.Manifest, error) {
 	if IsBuiltin(ref) {
-		return &pipeline.Manifest{ID: "core/human_gate", Version: pipeline.PlatformAPI}, nil
+		canonical, _ := common.CanonicalBuiltinRef(ref)
+		if m, ok := builtinManifests()[canonical]; ok {
+			return m, nil
+		}
+		return nil, fmt.Errorf("встроенный модуль без манифеста: %s", ref)
 	}
 	if IsBuiltinNamespace(ref) {
 		return nil, fmt.Errorf("неизвестный встроенный модуль: %s", ref)
