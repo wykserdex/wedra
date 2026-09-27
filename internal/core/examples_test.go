@@ -15,33 +15,38 @@ import (
 // один тест их не проверял. Этот тест — именно та проверка, которой не было.
 func TestExamplesAreValid(t *testing.T) {
 	// Пути плагинов в примерах относительные, а тест живёт в internal/core.
-	// Модуль на go1.22, поэтому t.Chdir недоступен — меняем каталог руками.
-	// Тесты пакета не параллелятся (t.Parallel не используется), так что это
-	// безопасно.
-	prev, err := os.Getwd()
+	// Раньше здесь стоял os.Chdir в корень репозитория, но менять глобальный
+	// каталог процесса в тесте — плохая идея: это ломает любой параллельный
+	// тест и любой дочерний процесс, запущенный другим тестом. Вместо этого
+	// пути переписываются в абсолютные, а движку указывается абсолютный
+	// PluginsDir.
+	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(filepath.Join("..", "..")); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(prev) })
-
-	entries, err := os.ReadDir("examples")
+	entries, err := os.ReadDir(filepath.Join(root, "examples"))
 	if err != nil {
 		t.Fatalf("examples недоступны: %v", err)
 	}
 	eng := NewEngine()
+	eng.PluginsDir = filepath.Join(root, "plugins")
 	checked := 0
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
-		path := filepath.Join("examples", e.Name())
+		path := filepath.Join(root, "examples", e.Name())
 		pf, err := pipeline.LoadPipelineFile(path)
 		if err != nil {
 			t.Errorf("%s: не читается: %v", e.Name(), err)
 			continue
+		}
+		for i := range pf.Pipeline.Steps {
+			ref := pf.Pipeline.Steps[i].Plugin
+			if ref == "" || pipeline.IsBuiltin(ref) || filepath.IsAbs(ref) {
+				continue
+			}
+			pf.Pipeline.Steps[i].Plugin = filepath.Join(root, ref)
 		}
 		checked++
 		for _, is := range pipeline.ValidateIssues(pf, eng) {
