@@ -235,6 +235,8 @@ func TestLLMChainEndToEndMock(t *testing.T) {
 		FormatVersion: PlatformAPI,
 		Pipeline: Pipeline{
 			Name: "t_llm_chain",
+			// LLM-плагины заявляют сеть; пустое поле network равно deny.
+			Network: "allow",
 			Input: map[string]interface{}{
 				"topic":         "арбузы",
 				"draft_system":  "пиши коротко",
@@ -297,8 +299,9 @@ func TestLLMChainHumanEditFlowsDownstream(t *testing.T) {
 	pf := &PipelineFile{
 		FormatVersion: PlatformAPI,
 		Pipeline: Pipeline{
-			Name:  "t_llm_edit",
-			Input: map[string]interface{}{"topic": "x", "refine_system": "y"},
+			Name:    "t_llm_edit",
+			Network: "allow", // LLM-плагины заявляют сеть
+			Input:   map[string]interface{}{"topic": "x", "refine_system": "y"},
 			Steps: []Step{
 				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_gemini"),
 					OnError: "stop", Timeout: sec(10)},

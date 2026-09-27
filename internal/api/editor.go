@@ -323,9 +323,14 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 			pf.Pipeline.Secrets = append(pf.Pipeline.Secrets, key)
 		}
 	}
-	// v0.6: network — только две политики (раннер: != "deny" = allow)
-	if strings.TrimSpace(doc.Network) == "deny" {
-		pf.Pipeline.Network = "deny"
+	// v0.6: network — только две политики. Явный allow обязан пережить
+	// round-trip: раньше редактор писал в YAML только deny, а allow
+	// отбрасывал, считая его дефолтом. После перехода «пустое поле = deny»
+	// это молча превращало разрешение в запрет — validate проходил, ран
+	// отказывал. Пустое поле остаётся пустым (ничего не выдумываем), но
+	// заданное значение сохраняется как есть.
+	if net := strings.TrimSpace(doc.Network); net == pipeline.NetworkDeny || net == pipeline.NetworkAllow {
+		pf.Pipeline.Network = net
 	}
 	for _, st := range doc.Steps {
 		step := pipeline.Step{
@@ -408,7 +413,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	if len(pf.Pipeline.Secrets) > 0 {
 		out.Pipeline.Secrets = pf.Pipeline.Secrets
 	}
-	out.Pipeline.Network = pf.Pipeline.Network // omitempty: allow = поля нет
+	// omitempty: поле не задано — его нет. Явный allow обязан быть в YAML,
+	// иначе готовый пайплайн после round-trip стал бы deny.
+	out.Pipeline.Network = pf.Pipeline.Network
 	for _, st := range pf.Pipeline.Steps {
 		os := outStep{ID: st.ID, Plugin: st.Plugin, Pos: docStepPos(doc, st.ID), OnError: st.OnError}
 		if st.Timeout.Duration > 0 {

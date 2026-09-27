@@ -12,6 +12,9 @@ format_version: "0.2"
 
 pipeline:
   name: osint_domain_audit
+  # Обязательное явное решение: пустое поле network равно deny, и оба шага
+  # ниже заявляют сеть. Без этой строки ран откажет до запуска.
+  network: allow
   input:
     domain: "example.com"
     sources: ["crtsh", "hackertarget"]

@@ -228,6 +228,39 @@ func NetworkHasStructuredDeclarations(m *Manifest) bool {
 	return !NetworkRequestsAnyHost(m)
 }
 
+// NetworkDeny, NetworkAllow — значения поля pipeline.network.
+const (
+	NetworkDeny  = "deny"
+	NetworkAllow = "allow"
+)
+
+// EffectiveNetwork — фактическая сетевая политика пайплайна.
+//
+// Пустое поле — это не «сеть разрешена», а отсутствие решения, и
+// документированный дефолт равен deny. Поле не задано → deny.
+//
+// Раньше каждая точка кода решала это самостоятельно сравнением
+// `p.Network == "deny"`, и unset-ветка нигде не совпадала с дефолтом из
+// документации: гейт не срабатывал вовсе, а плагин получал
+// WEDRA_NETWORK=allow. Одна функция вместо трёх независимых проверок —
+// чтобы валидация и рантайм не разошлись снова.
+func EffectiveNetwork(p *Pipeline) string {
+	if p == nil || p.Network == "" {
+		return NetworkDeny
+	}
+	return p.Network
+}
+
+// networkDenyBecause — чем объяснить отказ, когда сеть запрещена. Формулировка
+// «пайплайн запрещает (network: deny)» при unset-поле вводит в заблуждение:
+// пользователь ничего не писал, и ему показывают несуществующий запрет.
+func networkDenyBecause(raw string) string {
+	if raw == "" {
+		return "поле network не задано, а пустое поле означает deny — укажите network: allow, чтобы разрешить"
+	}
+	return "пайплайн запрещает (network: deny)"
+}
+
 // portSource — источник данных порта: bind шага приоритетнее дефолтного from
 func PortSource(portName string, port Port, st *Step) string {
 	if st != nil && st.Bind != nil {
