@@ -16,8 +16,19 @@ import (
 // без песочницы.
 var ErrSandboxUnsupported = errors.New("os-изоляция внешнего кода недоступна")
 
-// declaresNetwork — плагин объявил сетевые разрешения.
-func declaresNetwork(m *pipeline.Manifest) bool { return m != nil && len(m.Permissions.Network) > 0 }
+// declaresNetwork — песочница даёт сеть только под явный any_host: true.
+//
+// Раньше здесь стояло len(Permissions.Network) > 0, и это была дыра: плагин с
+// заявлением «нужен api.telegram.org:443» получал весь интернет, потому что
+// структурированный список схлопывался в булев флаг, и намерение автора
+// молча игнорировалось. Точечный фильтр по host:port не реализован ни на
+// одной платформе (bwrap не умеет, sandbox-exec умеет только allow/deny),
+// поэтому исполнимым является лишь blanket-вариант — и он должен быть
+// написан явно. Плагины со списком хостов сеть не получают вовсе; их
+// отсекает runner с внятным объяснением.
+func declaresNetwork(m *pipeline.Manifest) bool {
+	return pipeline.NetworkRequestsAnyHost(m)
+}
 
 // sandboxCommand — обёртка для запуска внешнего кода. Launcher и его аргументы
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux,

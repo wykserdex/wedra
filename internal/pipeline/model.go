@@ -197,6 +197,37 @@ func NetworkHostList(m *Manifest) []string {
 	return parts
 }
 
+// NetworkRequestsAnyHost — плагин явно попросил неограниченный egress.
+//
+// Только этот случай песочница умеет исполнить: точечный фильтр по host:port
+// не реализован ни на одной платформе. Плагин со списком конкретных хостов
+// различает два намерения — «мне нужен api.telegram.org:443» и «мне нужен
+// интернет» — и второе обязано быть написано как any_host: true. Различие
+// обязано быть явным, иначе список хостов читается как ограничение, а на
+// деле им не является.
+func NetworkRequestsAnyHost(m *Manifest) bool {
+	if m == nil {
+		return false
+	}
+	for _, np := range m.Permissions.Network {
+		if np.AnyHost {
+			return true
+		}
+	}
+	return false
+}
+
+// NetworkHasStructuredDeclarations — плагин объявил сеть по host:port, без
+// any_host. Такое объявление неисполнимо и не должно молча превращаться в
+// полный доступ: до появления фильтра такой плагин получает сеть только
+// явным any_host.
+func NetworkHasStructuredDeclarations(m *Manifest) bool {
+	if m == nil || len(m.Permissions.Network) == 0 {
+		return false
+	}
+	return !NetworkRequestsAnyHost(m)
+}
+
 // portSource — источник данных порта: bind шага приоритетнее дефолтного from
 func PortSource(portName string, port Port, st *Step) string {
 	if st != nil && st.Bind != nil {

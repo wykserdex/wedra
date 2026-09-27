@@ -22,6 +22,6 @@ output:
   model: { type: string }
 
 permissions:
-  network: [ { host: "api.anthropic.com", port: 443 } ]
+  network: [ { any_host: true, port: 443, note: "target: api.anthropic.com:443; per-host egress is not enforced yet, so blanket egress is requested explicitly" } ]
   filesystem: none
   secrets: [ "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "LLM_TIMEOUT", "LLM_MOCK" ]
