@@ -249,35 +249,91 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
       - run: go vet ./...
-      # Известный флейк: go test иногда зависает ПОСЛЕ прохождения тестов — держится
-      # pipe, унаследованный осиротевшим потомком тестового процесса. -timeout не
-      # помогает (-alarm живёт в дочернем бинарнике, который уже вышел), поэтому
-      # пакеты гоняем по одному: при зависании видно, на каком пакете остановились.
+      # Известный флейк этого репозитория: go test иногда зависает ПОСЛЕ прохождения
+      # тестов — держится pipe, унаследованный осиротевшим потомком тестового
+      # процесса. Поэтому -timeout не помогает: будильник живёт в дочернем бинарнике,
+      # который к этому моменту уже вышел, и бумажный таймаут шага тоже не срабатывает
+      # (шаг висел 20+ минут при timeout-minutes: 12).
       #
-      # timeout-minutes у шага, а не у job: если таймаутит job, GitHub отменяет
-      # его и НЕ отдаёт лог (BlobNotFound) — диагностика теряется. Упавший шаг
-      # оставляет лог на месте, и последний напечатанный пакет виден.
+      # Отсюда три решения, каждое закрывает свой симптом:
+      #  1. Внешний жёсткий предел на пакет с убийством ДЕРЕВА процессов. Шаг обязан
+      #     завершиться и упасть с кодом 1, а не висеть до отмены job.
+      #  2. Свой -timeout меньше внешнего предела: Go успевает напечатать дамп горутин,
+      #     а внешний предел страхует случай, когда процесс не умирает даже после паники.
+      #  3. Вывод каждого пакета пишется в файл, а не только в stdout шага: при отмене
+      #     job GitHub не отдаёт лог (BlobNotFound), и диагностика терялась дважды.
       - name: go test (per package)
         shell: pwsh
-        timeout-minutes: 12
+        timeout-minutes: 20
         run: |
+          $ErrorActionPreference = 'Continue'
+          $logDir = Join-Path $env:RUNNER_TEMP 'gotest'
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          $summary = Join-Path $logDir 'summary.txt'
+          Set-Content -Path $summary -Value ''
+
+          $goTimeoutSec = 180   # сначала срабатывает Go и печатает дамп горутин
+          $hardLimitMs = 240000 # затем внешний предел убивает дерево, если оно не умерло
+
           $failed = @()
           foreach ($pkg in (go list ./...)) {
+            $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
+            $outFile = Join-Path $logDir "$safe.out.txt"
+            $errFile = Join-Path $logDir "$safe.err.txt"
             Write-Host "=== $pkg ==="
-            go test $pkg -count=1 -timeout 5m
-            if ($LASTEXITCODE -ne 0) { $failed += $pkg }
+
+            $proc = Start-Process -FilePath 'go' `
+              -ArgumentList @('test', $pkg, '-count=1', '-timeout', "$($goTimeoutSec)s") `
+              -NoNewWindow -PassThru `
+              -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+            # Обязательная строка: без неё Start-Process -PassThru возвращает процесс,
+            # у которого ExitCode пуст, и $proc.ExitCode -ne 0 истинно ВСЕГДА — шаг
+            # объявил бы провалом каждый пакет, включая успешные. Handle кэширует
+            # нативный дескриптор. Проверено локально на всех трёх ветках.
+            $null = $proc.Handle
+
+            if (-not $proc.WaitForExit($hardLimitMs)) {
+              Write-Host "TIMEOUT $pkg : процесс не завершился за $($hardLimitMs/1000) с, убиваю дерево"
+              cmd /c "taskkill /T /F /PID $($proc.Id)" 2>&1 | Out-Null
+              $null = $proc.WaitForExit(15000)
+              Add-Content $summary "TIMEOUT $pkg"
+              $failed += $pkg
+            } else {
+              $null = $proc.WaitForExit()  # дочитывает ExitCode
+              Get-Content $outFile, $errFile -ErrorAction SilentlyContinue | Add-Content $summary
+              if ($proc.ExitCode -ne 0) {
+                Add-Content $summary "FAIL $pkg (exit=$($proc.ExitCode))"
+                $failed += $pkg
+              } else {
+                Add-Content $summary "ok $pkg"
+              }
+            }
           }
+
+          Write-Host '--- summary ---'
+          Get-Content $summary | Write-Host
+          Write-Host "логи пакетов: $logDir"
           if ($failed.Count -gt 0) {
             Write-Host "FAILED: $($failed -join ', ')"
             exit 1
           }
+      # Диагностика должна пережить отмену job: лог самого шага при отмене не
+      # отдаётся, а артефакт остаётся доступным.
+      - name: upload per-package logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-gotest-logs
+          path: ${{ runner.temp }}/gotest/
+          retention-days: 7
+          if-no-files-found: ignore
       - run: go build ./cmd/wedra
       - run: go build ./cmd/wedragui
 
