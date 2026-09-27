@@ -213,6 +213,18 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		// HOME/USERPROFILE/APPDATA вырезаются, секреты не передаются вовсе.
 		// HOME/TMPDIR указывают на приватный scratch этого запуска.
 		baseEnv = append(untrustedBaseEnv(), sandboxScratchEnv(scratch)...)
+		// Egress-фильтр: любой разрешённый доступ идёт через прокси WEDRA, а не
+		// напрямую. Если прокси не поднялся — отказ, а не запуск без фильтра.
+		if declaresNetwork(m) {
+			env, stop, err := sandboxEgress(ctx, m)
+			if err != nil {
+				res.Platform, res.ErrCode, res.ErrMsg = true, "sandbox_unavailable", err.Error()
+				res.ExitCode = 2
+				return res
+			}
+			defer stop()
+			baseEnv = append(baseEnv, env...)
+		}
 	}
 	if m.Runtime.Type == "python" {
 		baseEnv = append(baseEnv, "PYTHONUTF8=1")

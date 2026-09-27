@@ -30,6 +30,27 @@ func declaresNetwork(m *pipeline.Manifest) bool {
 	return pipeline.NetworkRequestsAnyHost(m)
 }
 
+// sandboxEgress — поднимает egress-фильтр для плагина, которому объявлен
+// any_host, и отдаёт переменные окружения с адресом прокси.
+//
+// Fail-closed: если прокси поднять не удалось, плагин с сетью не запускается
+// вовсе. Молча запустить без фильтра хуже, чем отказать.
+func sandboxEgress(ctx context.Context, m *pipeline.Manifest) ([]string, func(), error) {
+	noop := func() {}
+	eg, err := newEgress(m.Permissions.Network)
+	if err != nil {
+		return nil, noop, fmt.Errorf("egress-фильтр: %w", err)
+	}
+	stop := eg.stop
+	// Прокси живёт в неизолированном процессе WEDRA, поэтому его нужно гасить
+	// вместе с контекстом запуска, иначе порт и сокеты переживут плагин.
+	go func() {
+		<-ctx.Done()
+		eg.stop()
+	}()
+	return eg.env(), stop, nil
+}
+
 // sandboxCommand — обёртка для запуска внешнего кода. Launcher и его аргументы
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux,
 // sandbox-exec на macOS); платформы без изолятора возвращают ErrSandboxUnsupported,

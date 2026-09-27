@@ -115,38 +115,50 @@ The trust decision belongs to the core, not to the plugin: the manifest field
 is enforced by the kernel, and the policy is set once per run and inherited by
 every step.
 
-### Egress is not filtered by destination
+### Egress filtering: proxy built, kernel enforcement still missing
 
-A plugin's `permissions.network` already carries structure � `host`, `port`, and
-an explicit `any_host` escape hatch. That structure was never enforced. The
+`permissions.network` already carries structure — `host`, `port`, and an
+explicit `any_host` escape hatch. That structure was never enforced. The
 sandbox collapsed the whole list into "network was declared, so grant the
 network", so a plugin stating `api.telegram.org:443` received unrestricted
 egress, and the manifest read like a constraint that was in force.
 
 A per-destination filter is not implementable inside either backend: `bwrap`
 cannot express one (it either drops the network namespace or shares the host's),
-and `sandbox-exec` only understands `allow`/`deny network*`. Rather than keep an
-unenforced restriction in the manifest, the enforceable case is now explicit:
+and `sandbox-exec` only understands `allow`/`deny network*`. So the enforceable
+case is now explicit:
 
-- `any_host: true` � blanket egress, granted, and now something the author has to
+- `any_host: true` — blanket egress, granted, and now something the author has to
   write on purpose.
-- a list of concrete hosts without `any_host` � **not** silently widened. The
+- a list of concrete hosts without `any_host` — **not** silently widened. The
   sandbox denies the network, and under `network: allow` the run stops with
   `network_not_enforceable` and an explanation.
 
 Official LLM plugins that previously declared a precise host were moved to
 `any_host: true` with the intended target kept in `note`. That is not a
-tightening � they already had blanket egress � it removes a false claim from the
+tightening — they already had blanket egress — it removes a false claim from the
 manifests. The declared host lists in those notes are still aspirational.
 
-Consequence to be explicit about: **egress filtering does not exist yet.** Any
-plugin that legitimately needs the network can still read everything its sandbox
-lets it read and send it anywhere. On Linux the default is still a separate
-network namespace, so the no-network case is genuinely closed; the gap is the
-`allow` case. Closing it needs an egress proxy outside the sandbox that enforces
-the declared destinations, reachable from the sandbox only by a socket or named
-pipe, plus DNS pinned to the same allowlist. The model is ready; the enforcement
-is not written.
+On top of that, `internal/plugin/egress.go` implements the standard design used
+by other agent sandboxes: the proxy runs in the **unsandboxed** WEDRA process on
+loopback, the plugin receives `HTTP_PROXY`/`HTTPS_PROXY`, and the proxy allows
+only declared destinations. It resolves every A/AAAA record, refuses private,
+loopback, link-local and CGNAT ranges before dialling, then dials the **IP
+literal** so DNS cannot rebind between the check and the connection. `CONNECT`
+is restricted to TLS ports, and `stop` closes hijacked tunnels explicitly because
+`http.Server.Shutdown` does not. If the proxy cannot start, the plugin does not
+run (`sandbox_unavailable`).
+
+**What this does not yet buy.** On Linux the plugin still shares the host network
+namespace, so `HTTP_PROXY` is advisory, not enforced: a plugin that ignores the
+variable can open a socket directly. Kernel enforcement needs the plugin in its
+own namespace with no route out, reachable only by loopback — which in practice
+means a userspace network stack (`pasta`/`slirp4netns`, the mechanism rootless
+Podman uses) and plumbing `bwrap` does not currently expose. Until that lands,
+the filter is honest for cooperative plugins and bypassable for hostile ones, and
+this document should not claim otherwise. It also does not address exfiltration
+through a file in the scratch directory, through stdout, or through a DNS tunnel
+carried inside request names.
 
 ### Known gap: an unset `network` field is not "deny"
 
