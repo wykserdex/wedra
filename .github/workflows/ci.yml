@@ -249,7 +249,10 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    timeout-minutes: 25
+    # Зависание должно быть дешёвым: бюджет джоба заметно меньше общего бюджета
+    # шага (13) плюс запас на выгрузку и сборку. Раньше здесь было 20 при
+    # timeout-minutes шага 20 — то есть шаг мог прожить дольше джоба.
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -259,19 +262,27 @@ jobs:
       # Известный флейк этого репозитория: go test иногда зависает ПОСЛЕ прохождения
       # тестов — держится pipe, унаследованный осиротевшим потомком тестового
       # процесса. Поэтому -timeout не помогает: будильник живёт в дочернем бинарнике,
-      # который к этому моменту уже вышел, и бумажный таймаут шага тоже не срабатывает
-      # (шаг висел 20+ минут при timeout-minutes: 12).
+      # который к этому моменту уже вышел. Проверено: бумажный timeout-minutes у
+      # шага на Windows-раннере тоже не срабатывает (шаг жил 30 мин при лимите 20).
       #
-      # Отсюда три решения, каждое закрывает свой симптом:
-      #  1. Внешний жёсткий предел на пакет с убийством ДЕРЕВА процессов. Шаг обязан
-      #     завершиться и упасть с кодом 1, а не висеть до отмены job.
-      #  2. Свой -timeout меньше внешнего предела: Go успевает напечатать дамп горутин,
-      #     а внешний предел страхует случай, когда процесс не умирает даже после паники.
-      #  3. Вывод каждого пакета пишется в файл, а не только в stdout шага: при отмене
-      #     job GitHub не отдаёт лог (BlobNotFound), и диагностика терялась дважды.
+      # Отсюда четыре меры, и важно понимать, что ни одна из них не находит причину
+      # — вендора мы не чиним, а делаем так, чтобы зависание было дешёвым и
+      # оставило улику:
+      #  1. Внешний жёсткий предел на пакет с убийством ДЕРЕВА процессов.
+      #  2. Глобальный дедлайн на весь шаг: 16 пакетов × предел на пакет не влезают
+      #     в бюджет джоба, и без общего ограничения несколько зависших пакетов
+      #     съедают лимит и приводят к отмене джоба — то есть ровно к тому, от чего
+      #     мы уходим.
+      #  3. Свой -timeout меньше внешнего предела: Go успевает напечатать дамп горутин,
+      #     а внешний предел страхует случай, когда процесс не умирает после паники.
+      #  4. Прогресс пишется в GITHUB_STEP_SUMMARY, а не только в stdout шага.
+      #     Это ключевое: при отмене джоба лог шага НЕ отдаётся (BlobNotFound),
+      #     а summary — отдельный API-объект и переживает отмену. С артефактом
+      #     было то же самое — выгрузка идёт следующим шагом, до которого при
+      #     зависании не доходит.
       - name: go test (per package)
         shell: pwsh
-        timeout-minutes: 20
+        timeout-minutes: 13
         run: |
           $ErrorActionPreference = 'Continue'
           $logDir = Join-Path $env:RUNNER_TEMP 'gotest'
@@ -279,15 +290,25 @@ jobs:
           $summary = Join-Path $logDir 'summary.txt'
           Set-Content -Path $summary -Value ''
 
-          $goTimeoutSec = 180   # сначала срабатывает Go и печатает дамп горутин
-          $hardLimitMs = 240000 # затем внешний предел убивает дерево, если оно не умерло
+          $goTimeoutSec = 150    # сначала срабатывает Go и печатает дамп горутин
+          $hardLimitMs = 200000  # затем внешний предел убивает дерево
+          $budgetSec = 720       # весь шаг: не даём пакетам съесть лимит джоба
+
+          $start = Get-Date
+          $note = { param($line) Write-Host $line; Add-Content $summary $line; Add-Content $env:GITHUB_STEP_SUMMARY $line }
 
           $failed = @()
           foreach ($pkg in (go list ./...)) {
+            $elapsed = [int]((Get-Date) - $start).TotalSeconds
+            if ($elapsed -gt $budgetSec) {
+              & $note "SKIP  $pkg  — исчерпан бюджет шага (${elapsed}s из ${budgetSec}s), пакет не проверен"
+              $failed += "$pkg (не проверен: бюджет)"
+              continue
+            }
             $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
             $outFile = Join-Path $logDir "$safe.out.txt"
             $errFile = Join-Path $logDir "$safe.err.txt"
-            Write-Host "=== $pkg ==="
+            & $note "=== $pkg ==="
 
             $proc = Start-Process -FilePath 'go' `
               -ArgumentList @('test', $pkg, '-count=1', '-timeout', "$($goTimeoutSec)s") `
@@ -300,32 +321,30 @@ jobs:
             $null = $proc.Handle
 
             if (-not $proc.WaitForExit($hardLimitMs)) {
-              Write-Host "TIMEOUT $pkg : процесс не завершился за $($hardLimitMs/1000) с, убиваю дерево"
+              & $note "TIMEOUT  $pkg  — не завершился за $($hardLimitMs/1000) с, убиваю дерево"
               cmd /c "taskkill /T /F /PID $($proc.Id)" 2>&1 | Out-Null
               $null = $proc.WaitForExit(15000)
-              Add-Content $summary "TIMEOUT $pkg"
               $failed += $pkg
             } else {
               $null = $proc.WaitForExit()  # дочитывает ExitCode
               Get-Content $outFile, $errFile -ErrorAction SilentlyContinue | Add-Content $summary
               if ($proc.ExitCode -ne 0) {
-                Add-Content $summary "FAIL $pkg (exit=$($proc.ExitCode))"
+                & $note "FAIL    $pkg (exit=$($proc.ExitCode))"
                 $failed += $pkg
               } else {
-                Add-Content $summary "ok $pkg"
+                & $note "ok      $pkg"
               }
             }
           }
 
-          Write-Host '--- summary ---'
-          Get-Content $summary | Write-Host
-          Write-Host "логи пакетов: $logDir"
+          & $note ""
+          & $note "всего пакетов с провалом: $($failed.Count)"
           if ($failed.Count -gt 0) {
-            Write-Host "FAILED: $($failed -join ', ')"
+            & $note "провалились: $($failed -join ', ')"
             exit 1
           }
-      # Диагностика должна пережить отмену job: лог самого шага при отмене не
-      # отдаётся, а артефакт остаётся доступным.
+      # Диагностика должна пережить отмену джоба: лог самого шага при отмене не
+      # отдаётся, а summary и артефакт остаются.
       - name: upload per-package logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
