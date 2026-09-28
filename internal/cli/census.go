@@ -131,10 +131,13 @@ func runOnePackage(o checkOpts, pkg, logPath string, perPackageSec, goTimeoutSec
 	// Process.Release() здесь НЕЛЬЗЯ звать: после него Wait() всегда
 	// возвращает ошибку, и удачный тест был бы записан как exit=-1.
 	// Освобождение ресурсов делает сам Wait.
-	waited := waitProcess(cmd, limit)
+	w := startWait(cmd)
+	waited := w.await(limit)
 	if !waited.exited {
 		killTree(cmd.Process.Pid)
-		waited = waitProcess(cmd, 15)
+		// Повторное ожидание читает тот же результат Wait(), а не зовёт
+		// его заново: второй Wait() на том же Cmd — гонка данных.
+		_ = w.await(15)
 		return -1, true
 	}
 	return waited.code, false
