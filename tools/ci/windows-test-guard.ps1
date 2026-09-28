@@ -103,7 +103,27 @@ function Write-Notice {
 }
 
 # --- снимок таблицы процессов --------------------------------------------------
-$script:InterestingPatterns = 'python|main\.py|\.test(\.exe)?\s|sleep|git\b|taskkill|\bgo(\.exe)?\s'
+# Что считать «похожим на наш». Список покрывает ИНСТРУМЕНТЫ, которые порождает
+# набор тестов, а не только очевидное: регрессия на предел ожидания запускает
+# `cmd /c start /b ping` (Windows) или `sh -c "sleep 60 &"` (POSIX), и раньше
+# `ping.exe`/`cmd.exe` не попадали ни под одну ветку — процесс утекал, а
+# -KillLeakedDescendants его не трогал, потому что решает по rel=1.
+# Проверено на реальных именах: ping.exe и cmd.exe были False, python.exe/git.exe
+# были True, svchost.exe остаётся False.
+# В шаблоне командной строки НЕТ `"`: он ловил любой процесс, у которого в
+# командной строке есть кавычка (напр. firefox -contentproc "..."), и такой
+# процесс попадал в rel=1, а значит его можно было УБИТЬ — при ручном запуске
+# census на своём компьютере это значило бы выбить браузер. Кавычки в `cmd /c
+# "..."` ловить не нужно: сам cmd уже в списке имён.
+$script:InterestingCmd = 'python|main\.py|\.test(\.exe)?(\s|$)|taskkill|\bsleep\b|\bping\b'
+# Имена сверяем без учёта расширения: на Windows путь оканчивается на .exe,
+# на POSIX — нет, а список инструментов один и тот же.
+# conhost здесь нет намеренно: он всегда потомок консольного процесса, а тот уже
+# в списке, и включать его — значит убивать каллотерапию рядом с целью.
+$script:InterestingNames = @(
+    'python', 'git', 'go', 'taskkill', 'ping', 'cmd', 'powershell', 'pwsh',
+    'bash', 'sh', 'sleep', 'curl', 'ssh', 'node', 'dotnet', 'java'
+)
 $script:Ours = @{}
 
 function Get-Census {
@@ -190,7 +210,13 @@ function Test-Detached {
 
 function Test-Interesting {
     param($Proc)
-    return (($Proc.Cmd -match $script:InterestingPatterns) -or ($Proc.Name -match 'python|git|go|taskkill'))
+    if ($Proc.Cmd -and ($Proc.Cmd -match $script:InterestingCmd)) { return $true }
+    if (-not $Proc.Name) { return $false }
+    # Имя сравниваем без расширения: PING.EXE, ping.exe и ping должны совпасть
+    # с одним и тем же элементом списка, иначе правило зависит от ОС.
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($Proc.Name)
+    if (-not $base) { $base = $Proc.Name }
+    return ($script:InterestingNames -contains $base.ToLowerInvariant())
 }
 
 function Get-Survivors {
