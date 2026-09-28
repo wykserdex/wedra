@@ -13,6 +13,7 @@ import (
 	"wedra/internal/api"
 	"wedra/internal/gate"
 	"wedra/internal/mcp"
+	"wedra/internal/plugin"
 )
 
 // RunMCP — wedra mcp --plugins=<dir>... [--workdir=<dir>] [--runs-dir=<dir>]
@@ -30,6 +31,10 @@ func RunMCP(args []string) {
 	workdir, runsdir := "", ""
 	guiListen := "127.0.0.1:0"
 	noGUI, noOpen, printLink := false, false, false
+	// Политика доверия MCP-сервера. Всё по умолчанию закрыто: без
+	// --allow-agent-exec инструмент exec_plugin отказывает, без
+	// --allow-untrusted-plugins не запускается внешний код.
+	allowAgentExec, allowUntrusted, denyUntrusted := false, false, false
 	// docs/mcp.md и конфиги клиентов пишут "--plugins /abs" (через пробел):
 	// нормализуем в "--plugins=/abs" до разбора.
 	args = joinFlagValues(args, "--plugins", "--plugin", "--workdir", "--runs-dir", "--gui-listen")
@@ -51,9 +56,20 @@ func RunMCP(args []string) {
 			noOpen = true
 		case a == "--print-link":
 			printLink = true
+		case a == "--allow-agent-exec":
+			allowAgentExec = true
+		case a == "--allow-untrusted-plugins":
+			allowUntrusted = true
+		case a == "--deny-untrusted-plugins":
+			denyUntrusted = true
 		case a == "--help" || a == "-h":
 			fmt.Fprintln(os.Stderr, "wedra mcp --plugins=<dir> [--plugins=<dir>...] [--workdir=<dir>] [--runs-dir=<dir>]")
 			fmt.Fprintln(os.Stderr, "          [--gui-listen=127.0.0.1:0] [--no-gui] [--no-open] [--print-link]")
+			fmt.Fprintln(os.Stderr, "          [--allow-agent-exec] [--allow-untrusted-plugins] [--deny-untrusted-plugins]")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "exec_plugin (запуск плагинов агентом) по умолчанию ЗАПРЕЩЁН.")
+			fmt.Fprintln(os.Stderr, "Включается только --allow-agent-exec; каждый запуск пишется в <runs-dir>/agent-exec.jsonl.")
+			fmt.Fprintln(os.Stderr, "Плагин из agent-plugins/ всегда считается внешним кодом: для него нужен --allow-untrusted-plugins.")
 			return
 		default:
 			fmt.Fprintf(os.Stderr, "неизвестный аргумент %q (см. --help)\n", a)
@@ -75,7 +91,17 @@ func RunMCP(args []string) {
 	proto := os.Stdout
 	os.Stdout = os.Stderr
 
-	opts := mcp.Options{PluginsDirs: plugins, WorkDir: absWork, RunsDir: runsdir}
+	opts := mcp.Options{
+		PluginsDirs: plugins,
+		WorkDir:     absWork,
+		RunsDir:     runsdir,
+		Trust: plugin.TrustPolicy{
+			AgentCanExec:         allowAgentExec,
+			AllowUntrusted:       allowUntrusted,
+			DenyUntrusted:        denyUntrusted,
+			AgentCanWritePlugins: false, // запись плагинов агентом не реализована
+		},
+	}
 	if !noGUI {
 		h, err := startHumanConsole(guiListen, plugins, absWork, runsdir, !noOpen, printLink)
 		if err != nil {

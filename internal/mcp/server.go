@@ -22,6 +22,7 @@ import (
 	"wedra/internal/gate"
 	"wedra/internal/journal"
 	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
 	"wedra/internal/registry"
 )
 
@@ -53,6 +54,10 @@ type Server struct {
 	multi       *multiEngine
 
 	human HumanChannel
+	// trust — политика доверия сервера. exec_plugin без AgentCanExec
+	// отказывает, а запуск идёт через ExecWithEnvCtx, чтобы enforceTrust
+	// действительно применился.
+	trust plugin.TrustPolicy
 
 	mu           sync.Mutex
 	running      bool
@@ -81,6 +86,13 @@ type Options struct {
 	// nil — гейты MCP-ранов одобрить некому: run_pipeline с human_gate
 	// отклоняется с E_NO_HUMAN_CHANNEL, а не висит в waiting_human вечно.
 	Human HumanChannel
+	// Trust — политика доверия, действующая на весь MCP-сервер.
+	//
+	// Нужна для exec_plugin: раньше инструмент был доступен всегда, потому
+	// что AgentCanExec никто не проверял, а ExecWithEnv уходил с
+	// context.Background(), то есть с нулевой политикой. Политика приходит
+	// из флагов командной строки (cli.RunMCP).
+	Trust plugin.TrustPolicy
 }
 
 // HumanChannel — куда MCP-сервер отдаёт гейты ранов. Реализация (cli/mcp.go)
@@ -143,6 +155,7 @@ func NewServer(opts Options) (*Server, error) {
 		runs:        map[string]*runState{},
 		cancels:     map[string]context.CancelFunc{},
 		human:       opts.Human,
+		trust:       opts.Trust,
 	}, nil
 }
 
@@ -672,6 +685,8 @@ func (s *Server) callTool(name string, args map[string]interface{}) (string, boo
 		return s.toolGetRun(args)
 	case "cancel_run":
 		return s.toolCancel(args)
+	case "exec_plugin":
+		return s.toolExecPlugin(args)
 	default:
 		return "", false, &RPCError{Code: -32601, Message: "unknown tool: " + name}
 	}
@@ -1194,4 +1209,130 @@ func (s *Server) toolCancel(args map[string]interface{}) (string, bool, *RPCErro
 	}
 	cancel()
 	return toJSON(map[string]interface{}{"run_id": runID, "status": "cancelling"}), false, nil
+}
+
+func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPCError) {
+	// Проверка разрешения ПЕРВОЙ, до разбора аргументов и до загрузки
+	// манифеста: без явного согласия ядра агент не запускает код вообще.
+	// Раньше этой проверки не было, и exec_plugin был доступен всегда.
+	if !s.trust.AgentCanExec {
+		return "", false, rpcErr("E_AGENT_EXEC_DENIED",
+			"запуск плагинов агентом запрещён политикой (нужен флаг --allow-agent-exec)")
+	}
+	pluginRef, _ := args["plugin"].(string)
+	if pluginRef == "" {
+		return "", false, rpcErr("", "нужен plugin")
+	}
+	if err := s.checkPluginRef(pluginRef); err != nil {
+		return "", false, rpcErr("E_PLUGIN_OUTSIDE_ROOT", err.Error())
+	}
+	m, err := s.multi.LoadManifest(pluginRef)
+	if err != nil {
+		return "", false, rpcErr("", err.Error())
+	}
+	if err := s.checkPluginNetwork(m); err != nil {
+		return "", false, rpcErr("E_NETWORK_DENIED", err.Error())
+	}
+	// Плагин, написанный агентом, всегда untrusted по построению. Здесь это
+	// превращается в требование песочницы, а не в пометку.
+	if plugin.IsAgentWrittenPlugin(m) && !s.trust.AllowUntrusted {
+		return "", false, rpcErr("E_AGENT_PLUGIN_UNTRUSTED",
+			"плагин написан агентом и считается внешним кодом: нужен флаг --allow-untrusted-plugins")
+	}
+	inputJSON := []byte("{}")
+	if input, ok := args["input"].(map[string]interface{}); ok {
+		if raw, err := json.Marshal(input); err == nil {
+			inputJSON = raw
+		}
+	}
+	timeout := 60.0
+	if t, ok := args["timeout_seconds"].(float64); ok && t > 0 && t <= 300 {
+		timeout = t
+	}
+	extraEnv := []string{"WEDRA_NETWORK=deny"}
+	// Именно ExecWithEnvCtx, а не ExecWithEnv: политика обязана дойти до
+	// enforceTrust. ExecWithEnv подставляет context.Background(), то есть
+	// нулевую политику, и флаги --allow/--deny-untrusted-plugins не влияли
+	// на запуск из MCP.
+	ctx := plugin.WithTrustPolicy(context.Background(), s.trust)
+	started := time.Now()
+	res := plugin.ExecWithEnvCtx(ctx, m, inputJSON, time.Duration(timeout)*time.Second, extraEnv)
+	// Решение агента о запуске кода — событие доверия, и оно обязано быть в
+	// журнале. Без записи exec_plugin был единственным действием в проекте,
+	// не оставлявшим следа, хотя весь остальной код журналируется.
+	if auditErr := s.auditAgentExec(pluginRef, m, res, time.Since(started)); auditErr != nil {
+		return "", false, rpcErr("E_AGENT_EXEC_AUDIT", auditErr.Error())
+	}
+	if res.Platform {
+		return "", false, &RPCError{Code: -32000, Message: res.ErrMsg, Data: map[string]string{"code": res.ErrCode}}
+	}
+	if res.ExitCode != 0 {
+		return "", false, &RPCError{Code: -32000, Message: res.ErrMsg, Data: map[string]string{"code": res.ErrCode}}
+	}
+	out, dropped, err := plugin.EnforceOutput(m, res.Output)
+	if err != nil {
+		return "", false, &RPCError{Code: -32000, Message: err.Error(), Data: map[string]string{"code": "contract_output"}}
+	}
+	if len(dropped) > 0 {
+		return toJSON(map[string]interface{}{"output": out, "dropped": dropped}), false, nil
+	}
+	return toJSON(map[string]interface{}{"output": out}), false, nil
+}
+
+// agentExecAuditFile — append-only журнал запусков плагинов агентом. Отдельный
+// от журналов ранов: exec_plugin не создаёт ран, но это решение о доверии, и
+// оно должно читаться так же надёжно, как gate_decision.
+const agentExecAuditFile = "agent-exec.jsonl"
+
+// auditAgentExec пишет одну запись о решении агента. Ошибка записи возвращается
+// наружу: fail-closed. Молча потерянная запись о выполнении внешнего кода
+// хуже, чем отказ, поэтому запуск без следа считается ошибкой.
+func (s *Server) auditAgentExec(pluginRef string, m *pipeline.Manifest, res *plugin.ExecResult, took time.Duration) error {
+	if s.runsDir == "" {
+		return fmt.Errorf("не задан каталог ранов, запись о запуске агентом невозможна")
+	}
+	record := map[string]interface{}{
+		"ts":        time.Now().UTC().Format(time.RFC3339Nano),
+		"event":     "agent_plugin_exec",
+		"source":    "agent_auto",
+		"plugin":    pluginRef,
+		"plugin_id": m.ID,
+		"untrusted": plugin.IsAgentWrittenPlugin(m),
+		"exit_code": res.ExitCode,
+		"err_code":  res.ErrCode,
+		"duration":  took.String(),
+	}
+	line, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("не сериализовать запись аудита: %w", err)
+	}
+	path := filepath.Join(s.runsDir, agentExecAuditFile)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("открыть журнал запусков агента (%s): %w", path, err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("записать в журнал запусков агента (%s): %w", path, err)
+	}
+	return nil
+}
+
+func (s *Server) checkPluginNetwork(m *pipeline.Manifest) error {
+	for _, permission := range m.Permissions.Network {
+		if permission.AnyHost {
+			return fmt.Errorf("E_NETWORK_DENIED: плагин %s заявил any_host в exec_plugin", m.ID)
+		}
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(permission.Host), "."))
+		if host == "" {
+			return fmt.Errorf("E_NETWORK_DENIED: пустой host в permissions плагина %s", m.ID)
+		}
+		if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") {
+			return fmt.Errorf("E_NETWORK_DENIED: host %q запрещён в exec_plugin", permission.Host)
+		}
+		if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+			return fmt.Errorf("E_NETWORK_DENIED: private/loopback host %q запрещён в exec_plugin", permission.Host)
+		}
+	}
+	return nil
 }

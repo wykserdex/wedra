@@ -77,6 +77,13 @@ type Step struct {
 	// параллельно, барьер ждёт всех веток до следующего шага.
 	ParallelGroup string `yaml:"parallel_group"`
 
+	// Loop — динамический цикл: шаги выполняются до тех пор, пока условие
+	// истинно, с лимитом итераций. Condition — путь в контексте (например,
+	// "steps.parser.found"), MaxIterations — потолок (по умолчанию 100).
+	Loop          string `yaml:"loop"`
+	LoopCondition string `yaml:"loop_condition"`
+	MaxIterations int    `yaml:"max_iterations"`
+
 	// core/human_gate
 	Form     []FormField `yaml:"form"`
 	Actions  []string    `yaml:"actions"`
@@ -159,13 +166,17 @@ const (
 )
 
 const (
-	PlatformAPI       = "0.1"
-	MaxForeachItems   = 10000
-	MaxParallelWidth  = 32
-	MaxRetryAttempts  = 10
-	MaxRetryDelay     = 5 * time.Minute
-	MaxStepTimeout    = 30 * time.Minute
-	MaxAggregateItems = 100000
+	PlatformAPI           = "0.1"
+	MaxForeachItems       = 10000
+	MaxParallelWidth      = 32
+	MaxRetryAttempts      = 10
+	MaxRetryDelay         = 5 * time.Minute
+	MaxStepTimeout        = 30 * time.Minute
+	MaxAggregateItems     = 100000
+	MaxLoopIterations     = 100
+	MaxTotalLoopBudget    = 1000
+	MaxConcurrentBranches = 32
+	MaxLoopJournalEvents  = 10000
 )
 
 // NetworkHosts — человекочитаемый список заявленной сети плагина ("host:port, ...").

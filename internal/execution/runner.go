@@ -928,6 +928,9 @@ func runStepFlow(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *
 	if st.Foreach != "" {
 		return runStepForeach(eng, pf, st, ctx, j, opts)
 	}
+	if st.Loop != "" {
+		return runStepLoop(eng, pf, st, ctx, j, opts)
+	}
 	return runStep(eng, pf, st, ctx, j, opts)
 }
 
@@ -973,6 +976,55 @@ func runStepForeach(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ct
 	if stepsMap, ok := ctx.Data["steps"].(map[string]interface{}); ok {
 		stepsMap[st.ID+"_all"] = results
 	}
+	return "ok", nil
+}
+
+func runStepLoop(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
+	maxIter := st.MaxIterations
+	if maxIter <= 0 {
+		maxIter = pipeline.MaxLoopIterations
+	}
+	if maxIter > pipeline.MaxLoopIterations {
+		maxIter = pipeline.MaxLoopIterations
+	}
+	condition := st.LoopCondition
+	if condition == "" {
+		condition = "steps." + st.ID + ".continue"
+	}
+	totalIters := 0
+	for i := 0; i < maxIter; i++ {
+		if totalIters >= pipeline.MaxTotalLoopBudget {
+			j.Event("loop_budget_exhausted", map[string]interface{}{"step": st.ID, "total_iterations": totalIters})
+			return "", runErr("resource_limit", "loop шаг %s: исчерпан глобальный бюджет итераций (%d)", st.ID, pipeline.MaxTotalLoopBudget)
+		}
+		if j.WriteErrors() > pipeline.MaxLoopJournalEvents {
+			j.Event("loop_journal_limit", map[string]interface{}{"step": st.ID, "write_errors": j.WriteErrors()})
+			return "", runErr("resource_limit", "loop шаг %s: превышен лимит событий журнала", st.ID)
+		}
+		j.Event("loop_iteration_start", map[string]interface{}{"step": st.ID, "iteration": i})
+		action, err := runStep(eng, pf, st, ctx, j, opts)
+		if err != nil {
+			j.Event("loop_iteration_failed", map[string]interface{}{"step": st.ID, "iteration": i, "error": err.Error()})
+			return "", fmt.Errorf("loop шаг %s: итерация %d/%d: %w", st.ID, i+1, maxIter, err)
+		}
+		if action == "abort_item" {
+			j.Event("loop_iteration_failed", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "on_error=stop"})
+			return "", fmt.Errorf("loop шаг %s: итерация %d/%d упал (on_error=stop) — ран остановлен", st.ID, i+1, maxIter)
+		}
+		totalIters++
+		v, ok := ctx.Get(condition)
+		if !ok {
+			j.Event("loop_iteration_end", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "condition_not_found"})
+			return "ok", nil
+		}
+		cont, ok := v.(bool)
+		if !ok || !cont {
+			j.Event("loop_iteration_end", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "condition_false"})
+			return "ok", nil
+		}
+		j.Event("loop_iteration_end", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "continue"})
+	}
+	j.Event("loop_max_iterations", map[string]interface{}{"step": st.ID, "max_iterations": maxIter})
 	return "ok", nil
 }
 
