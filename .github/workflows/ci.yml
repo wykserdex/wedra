@@ -258,104 +258,27 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
+      # Дедлайн есть у каждого шага: если шаг встанет, джоб отменится, а лог
+      # отменённого джоба не отдаётся (BlobNotFound) — терять его незачем.
       - run: go vet ./...
-      # Windows-раннер периодически подвешивает `go test` ПОСЛЕ прохождения тестов:
-      # держится pipe, унаследованный осиротевшим потомком тестового процесса.
-      # Ни -timeout теста (будильник живёт в уже вышедшем бинарнике), ни
-      # timeout-minutes шага (проверено: шаг жил 30 мин при лимите 20) не помогают,
-      # а лог джоба при отмене не отдаётся (BlobNotFound).
-      #
-      # Ключевая идея этого шага — СТОРОЖКА СНАРУЖИ, а не дедлайн внутри скрипта.
-      # Предыдущая версия ограничивала бюджет изнутри того же скрипта, который
-      # зависал: если он встал, его собственные проверки времени не выполняются.
-      # Здесь внешний pwsh запускает рабочий скрипт отдельным процессом и убивает
-      # ЕГО ДЕРЕВО по общему бюджету. Прогресс пишется в GITHUB_STEP_SUMMARY:
-      # это отдельный API-объект, он переживает отмену джоба, тогда как лог шага
-      # пропадает, а артефакт не поднимается — выгружает его следующий шаг,
-      # до которого при зависании не доходит.
-      - name: go test (per package)
+        timeout-minutes: 5
+      # Windows-джоб: у шага есть дедлайн, захват вывода идёт ТОЛЬКО в файлы, а
+      # вокруг каждого пакета снимается таблица процессов. Разбор механизма, все
+      # проверенные факты и то, что заведомо НЕ является причиной, — в
+      # docs/windows-ci-hang.md. Кратко:
+      #  * никаких пайпов между нами и `go`: Process.WaitForExit() без аргумента
+      #    ждёт EOF перенаправленных пайпов, и потомок может заблокировать шаг уже
+      #    ПОСЛЕ того, как всё отработало (ветка с уликами тогда не наступает);
+      #  * `go list ./...` больше не без дедлайна (если он встанет, в summary не
+      #    было ни одной строки — теперь это названо явно);
+      #  * DETACHED/SURVIVOR в summary отвечает на вопрос «какой процесс переживает
+      #    тест» на любом прогоне, включая зелёный; найденные оторванные потомки
+      #    убиваются, чтобы не держать пайпы раннера и не терять лог шага.
+      - name: go test (per package, with orphan census)
         shell: pwsh
         timeout-minutes: 13
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $logDir = Join-Path $env:RUNNER_TEMP 'gotest'
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          $summary = Join-Path $logDir 'summary.txt'
-          Set-Content -Path $summary -Value ''
+        run: ./tools/ci/run-guard-with-watchdog.ps1 -BudgetSec 660 -PerPackageSec 200 -GoTimeoutSec 150 -KillLeakedDescendants
 
-          # Рабочий скрипт вынесен в файл: его пишет outer-step, а запускает
-          # отдельный процесс, чтобы его можно было убить вместе с потомками.
-          $worker = Join-Path $logDir 'worker.ps1'
-          @'
-          param([string]$LogDir, [string]$SummaryFile, [string]$StepSummary)
-          $note = { param($line) Write-Host $line; Add-Content $SummaryFile $line; Add-Content $StepSummary $line }
-          $goTimeoutSec = 150    # сначала срабатывает Go и печатает дамп горутин
-          $hardLimitMs = 200000  # затем внешний предел убивает дерево пакета
-          $failed = @()
-          foreach ($pkg in (go list ./...)) {
-            $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
-            $outFile = Join-Path $LogDir "$safe.out.txt"
-            $errFile = Join-Path $LogDir "$safe.err.txt"
-            & $note "=== $pkg ==="
-            $proc = Start-Process -FilePath 'go' `
-              -ArgumentList @('test', $pkg, '-count=1', '-timeout', "$($goTimeoutSec)s") `
-              -NoNewWindow -PassThru `
-              -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-            # Обязательная строка: без неё Start-Process -PassThru возвращает процесс
-            # с пустым ExitCode, и `$proc.ExitCode -ne 0` истинно ВСЕГДА — шаг объявил
-            # бы провалом каждый пакет. Handle кэширует нативный дескриптор.
-            $null = $proc.Handle
-            if (-not $proc.WaitForExit($hardLimitMs)) {
-              & $note "TIMEOUT  $pkg  — не завершился за $($hardLimitMs/1000) с, убиваю дерево"
-              cmd /c "taskkill /T /F /PID $($proc.Id)" 2>&1 | Out-Null
-              $null = $proc.WaitForExit(15000)
-              $failed += $pkg
-            } else {
-              $null = $proc.WaitForExit()  # дочитывает ExitCode
-              Get-Content $outFile, $errFile -ErrorAction SilentlyContinue | Add-Content $SummaryFile
-              if ($proc.ExitCode -ne 0) {
-                & $note "FAIL    $pkg (exit=$($proc.ExitCode))"
-                $failed += $pkg
-              } else {
-                & $note "ok      $pkg"
-              }
-            }
-          }
-          & $note ""
-          & $note "всего пакетов с провалом: $($failed.Count)"
-          if ($failed.Count -gt 0) { exit 1 }
-          exit 0
-          '@ | Set-Content -Path $worker -Encoding UTF8
-
-          $budgetMs = 720000
-          # Рабочий скрипт запускаем ТЕМ ЖЕ PowerShell, в котором мы находимся:
-          # жёсткое имя 'pwsh' есть не везде (в Windows PowerShell 5.1 его нет), и
-          # такой шаг не отработал бы на части хостов. Проверено локально.
-          $hostExe = (Get-Process -Id $PID).Path
-          Write-Host "сторожка: хост $hostExe, бюджет $($budgetMs/1000) с"
-          $work = Start-Process -FilePath $hostExe `
-            -ArgumentList @('-NoProfile', '-File', $worker, $logDir, $summary, $env:GITHUB_STEP_SUMMARY) `
-            -NoNewWindow -PassThru `
-            -RedirectStandardOutput (Join-Path $logDir 'worker.out.txt') `
-            -RedirectStandardError  (Join-Path $logDir 'worker.err.txt')
-          $null = $work.Handle
-
-          if (-not $work.WaitForExit($budgetMs)) {
-            Add-Content $env:GITHUB_STEP_SUMMARY "СТОРОЖКА: рабочий скрипт не уложился в $($budgetMs/1000) с, убиваю дерево"
-            Write-Host "СТОРОЖКА: рабочий скрипт завис, убиваю дерево"
-            cmd /c "taskkill /T /F /PID $($work.Id)" 2>&1 | Out-Null
-            $null = $work.WaitForExit(20000)
-            Write-Host '--- что успел напечатать рабочий скрипт ---'
-            Get-Content (Join-Path $logDir 'worker.out.txt') -ErrorAction SilentlyContinue | Write-Host
-            Write-Host '--- лог пакетов: ---'
-            Get-ChildItem $logDir -Filter '*.txt' -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -ne 'worker.out.txt' -and $_.Name -ne 'worker.err.txt' } |
-              ForEach-Object { Write-Host "### $($_.Name)"; Get-Content $_.FullName -Tail 25 | Write-Host }
-            exit 1
-          }
-          $null = $work.WaitForExit()
-          Get-Content (Join-Path $logDir 'worker.out.txt') -ErrorAction SilentlyContinue | Write-Host
-          if ($work.ExitCode -ne 0) { exit 1 }
       # Диагностика должна пережить отмену джоба.
       - name: upload per-package logs
         if: always()
