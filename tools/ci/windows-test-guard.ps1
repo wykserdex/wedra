@@ -75,7 +75,9 @@ function Write-Line {
         # одинаковым title в одну и ОБРЕЗАЕТ её (проверено: 21 строка → 10, и
         # обрезался хвост вместе с итогом). Поэтому в аннотацию идёт короткий
         # текст, а полная строка с таймстемпом остаётся в логе и summary.
-        $n = if ($NoticeText) { $NoticeText } else { "{$elapsed}s $Text" }
+        # Формат-оператор, а не интерполяция: в PowerShell "{$elapsed}s $Text"
+        # печатает фигурные скобки литералом, и в аннотацию уезжал "{0}s ...".
+        $n = if ($NoticeText) { $NoticeText } else { '{0}s {1}' -f $elapsed, $Text }
         Write-Notice -Text $n
     }
 }
