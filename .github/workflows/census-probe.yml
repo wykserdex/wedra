@@ -1,0 +1,22 @@
+name: census-probe
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 3
+    steps:
+      - name: emit every candidate channel
+        shell: pwsh
+        run: |
+          $marker = 'PROBE-MARKER-7f3a9'
+          Write-Host "stdout: $marker"
+          "::notice title=census-probe::$marker" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "PROBE-SUMMARY-$marker" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "::error title=census-probe::$marker" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ERRORVARIANT=$marker" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: hang forever
+        shell: pwsh
+        timeout-minutes: 2
+        run: Start-Sleep -Seconds 900
