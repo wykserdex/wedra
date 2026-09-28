@@ -61,7 +61,7 @@ $resolved = Resolve-Path -LiteralPath $RepoDir -ErrorAction SilentlyContinue
 $script:RepoDir = if ($resolved) { $resolved.Path } else { $RepoDir }
 
 function Write-Line {
-    param([string]$Text, [switch]$Notice)
+    param([string]$Text, [switch]$Notice, [string]$NoticeText)
     $stamp = (Get-Date).ToString('HH:mm:ss.fff')
     $elapsed = [int]((Get-Date) - $script:Start).TotalSeconds
     $line = "[{0} +{1,4}s] {2}" -f $stamp, $elapsed, $Text
@@ -69,7 +69,14 @@ function Write-Line {
     if ($script:SummaryPath) {
         Add-Content -Path $script:SummaryPath -Value $line -ErrorAction SilentlyContinue
     }
-    if ($Notice) { Write-Notice -Text $line }
+    if ($Notice) {
+        # В аннотацию кладём компактную форму: GitHub склеивает все аннотации с
+        # одинаковым title в одну и ОБРЕЗАЕТ её (проверено: 21 строка → 10, и
+        # обрезался хвост вместе с итогом). Поэтому в аннотацию идёт короткий
+        # текст, а полная строка с таймстемпом остаётся в логе и summary.
+        $n = if ($NoticeText) { $NoticeText } else { "{$elapsed}s $Text" }
+        Write-Notice -Text $n
+    }
 }
 
 # Аннотация, а не только строка summary. Проверено на отменённом джобе
@@ -195,7 +202,7 @@ function Get-Survivors {
         $rel = if ($interesting) { 1 } else { 0 }
         $cmd = if ($p.Cmd) { $p.Cmd } else { $p.Name }
         if ($cmd.Length -gt 220) { $cmd = $cmd.Substring(0, 220) + '…' }
-        Write-Line ("{0} rel={1} pid={2} ppid={3} :: {4}" -f $tag, $rel, $p.Pid, $p.Ppid, $cmd) -Notice
+        Write-Line ("{0} rel={1} pid={2} ppid={3} :: {4}" -f $tag, $rel, $p.Pid, $p.Ppid, $cmd) -Notice:($rel -eq 1)
         Write-Line ("    родословная: {0}" -f (Format-Ancestry -Table $After -Ppid ([int]$p.Ppid)))
         if ($KillLeakedDescendants -and $detached -and $interesting) {
             if ($script:IsWin) {
@@ -291,7 +298,7 @@ function Start-BoundedCommand {
 # --- основной прогон -----------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Write-Line ("guard start: host={0} repo={1} budget={2}s perPackage={3}s goTimeout={4}s killLeaks={5}" -f `
-    $env:OS, $script:RepoDir, $BudgetSec, $PerPackageSec, $GoTimeoutSec, [bool]$KillLeakedDescendants) -Notice
+    $env:OS, $script:RepoDir, $BudgetSec, $PerPackageSec, $GoTimeoutSec, [bool]$KillLeakedDescendants) -Notice -NoticeText "start host=$env:OS budget=${BudgetSec}s perPkg=${PerPackageSec}s goTimeout=${GoTimeoutSec}s"
 
 # Наша родословная: её нельзя трогать при убийстве оторванных потомков.
 $census0 = Get-CensusTimed
@@ -338,7 +345,7 @@ foreach ($pkg in $pkgs) {
     }
     $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
     $pkgLog = Join-Path $LogDir "$safe.txt"
-    Write-Line "=== $pkg ===" -Notice
+    Write-Line "=== $pkg ===" -Notice -NoticeText ">$pkg"
     $before = Get-CensusTimed
     $t0 = Get-Date
     $r = Start-BoundedCommand -FilePath $go `
@@ -362,7 +369,7 @@ foreach ($pkg in $pkgs) {
 }
 
 Write-Line "--- итог ---"
-Write-Line ("ok={0} fail={1} notChecked={2}" -f ($pkgs.Count - $failed.Count - $notChecked), $failed.Count, $notChecked) -Notice
+Write-Line ("ok={0} fail={1} notChecked={2}" -f ($pkgs.Count - $failed.Count - $notChecked), $failed.Count, $notChecked) -Notice -NoticeText ("CENSUS ok={0} fail={1} notChecked={2}" -f ($pkgs.Count - $failed.Count - $notChecked), $failed.Count, $notChecked)
 if ($failed.Count -gt 0) { Write-Line ("провал: " + ($failed -join ' ')) -Notice }
 if ($notChecked -gt 0 -or $failed.Count -gt 0) { exit 1 }
 exit 0
