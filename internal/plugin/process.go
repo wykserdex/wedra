@@ -79,22 +79,38 @@ type wireResponse struct {
 }
 
 func pythonInterpreter() (string, error) {
+	var firstFound string
 	for _, name := range []string{"python3", "python"} {
 		p, err := exec.LookPath(name)
 		if err != nil {
 			continue
 		}
-		if runtime.GOOS == "windows" {
-			probe := exec.Command(p, "-X", "utf8", "-c", "import sys; print(sys.executable)")
-			out, probeErr := common.Output(probe)
-			candidate := strings.TrimSpace(string(out))
-			if probeErr == nil {
-				if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
-					return candidate, nil
-				}
-			}
+		if firstFound == "" {
+			firstFound = p
+		}
+		if runtime.GOOS != "windows" {
+			return p, nil
+		}
+		// Проба на Windows обязательна, и её провал — это ответ, а не формальность.
+		// В PATH очень часто лежит заглушка Microsoft Store
+		// (WindowsApps\python3.exe): она печатает «Python was not found but can be
+		// installed from the Microsoft Store» и выходит с 9009. Раньше мы всё равно
+		// возвращали этот путь, и каждый запуск плагина падал с 9009 и внятным
+		// только на первый взгляд сообщением. Теперь непроверенный кандидат
+		// пропускается, и следующий настоящий интерпретатор находится нормально.
+		probe := exec.Command(p, "-X", "utf8", "-c", "import sys; print(sys.executable)")
+		out, probeErr := common.Output(probe)
+		if probeErr != nil {
+			continue
+		}
+		candidate := strings.TrimSpace(string(out))
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return candidate, nil
 		}
 		return p, nil
+	}
+	if firstFound != "" {
+		return "", fmt.Errorf("найден кандидат python (%s), но он не проходит пробу — переустановите интерпретатор или уберите заглушку Microsoft Store из PATH", firstFound)
 	}
 	return "", fmt.Errorf("не найден интерпретатор python (python3/python)")
 }
