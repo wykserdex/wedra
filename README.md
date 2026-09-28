@@ -200,7 +200,34 @@ wedra pipeline install <name|file.yaml|url>
 wedra registry validate --registry=registry.yaml
 wedra gui [--port 8765] [--open] [--plugins=<dir>] [--pipelines=<dir>]
 wedra mcp --plugins <dir> --workdir <dir> [--no-gui]
+wedra check [--list|--fast|--census|--only=<step>]        # единая проверка проекта
 ```
+
+### Проверка проекта: одна команда
+
+`wedra check` прогоняет шаги в том же порядке, что и CI, и печатает одну
+сводку с кодом возврата:
+
+```text
+wedra check            # весь набор: fmt, vet, mod, build, test, conformance,
+                       # pipelines, plugins, registry
+wedra check --fast     # быстрые шаги перед коммитом: fmt, vet, mod, registry
+wedra check --race     # полный набор с -race, ровно как в CI
+wedra check --list     # какие шаги есть
+wedra check --only=test
+wedra check --census   # тесты поштучно по пакетам: свой предел на пакет
+wedra check --census --pkg=internal/journal
+```
+
+Отдельный `Makefile` для этого не нужен и на Windows не работал: его шаги
+записаны на юниксовой оболочке (`test -z`, `for … do`), и каждый шаг
+приходилось вбивать руками.
+
+`--census` нужен для охоты за зависанием: пакеты идут по очереди, у каждого
+свой предел, поэтому первый зависший видно сразу. Логи — в
+`var/census/<пакет>.txt`, а при превышении предела дополнительно снимаются
+таблица процессов и скриншот в `var/census/HANG-*/`. Машина сводки:
+`var/check/last-check.json`.
 
 `--deny-untrusted-plugins` запрещает любой untrusted-плагин в ранде (рекомендуется для CI),
 `--allow-untrusted-plugins` разрешает внешний код — он уходит в изолятор, и без рабочего

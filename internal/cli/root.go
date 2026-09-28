@@ -83,6 +83,13 @@ func Run() {
 			return
 		}
 		RunDemo(os.Args[2:])
+	case "check":
+		// Своя справка: у check много флагов, общий help их не покажет.
+		if helpRequested(os.Args[2:]) {
+			printCheckHelp()
+			return
+		}
+		os.Exit(RunCheck(os.Args[2:]))
 	default:
 		fmt.Printf("неизвестная команда %q\n", cmd)
 		printHelp()
@@ -122,6 +129,7 @@ func printHelp() {
   wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
 
 Совместимость:
+  wedra check [--list|--fast|--census|--only=<step>] # ЕДИНАЯ проверка проекта: fmt, vet, mod, build, test, conformance, pipelines, plugins, registry
   wedra run <file.yaml> == pipeline run
   wedra validate <file.yaml> == pipeline validate
 
