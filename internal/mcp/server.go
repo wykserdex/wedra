@@ -3,6 +3,8 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1302,12 +1304,21 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 	// нулевую политику, и флаги --allow/--deny-untrusted-plugins не влияли
 	// на запуск из MCP.
 	ctx := plugin.WithTrustPolicy(context.Background(), s.trust)
+	// Намерение пишется ДО запуска. Решение агента о запуске кода — событие
+	// доверия, и оно обязано быть в журнале даже тогда, когда процесс
+	// умирает на середине: иначе выполнение внешнего кода остаётся вообще
+	// без следа. Ошибка записи здесь означает настоящий отказ — плагин не
+	// запускается.
+	execID, auditErr := s.auditAgentExecIntent(pluginRef, m, timeout)
+	if auditErr != nil {
+		return "", false, rpcErr("E_AGENT_EXEC_AUDIT", auditErr.Error())
+	}
 	started := time.Now()
 	res := plugin.ExecWithEnvCtx(ctx, m, inputJSON, time.Duration(timeout)*time.Second, extraEnv)
-	// Решение агента о запуске кода — событие доверия, и оно обязано быть в
-	// журнале. Без записи exec_plugin был единственным действием в проекте,
-	// не оставлявшим следа, хотя весь остальной код журналируется.
-	if auditErr := s.auditAgentExec(pluginRef, m, res, time.Since(started)); auditErr != nil {
+	// Исход дописывается после. Его потеря не отменяет уже состоявшееся
+	// исполнение, поэтому здесь только отказ вернуть результат: в журнале
+	// всё равно остаётся намерение с тем же exec_id.
+	if auditErr := s.auditAgentExecResult(execID, pluginRef, m, res, time.Since(started)); auditErr != nil {
 		return "", false, rpcErr("E_AGENT_EXEC_AUDIT", auditErr.Error())
 	}
 	if res.Platform {
@@ -1331,24 +1342,34 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 // оно должно читаться так же надёжно, как gate_decision.
 const agentExecAuditFile = "agent-exec.jsonl"
 
-// auditAgentExec пишет одну запись о решении агента. Ошибка записи возвращается
-// наружу: fail-closed. Молча потерянная запись о выполнении внешнего кода
-// хуже, чем отказ, поэтому запуск без следа считается ошибкой.
-func (s *Server) auditAgentExec(pluginRef string, m *pipeline.Manifest, res *plugin.ExecResult, took time.Duration) error {
+// События журнала. Их два на один запуск, и порядок обязателен: сначала
+// намерение, потом результат.
+const (
+	// agentExecEventIntent — запись ДО запуска плагина. Именно она даёт
+	// настоящую гарантию: не записалось намерение — плагин не запускается.
+	agentExecEventIntent = "agent_plugin_exec_intent"
+	// agentExecEventResult — запись ПОСЛЕ запуска: чем закончилось.
+	agentExecEventResult = "agent_plugin_exec"
+)
+
+// newExecID связывает пару записей одного запуска. Читатель журнала видит
+// намерение без результата (значит процесс упал или был убит) и результат без
+// намерения (быть не должно — это признак дырки в журнале).
+func newExecID() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("сгенерировать id запуска: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// writeAuditRecord дописывает одну строку в журнал. Общий низ для обеих
+// записей: иначе «не записалось» и «не сериализовалось» разъезжаются.
+func (s *Server) writeAuditRecord(record map[string]interface{}) error {
 	if s.runsDir == "" {
 		return fmt.Errorf("не задан каталог ранов, запись о запуске агентом невозможна")
 	}
-	record := map[string]interface{}{
-		"ts":        time.Now().UTC().Format(time.RFC3339Nano),
-		"event":     "agent_plugin_exec",
-		"source":    "agent_auto",
-		"plugin":    pluginRef,
-		"plugin_id": m.ID,
-		"untrusted": plugin.IsAgentWrittenPlugin(m),
-		"exit_code": res.ExitCode,
-		"err_code":  res.ErrCode,
-		"duration":  took.String(),
-	}
+	record["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
 	line, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("не сериализовать запись аудита: %w", err)
@@ -1362,7 +1383,58 @@ func (s *Server) auditAgentExec(pluginRef string, m *pipeline.Manifest, res *plu
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		return fmt.Errorf("записать в журнал запусков агента (%s): %w", path, err)
 	}
+	// Синхронизируем файл: намерение обязано оказаться на диске ДО запуска
+	// плагина. При вылете процесса иначе буфер ушёл бы в никуда, и мы
+	// получили бы ровно то, ради чего переставили записи: запуск без следа.
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("сбросить журнал запусков агента на диск (%s): %w", path, err)
+	}
 	return nil
+}
+
+// auditAgentExecIntent фиксирует НАМЕРЕНИЕ запустить плагин и возвращает id
+// запуска. Вызывается до исполнения, и её ошибка означает отказ: код не
+// запускается вовсе.
+//
+// Почему именно до запуска, а не после. При записи после падения процесса
+// посреди исполнения не остаётся НИЧЕГО: плагин уже отработал, а след — нет.
+// Запись до запуска закрывает и это, и даёт настоящий запрет, а не
+// «результат не отдан».
+func (s *Server) auditAgentExecIntent(pluginRef string, m *pipeline.Manifest, timeout float64) (string, error) {
+	execID, err := newExecID()
+	if err != nil {
+		return "", err
+	}
+	err = s.writeAuditRecord(map[string]interface{}{
+		"event":     agentExecEventIntent,
+		"exec_id":   execID,
+		"source":    "agent_auto",
+		"plugin":    pluginRef,
+		"plugin_id": m.ID,
+		"untrusted": plugin.IsAgentWrittenPlugin(m),
+		"timeout":   timeout,
+	})
+	if err != nil {
+		return "", err
+	}
+	return execID, nil
+}
+
+// auditAgentExecResult дописывает исход запуска. Ошибка здесь означает
+// отказ вернуть результат агенту (E_AGENT_EXEC_AUDIT), но плагин к этому
+// моменту уже отработал — намерение о нём в журнале уже есть.
+func (s *Server) auditAgentExecResult(execID, pluginRef string, m *pipeline.Manifest, res *plugin.ExecResult, took time.Duration) error {
+	return s.writeAuditRecord(map[string]interface{}{
+		"event":     agentExecEventResult,
+		"exec_id":   execID,
+		"source":    "agent_auto",
+		"plugin":    pluginRef,
+		"plugin_id": m.ID,
+		"untrusted": plugin.IsAgentWrittenPlugin(m),
+		"exit_code": res.ExitCode,
+		"err_code":  res.ErrCode,
+		"duration":  took.String(),
+	})
 }
 
 func (s *Server) checkPluginNetwork(m *pipeline.Manifest) error {

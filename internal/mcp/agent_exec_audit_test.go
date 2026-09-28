@@ -3,8 +3,8 @@ package mcp
 // Тесты аудита exec_plugin.
 //
 // Этот код — журнал безопасности: он фиксирует, что агент запускал код.
-// Раньше он не был покрыт НИ ОДНИМ тестом, хотя именно он определяет, чем
-// на самом деле является «fail-closed» в документации.
+// Контракт изменился один раз: запись переехала ДО запуска, и на один
+// запуск теперь приходится две строки — намерение и результат.
 
 import (
 	"encoding/json"
@@ -36,6 +36,43 @@ func auditManifest(id string) *pipeline.Manifest {
 	}
 }
 
+// readAudit читает журнал как список записей. Порядок сохраняется: он и есть
+// смысл журнала.
+func readAudit(t *testing.T, dir string) []map[string]interface{} {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, agentExecAuditFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]interface{}
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("строка аудита не разбирается как JSON: %v\n%s", err, line)
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+func str(rec map[string]interface{}, key string) string {
+	s, _ := rec[key].(string)
+	return s
+}
+
+// writeIntent пишет намерение и возвращает его id. Общий шаг для тестов.
+func writeIntent(t *testing.T, s *Server, ref string, m *pipeline.Manifest) string {
+	t.Helper()
+	id, err := s.auditAgentExecIntent(ref, m, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 // rpcCodeOf достаёт машинный код из RPCError. rpcErr кладёт его в
 // Data["code"], а не в Message, поэтому проверять надо именно Data.
 func rpcCodeOf(e *RPCError) string {
@@ -48,9 +85,194 @@ func rpcCodeOf(e *RPCError) string {
 	return ""
 }
 
-// hasPython повторяет порядок поиска из internal/plugin: сначала python3,
-// потом python. Если интерпретатора нет, тест со «спящим» плагином надо
-// пропустить, а не падать из-за окружения.
+func TestAgentExecAuditIntentHasNoResultYet(t *testing.T) {
+	dir := t.TempDir()
+	s := auditTestServer(t, dir)
+	writeIntent(t, s, "text_stats", auditManifest("text_stats"))
+
+	recs := readAudit(t, dir)
+	if len(recs) != 1 {
+		t.Fatalf("записей %d, ждали 1 (одно намерение)", len(recs))
+	}
+	got := recs[0]
+	if str(got, "event") != agentExecEventIntent {
+		t.Errorf("event = %q, ждали %q", str(got, "event"), agentExecEventIntent)
+	}
+	for k, want := range map[string]interface{}{
+		"source":    "agent_auto",
+		"plugin":    "text_stats",
+		"plugin_id": "text_stats",
+		"untrusted": false,
+		"timeout":   float64(60),
+	} {
+		if got[k] != want {
+			t.Errorf("intent[%q] = %v, ждали %v", k, got[k], want)
+		}
+	}
+	// Исхода у намерения быть не может: плагин ещё не запускался.
+	for _, k := range []string{"exit_code", "duration", "err_code"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("в намерении не должно быть поля %q", k)
+		}
+	}
+	if str(got, "exec_id") == "" {
+		t.Error("у намерения должен быть exec_id, иначе записи не сойтись")
+	}
+	if str(got, "ts") == "" {
+		t.Error("у намерения должна быть метка времени")
+	}
+}
+
+// Намерение и результат связаны одним exec_id, и в журнале они идут именно в
+// таком порядке.
+func TestAgentExecAuditResultFollowsIntentWithSameExecID(t *testing.T) {
+	dir := t.TempDir()
+	s := auditTestServer(t, dir)
+	m := auditManifest("text_stats")
+
+	execID := writeIntent(t, s, "text_stats", m)
+	if err := s.auditAgentExecResult(execID, "text_stats", m,
+		&plugin.ExecResult{ExitCode: 3, ErrCode: "boom"}, 250*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+
+	recs := readAudit(t, dir)
+	if len(recs) != 2 {
+		t.Fatalf("записей %d, ждали 2 (намерение + результат)", len(recs))
+	}
+	if str(recs[0], "event") != agentExecEventIntent {
+		t.Errorf("первая запись = %q, ждали намерение", str(recs[0], "event"))
+	}
+	if str(recs[1], "event") != agentExecEventResult {
+		t.Errorf("вторая запись = %q, ждали результат", str(recs[1], "event"))
+	}
+	if str(recs[0], "exec_id") != execID || str(recs[1], "exec_id") != execID {
+		t.Errorf("exec_id не совпал: %q / %q (ждали %q)",
+			str(recs[0], "exec_id"), str(recs[1], "exec_id"), execID)
+	}
+	if str(recs[0], "ts") > str(recs[1], "ts") {
+		t.Error("метка времени намерения позже результата")
+	}
+	if recs[1]["exit_code"] != float64(3) || str(recs[1], "err_code") != "boom" {
+		t.Errorf("результат не перенёс исход: %+v", recs[1])
+	}
+	if d, err := time.ParseDuration(str(recs[1], "duration")); err != nil || d != 250*time.Millisecond {
+		t.Errorf("duration = %q", str(recs[1], "duration"))
+	}
+}
+
+// Append-only: три запуска — шесть строк, ничего не перезаписано.
+func TestAgentExecAuditAppendsBothRecordsPerRun(t *testing.T) {
+	dir := t.TempDir()
+	s := auditTestServer(t, dir)
+
+	for _, ref := range []string{"first", "second", "third"} {
+		m := auditManifest(ref)
+		id := writeIntent(t, s, ref, m)
+		if err := s.auditAgentExecResult(id, ref, m, &plugin.ExecResult{}, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recs := readAudit(t, dir)
+	if len(recs) != 6 {
+		t.Fatalf("записей %d, ждали 6", len(recs))
+	}
+	seen := map[string]int{}
+	for _, r := range recs {
+		seen[str(r, "plugin")]++
+	}
+	for _, want := range []string{"first", "second", "third"} {
+		if seen[want] != 2 {
+			t.Errorf("плагин %q: записей %d, ждали 2 (намерение + результат)", want, seen[want])
+		}
+	}
+}
+
+func TestAgentExecAuditMarksUntrusted(t *testing.T) {
+	dir := t.TempDir()
+	s := auditTestServer(t, dir)
+
+	agent := &pipeline.Manifest{ID: "mailer", Version: "0.1.0",
+		Dir: filepath.Join("work", "agent-plugins", "mailer")}
+	plain := &pipeline.Manifest{ID: "text_stats", Version: "0.1.0",
+		Dir: filepath.Join("plugins", "text_stats")}
+	writeIntent(t, s, "agent-plugins/mailer", agent)
+	writeIntent(t, s, "text_stats", plain)
+
+	recs := readAudit(t, dir)
+	if len(recs) != 2 {
+		t.Fatalf("записей %d, ждали 2", len(recs))
+	}
+	for i, want := range []bool{true, false} {
+		if recs[i]["untrusted"] != want {
+			t.Errorf("запись %d: untrusted = %v, ждали %v", i+1, recs[i]["untrusted"], want)
+		}
+	}
+}
+
+func TestAgentExecAuditFailsWithoutRunsDir(t *testing.T) {
+	s := auditTestServer(t, "")
+	if _, err := s.auditAgentExecIntent("x", auditManifest("x"), 60); err == nil {
+		t.Fatal("без каталога ранов аудит обязан падать: иначе запуск неоплачен")
+	}
+}
+
+// Помеха выбрана так, чтобы работать и на Unix, и на Windows: на месте
+// каталога кладётся файл, а не выставляются права — на Windows права
+// выставляются иначе и такой тест там проходил бы вхолостую.
+func TestAgentExecAuditFailsWhenRunsDirIsNotADir(t *testing.T) {
+	base := t.TempDir()
+	blocker := filepath.Join(base, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := auditTestServer(t, blocker)
+	_, err := s.auditAgentExecIntent("x", auditManifest("x"), 60)
+	if err == nil {
+		t.Fatal("аудит обязан падать, если каталог недоступен")
+	}
+	if !strings.Contains(err.Error(), agentExecAuditFile) {
+		t.Errorf("в ошибке должно называться имя файла журнала: %v", err)
+	}
+}
+
+func TestAgentExecAuditFailsWhenJournalPathIsADir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, agentExecAuditFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := auditTestServer(t, dir)
+	if _, err := s.auditAgentExecIntent("x", auditManifest("x"), 60); err == nil {
+		t.Fatal("аудит обязан падать, если на месте журнала каталог")
+	}
+	if err := s.auditAgentExecResult("id", "x", auditManifest("x"), &plugin.ExecResult{}, 0); err == nil {
+		t.Fatal("запись результата обязана падать на тех же условиях")
+	}
+}
+
+// Потерянный результат не стирает намерение. Это и есть смысл двух записей:
+// плагин уже отработал, и в журнале остаётся хотя бы след попытки.
+func TestAgentExecAuditResultFailureLeavesIntent(t *testing.T) {
+	good := t.TempDir()
+	s := auditTestServer(t, good)
+	m := auditManifest("text_stats")
+	execID := writeIntent(t, s, "text_stats", m)
+
+	// Тот же запуск, но запись результата уходит в недоступный каталог.
+	broken := auditTestServer(t, filepath.Join(t.TempDir(), "missing"))
+	if err := broken.auditAgentExecResult(execID, "text_stats", m, &plugin.ExecResult{}, 0); err == nil {
+		t.Fatal("запись результата в недоступный каталог обязана падать")
+	}
+
+	recs := readAudit(t, good)
+	if len(recs) != 1 {
+		t.Fatalf("записей %d, ждали 1: пропажу записи результата стереть не должна", len(recs))
+	}
+	if str(recs[0], "event") != agentExecEventIntent || str(recs[0], "exec_id") != execID {
+		t.Errorf("уцелела не та запись: %+v", recs[0])
+	}
+}
+
 func hasPython() bool {
 	for _, name := range []string{"python3", "python"} {
 		if _, err := exec.LookPath(name); err == nil {
@@ -60,171 +282,15 @@ func hasPython() bool {
 	return false
 }
 
-func TestAgentExecAuditWritesRecord(t *testing.T) {
-	dir := t.TempDir()
-	s := auditTestServer(t, dir)
-
-	err := s.auditAgentExec("text_stats", auditManifest("text_stats"),
-		&plugin.ExecResult{ExitCode: 0}, 120*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	raw, err := os.ReadFile(filepath.Join(dir, agentExecAuditFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := strings.TrimSpace(string(raw))
-	if strings.Contains(line, "\n") {
-		t.Fatalf("в аудите должна быть одна строка на запуск, получено %d", strings.Count(line, "\n")+1)
-	}
-	var rec map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &rec); err != nil {
-		t.Fatalf("строка аудита не разбирается как JSON: %v\n%s", err, line)
-	}
-	for k, want := range map[string]interface{}{
-		"event":     "agent_plugin_exec",
-		"source":    "agent_auto",
-		"plugin":    "text_stats",
-		"plugin_id": "text_stats",
-		"exit_code": float64(0),
-	} {
-		if rec[k] != want {
-			t.Errorf("rec[%q] = %v, ждали %v", k, rec[k], want)
-		}
-	}
-	for _, k := range []string{"ts", "duration", "untrusted", "err_code"} {
-		if _, ok := rec[k]; !ok {
-			t.Errorf("в записи нет поля %q: %s", k, line)
-		}
-	}
-}
-
-// Append-only, а не перезапись: журнал, который теряет предыдущие запуски,
-// бесполезен для разбора инцидента.
-func TestAgentExecAuditAppends(t *testing.T) {
-	dir := t.TempDir()
-	s := auditTestServer(t, dir)
-
-	for i, ref := range []string{"first", "second", "third"} {
-		if err := s.auditAgentExec(ref, auditManifest(ref), &plugin.ExecResult{}, time.Duration(i)*time.Millisecond); err != nil {
-			t.Fatal(err)
-		}
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, agentExecAuditFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("строк в журнале %d, ждали 3", len(lines))
-	}
-	for i, want := range []string{"first", "second", "third"} {
-		var rec map[string]interface{}
-		if err := json.Unmarshal([]byte(lines[i]), &rec); err != nil {
-			t.Fatalf("строка %d не JSON: %v", i+1, err)
-		}
-		if rec["plugin"] != want {
-			t.Errorf("строка %d: plugin = %v, ждали %v", i+1, rec["plugin"], want)
-		}
-	}
-}
-
-func TestAgentExecAuditMarksUntrusted(t *testing.T) {
-	dir := t.TempDir()
-	s := auditTestServer(t, dir)
-
-	// Плагин агента: компонента пути равна AgentPluginDir.
-	agent := &pipeline.Manifest{ID: "mailer", Version: "0.1.0",
-		Dir: filepath.Join("work", "agent-plugins", "mailer")}
-	if err := s.auditAgentExec("agent-plugins/mailer", agent, &plugin.ExecResult{}, 0); err != nil {
-		t.Fatal(err)
-	}
-	// Обычный плагин.
-	plain := &pipeline.Manifest{ID: "text_stats", Version: "0.1.0",
-		Dir: filepath.Join("plugins", "text_stats")}
-	if err := s.auditAgentExec("text_stats", plain, &plugin.ExecResult{}, 0); err != nil {
-		t.Fatal(err)
-	}
-
-	raw, _ := os.ReadFile(filepath.Join(dir, agentExecAuditFile))
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("строк %d, ждали 2", len(lines))
-	}
-	for i, want := range []bool{true, false} {
-		var rec struct {
-			Untrusted bool `json:"untrusted"`
-		}
-		if err := json.Unmarshal([]byte(lines[i]), &rec); err != nil {
-			t.Fatal(err)
-		}
-		if rec.Untrusted != want {
-			t.Errorf("строка %d: untrusted = %v, ждали %v", i+1, rec.Untrusted, want)
-		}
-	}
-}
-
-func TestAgentExecAuditFailsWithoutRunsDir(t *testing.T) {
-	s := auditTestServer(t, "")
-	if err := s.auditAgentExec("x", auditManifest("x"), &plugin.ExecResult{}, 0); err == nil {
-		t.Fatal("без каталога ранов аудит обязан падать: иначе запуск неоплачен")
-	}
-}
-
-// Недоступный каталог ранов. Ставим на его место ФАЙЛ: тогда OpenFile внутри
-// даёт ENOTDIR одинаково на Unix и на Windows, без fiddling с правами,
-// которые на Windows всё равно работают иначе.
-func TestAgentExecAuditFailsWhenRunsDirIsNotADir(t *testing.T) {
-	base := t.TempDir()
-	blocker := filepath.Join(base, "not-a-dir")
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	s := auditTestServer(t, blocker)
-	err := s.auditAgentExec("x", auditManifest("x"), &plugin.ExecResult{}, 0)
-	if err == nil {
-		t.Fatal("аудит обязан падать, если каталог недоступен")
-	}
-	if !strings.Contains(err.Error(), agentExecAuditFile) {
-		t.Errorf("в ошибке должно называться имя файла журнала: %v", err)
-	}
-}
-
-// На месте журнала — каталог. Запись в файл невозможна, аудит обязан падать.
-func TestAgentExecAuditFailsWhenJournalPathIsADir(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, agentExecAuditFile), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	s := auditTestServer(t, dir)
-	if err := s.auditAgentExec("x", auditManifest("x"), &plugin.ExecResult{}, 0); err == nil {
-		t.Fatal("аудит обязан падать, если на месте журнала каталог")
-	}
-}
-
-// САМЫЙ ВАЖНЫЙ ТЕСТ ФАЙЛА: он доказывает, в каком порядке идут запуск и
-// аудит, и не даёт формулировке в документации разойтись с кодом.
-//
-// В toolExecPlugin ExecWithEnvCtx стоит на L1306, аудит на L1310. Значит
-// плагин УЖЕ ОТРАБОТАЛ, когда пишется запись. Доказательство: плагин спит
-// 1.2 с, а записанная в аудит duration не может быть ~0 — она включает
-// время исполнения. Если бы аудит писался ДО запуска, duration была бы
-// около нуля и тест упал бы.
-//
-// Раньше здесь стояла проверка «появилась ли метка на диске», и она врала:
-// отсутствие метки означало не «плагин не запускался», а что мой рукописный
-// скрипт угадал неверную форму конверта. Вывод из побочного эффекта здесь
-// недопустим — порядок доказывается измерением, а не предположением.
-func TestAgentExecAuditIsWrittenAfterExecution(t *testing.T) {
-	if testing.Short() {
-		t.Skip("запускает настоящий плагин со сном")
-	}
+// sleeperServer поднимает сервер с одним настоящим плагином, который спит
+// secs секунд. Сон выбран как измеримый признак исполнения: он не зависит
+// ни от формы конверта, ни от прав на диск, в отличие от проверки «появился
+// ли файл-метка» — та проверка уже обманула один раз.
+func sleeperServer(t *testing.T, slept float64) (*Server, string) {
+	t.Helper()
 	if !hasPython() {
 		t.Skip("интерпретатор python не найден в PATH")
 	}
-	const slept = 1200 * time.Millisecond
-
 	dir := t.TempDir()
 	plugins := filepath.Join(dir, "plugins")
 	work := filepath.Join(dir, "work")
@@ -237,14 +303,12 @@ func TestAgentExecAuditIsWrittenAfterExecution(t *testing.T) {
 	writeFakePlugin(t, plugins, "sleeper",
 		map[string]interface{}{"text": map[string]interface{}{"type": "string", "from": "input.text"}},
 		map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}})
-	py := "import json,sys,time" + "\n" +
-		"json.load(sys.stdin)" + "\n" +
-		"time.sleep(1.2)" + "\n" +
-		"json.dump({'status':'ok','output':{'done':True}},sys.stdout)" + "\n"
+	py := "import json,sys,time\njson.load(sys.stdin)\ntime.sleep(" +
+		strings.TrimRight(strings.TrimRight(fmtFloat(slept), "0"), ".") + ")\n" +
+		"json.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"
 	if err := os.WriteFile(filepath.Join(plugins, "sleeper", "main.py"), []byte(py), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	srv, err := NewServer(Options{
 		PluginsDirs: []string{plugins},
 		WorkDir:     work,
@@ -254,39 +318,23 @@ func TestAgentExecAuditIsWrittenAfterExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if _, _, rpcErr := srv.toolExecPlugin(map[string]interface{}{
-		"plugin": "sleeper",
-		"input":  map[string]interface{}{"text": "x"},
-	}); rpcErr != nil {
-		t.Fatalf("exec_plugin должен был отработать: %+v", rpcErr)
-	}
-
-	raw, err := os.ReadFile(filepath.Join(runs, agentExecAuditFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rec struct {
-		Duration string `json:"duration"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &rec); err != nil {
-		t.Fatal(err)
-	}
-	got, err := time.ParseDuration(rec.Duration)
-	if err != nil {
-		t.Fatalf("duration %q не разбирается: %v", rec.Duration, err)
-	}
-	if got < slept {
-		t.Fatalf("записанная duration = %s, а плагин спал %s. Значит аудит пишется "+
-			"ДО запуска — документацию про «плагин не запускается» можно ужесточить, "+
-			"а комментарий в коде исправить", got, slept)
-	}
+	return srv, runs
 }
 
-// Fail-closed: при недоступном аудите агент получает код ошибки и НЕ получает
-// результат исполнения. Ровно это и обещает документация — на этом тест и
-// останавливается: обещать он не может, что код не запускался.
-func TestAgentExecAuditFailureWithholdsResult(t *testing.T) {
+func fmtFloat(f float64) string {
+	b, _ := json.Marshal(f)
+	return string(b)
+}
+
+// ГЛАВНЫЙ ТЕСТ ФАЙЛА. До перестановки записей он утверждал обратное: аудит
+// писался после запуска, поэтому «не записалось» означало «результат не
+// отдан», а код уже отработал.
+//
+// Теперь намерение пишется ДО запуска, и отказ по аудиту означает настоящий
+// запрет. Проверяется измеримо: плагин спит 1.2 с, поэтому если бы он
+// стартовал, вызов занял бы больше секунды. Возврат за десятки миллисекунд
+// означает, что запуска не было.
+func TestAgentExecAuditFailurePreventsExecution(t *testing.T) {
 	if testing.Short() {
 		t.Skip("запускает настоящий плагин")
 	}
@@ -298,9 +346,17 @@ func TestAgentExecAuditFailureWithholdsResult(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeFakePlugin(t, plugins, "echo_ok",
+	if !hasPython() {
+		t.Skip("интерпретатор python не найден в PATH")
+	}
+	writeFakePlugin(t, plugins, "sleeper",
 		map[string]interface{}{"text": map[string]interface{}{"type": "string", "from": "input.text"}},
 		map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}})
+	py := "import json,sys,time\njson.load(sys.stdin)\ntime.sleep(1.2)\n" +
+		"json.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"
+	if err := os.WriteFile(filepath.Join(plugins, "sleeper", "main.py"), []byte(py), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Каталог ранов нормальный, но на месте журнала — каталог: запись
 	// невозможна, при этом NewServer проходит, иначе помеха поймалась бы на
@@ -309,7 +365,6 @@ func TestAgentExecAuditFailureWithholdsResult(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(runs, agentExecAuditFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
 	srv, err := NewServer(Options{
 		PluginsDirs: []string{plugins},
 		WorkDir:     work,
@@ -320,32 +375,60 @@ func TestAgentExecAuditFailureWithholdsResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, isErr, rpcErr := srv.toolExecPlugin(map[string]interface{}{
-		"plugin": "echo_ok",
+	t0 := time.Now()
+	out, _, rpcErr := srv.toolExecPlugin(map[string]interface{}{
+		"plugin": "sleeper",
 		"input":  map[string]interface{}{"text": "x"},
 	})
-	// isErr тут НЕ маркер отказа: toolExecPlugin при отказе возвращает
-	// ("" , false, rpcErr). Признак отказа — непустой rpcErr.
+	took := time.Since(t0)
+
 	if rpcErr == nil {
-		t.Fatalf("при недоступном аудите ожидался отказ; получено isErr=%v out=%q", isErr, out)
+		t.Fatalf("при недоступном аудите ожидался отказ; получено out=%q", out)
 	}
 	if code := rpcCodeOf(rpcErr); code != "E_AGENT_EXEC_AUDIT" {
 		t.Errorf("код = %q, ждали E_AGENT_EXEC_AUDIT (msg=%q)", code, rpcErr.Message)
 	}
 	if out != "" {
-		t.Errorf("агент не должен получать результат неоплаченного запуска, получено: %q", out)
+		t.Errorf("агент не должен получать результат, получено: %q", out)
+	}
+	// Собственно проверка запрета. Плагин спал бы 1.2 с.
+	if took >= time.Second {
+		t.Fatalf("вызов занял %s — плагин похоже всё-таки запускался, "+
+			"хотя аудит был недоступен. Запрет не работает.", took)
 	}
 }
 
-// Пустой результат аудита не должен молча считаться успешным: пустой runsDir
-// даёт ошибку, и она обязана доходить до вызывающего.
-func TestAgentExecAuditErrorMentionsDirectory(t *testing.T) {
-	s := auditTestServer(t, "")
-	err := s.auditAgentExec("x", auditManifest("x"), &plugin.ExecResult{}, 0)
-	if err == nil {
-		t.Fatal("ожидалась ошибка")
+// Успешный запуск: намерение и результат в журнале, порядок верный, а
+// duration результата включает время сна плагина.
+func TestAgentExecAuditRecordsBothAroundRealExecution(t *testing.T) {
+	if testing.Short() {
+		t.Skip("запускает настоящий плагин")
 	}
-	if !strings.Contains(err.Error(), "runs") && !strings.Contains(err.Error(), "каталог") {
-		t.Errorf("ошибка должна объяснять, чего не хватает: %v", err)
+	srv, runs := sleeperServer(t, 1.2)
+
+	if _, _, rpcErr := srv.toolExecPlugin(map[string]interface{}{
+		"plugin": "sleeper",
+		"input":  map[string]interface{}{"text": "x"},
+	}); rpcErr != nil {
+		t.Fatalf("exec_plugin должен был отработать: %+v", rpcErr)
+	}
+
+	recs := readAudit(t, runs)
+	if len(recs) != 2 {
+		t.Fatalf("записей %d, ждали 2: %+v", len(recs), recs)
+	}
+	if str(recs[0], "event") != agentExecEventIntent {
+		t.Errorf("первая запись = %q, ждали намерение — оно обязано быть до запуска",
+			str(recs[0], "event"))
+	}
+	if str(recs[1], "event") != agentExecEventResult {
+		t.Errorf("вторая запись = %q, ждали результат", str(recs[1], "event"))
+	}
+	d, err := time.ParseDuration(str(recs[1], "duration"))
+	if err != nil {
+		t.Fatalf("duration %q не разбирается: %v", str(recs[1], "duration"), err)
+	}
+	if d < time.Second {
+		t.Errorf("duration результата = %s, а плагин спал 1.2 с", d)
 	}
 }
