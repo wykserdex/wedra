@@ -10,12 +10,11 @@ jobs:
       - name: emit every candidate channel
         shell: pwsh
         run: |
-          $marker = 'PROBE-MARKER-7f3a9'
-          Write-Host "stdout: $marker"
-          "::notice title=census-probe::$marker" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "PROBE-SUMMARY-$marker" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "::error title=census-probe::$marker" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "ERRORVARIANT=$marker" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $m = 'PROBE2-9c41de'
+          Write-Output "stdout: $m"
+          Write-Output "::notice title=census-probe-notice::$m"
+          Write-Output "::error title=census-probe-error::$m"
+          "::warning title=census-probe-warning::$m" | Write-Output
       - name: hang forever
         shell: pwsh
         timeout-minutes: 2
