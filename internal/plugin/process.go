@@ -19,6 +19,17 @@ import (
 
 type Manifest = pipeline.Manifest
 
+// ioWaitDelay — сколько ждём закрытия пайпов вывода после выхода процесса.
+//
+// cmd.Wait() без WaitDelay ждёт закрытия пайпов БЕСКОНЕЧНО. Плагин, запустивший
+// фонового потомка, отдаёт ответ и выходит, но потомок наследует stdout/stderr
+// и держит пайп открытым (на Windows потомок наследует их всегда —
+// golang/go#60942). Раньше такой плагин приводил ран к таймауту: его собственный
+// выход уже был готов, но Wait() не возвращался. 2 с — потому что ответ
+// нормального плагина приходит до выхода процесса, и WaitDelay не добавляет
+// ему задержки; платит только тот, кто действительно что-то утек.
+const ioWaitDelay = 2 * time.Second
+
 type ExecResult struct {
 	Output    map[string]interface{}
 	ErrCode   string
@@ -244,6 +255,14 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// Убийство группы — в момент таймаута (goroutine): Wait ждёт закрытия
 	// пайпов, унаследованных дочерними, и без group kill «замрёт» до их
 	// естественной смерти (sleep 30 = 30 секунд).
+	//
+	// ioWaitDelay ограничивает ровно эту ждобу: сколько готовы ждать закрытия
+	// пайпов вывода ПОСЛЕ выхода процесса. Без него cmd.Wait() ждёт вечно,
+	// если пайп удерживает кто-то живой (на Windows потомок наследует
+	// stdin/stdout/stderr всегда — см. golang/go#60942). Величина не влияет на
+	// нормальные плагины: они пишут ответ до выхода, и WaitDelay не
+	// добавляет им задержки — платит только тот, кто действительно утек.
+	cmd.WaitDelay = ioWaitDelay
 	if err := prepareProcessGroup(cmd); err != nil {
 		res.Platform, res.ErrCode, res.ErrMsg = true, "process_group", err.Error()
 		res.ExitCode = 2
@@ -333,9 +352,31 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	}
 	if runErr != nil {
 		var ee *exec.ExitError
-		if errors.As(runErr, &ee) {
+		switch {
+		case errors.As(runErr, &ee):
 			res.ExitCode = ee.ExitCode()
-		} else {
+		case errors.Is(runErr, exec.ErrWaitDelay):
+			// Процесс отработал и вышел, но кто-то ещё держит его пайп
+			// вывода: почти всегда это фоновый потомок, который плагин запустил
+			// и забыл. Раньше cmd.Wait() ждал закрытия пайпа БЕСКОНЕЧНО, и
+			// успешный плагин с фоновой задачей приводил ран к таймауту.
+			//
+			// Это НЕ ошибка плагина: его ответ уже получен, поэтому идём
+			// успешной веткой, но след утечки оставляем в stderr — иначе
+			// «успех» выглядит как обычный ран и молча скрывает оставшегося
+			// жить потомка.
+			res.ExitCode = 0
+			if cmd.ProcessState != nil {
+				res.ExitCode = cmd.ProcessState.ExitCode()
+			}
+			warn := "плагин оставил фоновый процесс: пайп вывода не закрылся за " +
+				ioWaitDelay.String() + ", ответ плагина принят, потомок мог остаться жив"
+			if res.Stderr == "" {
+				res.Stderr = warn
+			} else {
+				res.Stderr = common.Truncate(res.Stderr, 4000) + "\n[wedra] " + warn
+			}
+		default:
 			res.Platform, res.ErrCode, res.ErrMsg = true, "spawn_failed", runErr.Error()
 			res.ExitCode = 2
 			return res
