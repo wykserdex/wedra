@@ -1,8 +1,11 @@
 package common
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,40 +15,75 @@ import (
 // оставившая пережившего потомка, ОБЯЗАНА вернуться. Без WaitDelay такой
 // вызов не возвращается никогда — и это не экзотика, а Windows-специфика,
 // где потомок наследует stdin/stdout/stderr всегда (golang/go#60942).
+//
+// Потомка тест создаёт НАМЕРЕННО, но убирает за собой сам: оставлять после
+// прогона живой процесс нельзя. Такой процесс держит пайпы родителя (на
+// Windows это тот самый класс, который чинится) и вдобавок засоряет census
+// в CI, где мы ищем именно такие выжившие процессы.
 func TestOutputReturnsWhenDescendantHoldsPipe(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		// Нужен интерпретатор, который умеет форкнуться; на Windows это cmd.
-		// Маркер печатается ДО фона, чтобы доказать, что вывод команды мы не
-		// потеряли, а «хвост» от потомка действительно отбросили.
-		cmd := exec.Command("cmd", "/c", "echo done & start /b ping -n 60 127.0.0.1 >nul")
-		assertBoundedOutput(t, cmd)
-		return
-	}
-	sh, err := exec.LookPath("sh")
-	if err != nil {
-		t.Skip("sh недоступен")
-	}
-	// Потомок переживает команду и держит унаследованный stdout 60 с.
-	cmd := exec.Command(sh, "-c", "sleep 60 & echo done; exit 0")
+	pidFile := filepath.Join(t.TempDir(), "descendant.pid")
+	cmd := leakDescendant("[Console]::Out.WriteLine('done')", pidFile)
 	assertBoundedOutput(t, cmd)
+	killDescendant(t, pidFile)
 }
 
 func TestCombinedOutputReturnsWhenDescendantHoldsPipe(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "descendant.pid")
+	cmd := leakDescendant("[Console]::Error.WriteLine('done')", pidFile)
+	assertBoundedCombined(t, cmd)
+	killDescendant(t, pidFile)
+}
+
+// leakDescendant — команда, которая печатает marker, запускает переживающего её
+// потомка и выходит. PID потомка пишется в pidFile, а НЕ в stdout: сам потомок
+// наследует наш stdout, и его вывод попал бы в проверяемый результат.
+//
+// marker передаётся как готовый фрагмент: на Windows это прямой вызов .NET,
+// потому что `echo x 1>&2` в PowerShell — это Write-Output, который портит
+// код возврата, и тест падал бы на стороне PowerShell, а не на стороне WaitDelay.
+func leakDescendant(marker, pidFile string) *exec.Cmd {
 	if runtime.GOOS == "windows" {
-		cmd := exec.Command("cmd", "/c", "echo done 1>&2 & start /b ping -n 60 127.0.0.1 >nul")
-		assertBoundedCombined(t, cmd)
-		return
+		// Start-Process -NoNewWindow -PassThru: потомок наследует наши stdio
+		// (именно это и держит пайп), а его PID мы получаем через -PassThru.
+		script := "$p = Start-Process -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1' " +
+			"-NoNewWindow -PassThru; " + marker + "; $p.Id | Set-Content -LiteralPath '" + pidFile + "'; exit 0"
+		return exec.Command("powershell", "-NoProfile", "-Command", script)
 	}
 	sh, err := exec.LookPath("sh")
 	if err != nil {
-		t.Skip("sh недоступен")
+		return nil
 	}
-	cmd := exec.Command(sh, "-c", "sleep 60 & echo done 1>&2; exit 0")
-	assertBoundedCombined(t, cmd)
+	shMarker := strings.Replace(marker, "[Console]::Out.WriteLine('done')", "echo done", 1)
+	shMarker = strings.Replace(shMarker, "[Console]::Error.WriteLine('done')", "echo done 1>&2", 1)
+	return exec.Command(sh, "-c",
+		"sleep 60 & echo $! > '"+pidFile+"'; "+shMarker+"; exit 0")
+}
+
+func killDescendant(t *testing.T, pidFile string) {
+	t.Helper()
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Logf("файл с PID потомка не создан (%v) — убирать нечего", err)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Errorf("не разобрали PID потомка из %q: %v", raw, err)
+		return
+	}
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run()
+	} else {
+		_ = exec.Command("kill", "-9", strconv.Itoa(pid)).Run()
+	}
+	t.Logf("потомок pid=%d убран", pid)
 }
 
 func assertBoundedOutput(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
+	if cmd == nil {
+		t.Skip("нет интерпретатора для запуска потомка")
+	}
 	start := time.Now()
 	out, err := Output(cmd)
 	elapsed := time.Since(start)
@@ -63,6 +101,9 @@ func assertBoundedOutput(t *testing.T, cmd *exec.Cmd) {
 
 func assertBoundedCombined(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
+	if cmd == nil {
+		t.Skip("нет интерпретатора для запуска потомка")
+	}
 	start := time.Now()
 	out, err := CombinedOutput(cmd)
 	elapsed := time.Since(start)
