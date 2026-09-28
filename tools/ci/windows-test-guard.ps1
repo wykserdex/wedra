@@ -61,7 +61,7 @@ $resolved = Resolve-Path -LiteralPath $RepoDir -ErrorAction SilentlyContinue
 $script:RepoDir = if ($resolved) { $resolved.Path } else { $RepoDir }
 
 function Write-Line {
-    param([string]$Text)
+    param([string]$Text, [switch]$Notice)
     $stamp = (Get-Date).ToString('HH:mm:ss.fff')
     $elapsed = [int]((Get-Date) - $script:Start).TotalSeconds
     $line = "[{0} +{1,4}s] {2}" -f $stamp, $elapsed, $Text
@@ -69,6 +69,21 @@ function Write-Line {
     if ($script:SummaryPath) {
         Add-Content -Path $script:SummaryPath -Value $line -ErrorAction SilentlyContinue
     }
+    if ($Notice) { Write-Notice -Text $line }
+}
+
+# Аннотация, а не только строка summary. Проверено на отменённом джобе
+# 2026-09-28: содержимое GITHUB_STEP_SUMMARY при отмене ТЕРЯЕТСЯ и через REST
+# не читается даже на зелёном прогоне, а лог джоба отдаётся не всегда
+# (на том же инциденте — "log not found"). Workflow-команда из stdout попадает
+# в объект check-run и переживает отмену: /check-runs/{id}/annotations отдаёт
+# её после force-kill. Поэтому вердикт census обязан идти сюда.
+# Всё сообщение кладём в message (после `::`), а title держим константой:
+# в свойствах до `::` запятая и двоеточие требуют экранирования.
+function Write-Notice {
+    param([string]$Text, [ValidateSet('warning', 'error', 'notice')][string]$Level = 'warning')
+    $esc = $Text -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+    Write-Output ("::{0} title=census::{1}" -f $Level, $esc)
 }
 
 # --- снимок таблицы процессов --------------------------------------------------
@@ -180,7 +195,7 @@ function Get-Survivors {
         $rel = if ($interesting) { 1 } else { 0 }
         $cmd = if ($p.Cmd) { $p.Cmd } else { $p.Name }
         if ($cmd.Length -gt 220) { $cmd = $cmd.Substring(0, 220) + '…' }
-        Write-Line ("{0} rel={1} pid={2} ppid={3} :: {4}" -f $tag, $rel, $p.Pid, $p.Ppid, $cmd)
+        Write-Line ("{0} rel={1} pid={2} ppid={3} :: {4}" -f $tag, $rel, $p.Pid, $p.Ppid, $cmd) -Notice
         Write-Line ("    родословная: {0}" -f (Format-Ancestry -Table $After -Ppid ([int]$p.Ppid)))
         if ($KillLeakedDescendants -and $detached -and $interesting) {
             if ($script:IsWin) {
@@ -276,7 +291,7 @@ function Start-BoundedCommand {
 # --- основной прогон -----------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Write-Line ("guard start: host={0} repo={1} budget={2}s perPackage={3}s goTimeout={4}s killLeaks={5}" -f `
-    $env:OS, $script:RepoDir, $BudgetSec, $PerPackageSec, $GoTimeoutSec, [bool]$KillLeakedDescendants)
+    $env:OS, $script:RepoDir, $BudgetSec, $PerPackageSec, $GoTimeoutSec, [bool]$KillLeakedDescendants) -Notice
 
 # Наша родословная: её нельзя трогать при убийстве оторванных потомков.
 $census0 = Get-CensusTimed
@@ -288,7 +303,7 @@ while ($guardDepth++ -lt 10 -and $census0.ContainsKey([int]$cur)) {
 }
 
 if (-not (Test-Path (Join-Path $script:RepoDir 'go.mod'))) {
-    Write-Line ("FATAL: в '{0}' нет go.mod — рабочий каталог задан неверно (нужен корень репозитория)" -f $script:RepoDir)
+    Write-Line ("FATAL: в '{0}' нет go.mod — рабочий каталог задан неверно (нужен корень репозитория)" -f $script:RepoDir) -Notice
     exit 1
 }
 
@@ -301,7 +316,7 @@ $list = Start-BoundedCommand -FilePath $go -ArgumentList @('list', './...') `
 if (-not $list.Exited -or $list.ExitCode -ne 0) {
     # Ровно тот случай, когда раньше в summary не было НИ ОДНОЙ строки: первая
     # команда шага, без дедлайна, без вывода. Теперь он назван явно.
-    Write-Line ("FATAL: go list ./... не отработал (exited={0} rc={1}) — это была первая точка без дедлайна" -f $list.Exited, $list.ExitCode)
+    Write-Line ("FATAL: go list ./... не отработал (exited={0} rc={1}) — это была первая точка без дедлайна" -f $list.Exited, $list.ExitCode) -Notice
     Get-Content $listLog, $listErrLog -ErrorAction SilentlyContinue | Select-Object -Last 20 | ForEach-Object { Write-Line ("    go list: " + $_) }
     Write-CurrentCensus -Reason 'go list завис'
     exit 1
@@ -323,7 +338,7 @@ foreach ($pkg in $pkgs) {
     }
     $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
     $pkgLog = Join-Path $LogDir "$safe.txt"
-    Write-Line "=== $pkg ==="
+    Write-Line "=== $pkg ===" -Notice
     $before = Get-CensusTimed
     $t0 = Get-Date
     $r = Start-BoundedCommand -FilePath $go `
@@ -335,9 +350,9 @@ foreach ($pkg in $pkgs) {
         Write-Line ("ok      {0}  {1}s" -f $pkg, $dur)
     } else {
         if (-not $r.Exited) {
-            Write-Line ("FAIL    {0}  {1}s (внешний предел, exit=-1)" -f $pkg, $dur)
+            Write-Line ("FAIL    {0}  {1}s (внешний предел, exit=-1)" -f $pkg, $dur) -Notice
         } else {
-            Write-Line ("FAIL    {0}  {1}s (exit={2})" -f $pkg, $dur, $r.ExitCode)
+            Write-Line ("FAIL    {0}  {1}s (exit={2})" -f $pkg, $dur, $r.ExitCode) -Notice
         }
         Get-Content $pkgLog -ErrorAction SilentlyContinue | Select-Object -Last 25 | ForEach-Object { Write-Line ("    | " + $_) }
         $failed += $pkg
@@ -347,7 +362,7 @@ foreach ($pkg in $pkgs) {
 }
 
 Write-Line "--- итог ---"
-Write-Line ("ok={0} fail={1} notChecked={2}" -f ($pkgs.Count - $failed.Count - $notChecked), $failed.Count, $notChecked)
-if ($failed.Count -gt 0) { Write-Line ("провал: " + ($failed -join ' ')) }
+Write-Line ("ok={0} fail={1} notChecked={2}" -f ($pkgs.Count - $failed.Count - $notChecked), $failed.Count, $notChecked) -Notice
+if ($failed.Count -gt 0) { Write-Line ("провал: " + ($failed -join ' ')) -Notice }
 if ($notChecked -gt 0 -or $failed.Count -gt 0) { exit 1 }
 exit 0
