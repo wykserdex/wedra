@@ -58,6 +58,10 @@ type Server struct {
 	// отказывает, а запуск идёт через ExecWithEnvCtx, чтобы enforceTrust
 	// действительно применился.
 	trust plugin.TrustPolicy
+	// execSem — потолок одновременных запусков плагина агентом.
+	// Инициализируется в NewServer; nil означает «слоты не настроены», и
+	// exec_plugin тогда отказывает, а не выполняется без предела.
+	execSem chan struct{}
 
 	mu           sync.Mutex
 	running      bool
@@ -156,6 +160,7 @@ func NewServer(opts Options) (*Server, error) {
 		cancels:     map[string]context.CancelFunc{},
 		human:       opts.Human,
 		trust:       opts.Trust,
+		execSem:     make(chan struct{}, MaxConcurrentAgentExec),
 	}, nil
 }
 
@@ -1211,6 +1216,42 @@ func (s *Server) toolCancel(args map[string]interface{}) (string, bool, *RPCErro
 	return toJSON(map[string]interface{}{"run_id": runID, "status": "cancelling"}), false, nil
 }
 
+// MaxConcurrentAgentExec — сколько запусков плагина агентом может идти
+// одновременно. exec_plugin выполняется СИНХРОННО и держит процесс до
+// maxAgentExecTimeout (300 с), поэтому без потолка агент занимал сервер
+// неограниченным числом вызовов. Потолок меньше MaxParallelWidth=32 и
+// MaxConcurrentBranches=32: там ограничение на число ветвей пайплайна, здесь —
+// на число ОДНОВРЕМЕННЫХ ВНЕШНИХ ПРОЦЕССОВ, живущих до пяти минут.
+const MaxConcurrentAgentExec = 4
+
+// maxAgentExecTimeout — потолок длительности одного вызова, секунды.
+const maxAgentExecTimeout = 300
+
+// acquireExecSlot — занять слот или отказать. Отказ, а не ожидание в очереди:
+// иначе вызовы копятся и MCP-сервер перестаёт отвечать на всё подряд.
+func (s *Server) acquireExecSlot() *RPCError {
+	if s.execSem == nil {
+		return rpcErr("E_AGENT_EXEC_BUSY", "внутренняя ошибка: слоты запусков не инициализированы")
+	}
+	select {
+	case s.execSem <- struct{}{}:
+		return nil
+	default:
+		return rpcErr("E_AGENT_EXEC_BUSY",
+			fmt.Sprintf("достигнут предел параллельных запусков (%d): дождитесь окончания текущих", MaxConcurrentAgentExec))
+	}
+}
+
+func (s *Server) releaseExecSlot() {
+	if s.execSem == nil {
+		return
+	}
+	select {
+	case <-s.execSem:
+	default:
+	}
+}
+
 func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPCError) {
 	// Проверка разрешения ПЕРВОЙ, до разбора аргументов и до загрузки
 	// манифеста: без явного согласия ядра агент не запускает код вообще.
@@ -1219,6 +1260,12 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 		return "", false, rpcErr("E_AGENT_EXEC_DENIED",
 			"запуск плагинов агентом запрещён политикой (нужен флаг --allow-agent-exec)")
 	}
+	// Слот берём до любой работы с файлами: иначе отказ по пределу приходил бы
+	// уже после чтения манифеста, и мы гоняли бы диск ради отказа.
+	if busy := s.acquireExecSlot(); busy != nil {
+		return "", false, busy
+	}
+	defer s.releaseExecSlot()
 	pluginRef, _ := args["plugin"].(string)
 	if pluginRef == "" {
 		return "", false, rpcErr("", "нужен plugin")
@@ -1246,7 +1293,7 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 		}
 	}
 	timeout := 60.0
-	if t, ok := args["timeout_seconds"].(float64); ok && t > 0 && t <= 300 {
+	if t, ok := args["timeout_seconds"].(float64); ok && t > 0 && t <= maxAgentExecTimeout {
 		timeout = t
 	}
 	extraEnv := []string{"WEDRA_NETWORK=deny"}
