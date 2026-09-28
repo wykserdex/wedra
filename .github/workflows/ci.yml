@@ -10,7 +10,14 @@ jobs:
   core:
     runs-on: ubuntu-latest
     steps:
+      # Полная история нужна шагу `wedra check`: registry validate сверяет
+      # commit-пины с историей («пин является предком HEAD»). На мелкой копии
+      # actions/checkout по умолчанию (depth 1) этих коммитов нет, и проверка
+      # падает как «Not a valid commit name» — то есть supply-chain проверка
+      # не выполняется вовсе. 180 коммитов, ~5 МБ — дешевле, чем потеря шага.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
