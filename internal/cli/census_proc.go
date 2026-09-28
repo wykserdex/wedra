@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -34,14 +35,53 @@ func goTestCommand(dir, pkg string, goTimeoutSec int, logFile *os.File) *exec.Cm
 	return cmd
 }
 
-// waitProcess ждёт процесс, НЕ читая его вывод. Это важно: если вывод идёт
+// waitProcess ждёт процесс НЕ читая его вывод. Это важно: если вывод идёт
 // пайпом и его никто не забирает, он упирается в размер буфера и процесс
 // встаёт сам по себе. У нас вывод в файле, поэтому безопасно.
+//
+// Горутина с Wait() создаётся ОДИН раз на весь вызов, и канал переиспользуется
+// при повторном ожидании после killTree. Это не оптимизация, а требование
+// os/exec: Cmd.Wait нельзя вызывать дважды, потому что внутреннее состояние
+// (ProcessState, поля ошибки) пишется без синхронизации, и второй вызов из
+// другой горутины — это гонка данных, которую ловит -race в CI:
+//
+//	WARNING: DATA RACE
+//	Write at 0x... by goroutine 15: os/exec.(*Cmd).Wait()
+//	Previous write at 0x... by goroutine 13: os/exec.(*Cmd).Wait()
 func waitProcess(cmd *exec.Cmd, seconds int) waited {
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	w := startWait(cmd)
+	return w.await(seconds)
+}
+
+// processWait — одно ожидание одного процесса. Канал с буфером 1, чтобы
+// горутина Wait() всегда могла завершиться даже после того, как мы перестали
+// слушать: иначе она была бы в вечной утечке на каждом зависшем пакете.
+type processWait struct {
+	ch    chan error
+	once  sync.Once
+	saved error
+	got   bool
+}
+
+func startWait(cmd *exec.Cmd) *processWait {
+	w := &processWait{ch: make(chan error, 1)}
+	w.once.Do(func() {
+		go func() { w.ch <- cmd.Wait() }()
+	})
+	return w
+}
+
+// await ждёт до секунд. Первое значение из канала забирается и запоминается,
+// поэтому повторный вызов после killTree не зовёт Wait() заново, а просто
+// читает тот же результат.
+func (w *processWait) await(seconds int) waited {
+	if w.got {
+		return waited{exited: true, code: exitCode(w.saved)}
+	}
 	select {
-	case err := <-done:
+	case err := <-w.ch:
+		w.saved = err
+		w.got = true
 		return waited{exited: true, code: exitCode(err)}
 	case <-time.After(time.Duration(seconds) * time.Second):
 		return waited{exited: false, code: -1}

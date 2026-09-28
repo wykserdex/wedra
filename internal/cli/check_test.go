@@ -56,13 +56,12 @@ func TestWaitProcessLimitThenKillTree(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	got := waitProcess(cmd, 1)
-	if got.exited {
+	w := startWait(cmd)
+	if got := w.await(1); got.exited {
 		t.Fatalf("процесс, живущий 120 с, завершился за 1 с (code=%d)", got.code)
 	}
 	killTree(cmd.Process.Pid)
-	after := waitProcess(cmd, 15)
-	if !after.exited {
+	if after := w.await(15); !after.exited {
 		t.Fatal("процесс не умер после killTree")
 	}
 }
@@ -75,14 +74,43 @@ func TestWaitProcessLimitThenKillTreeWindows(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	got := waitProcess(cmd, 1)
-	if got.exited {
+	w := startWait(cmd)
+	if got := w.await(1); got.exited {
 		t.Fatalf("процесс, живущий 120 с, завершился за 1 с (code=%d)", got.code)
 	}
 	killTree(cmd.Process.Pid)
-	after := waitProcess(cmd, 30)
-	if !after.exited {
+	if after := w.await(30); !after.exited {
 		t.Fatal("процесс не умер после taskkill /T")
+	}
+}
+
+// Регресс на баг, который поймал CI: Cmd.Wait нельзя звать дважды, даже
+// последовательно. До правки повторный вызов порождал вторую горутину с
+// Wait() на том же Cmd, и -race в CI рапортовал DATA RACE. Тест повторяет
+// именно тот сценарий (ожидание -> таймаут -> killTree -> ожидание заново),
+// потому что проверять надо не «последний вызов», а «сколько раз звали Wait».
+func TestRepeatedAwaitDoesNotCallWaitTwice(t *testing.T) {
+	cmd := sleeper(t, 60)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	w := startWait(cmd)
+	if got := w.await(1); got.exited {
+		t.Fatal("процесс не должен был завершиться")
+	}
+	killTree(cmd.Process.Pid)
+	first := w.await(15)
+	if !first.exited {
+		t.Fatal("процесс не умер после killTree")
+	}
+	// Третий и последующие вызовы обязаны отдавать тот же результат
+	// без нового Wait().
+	for i := 0; i < 3; i++ {
+		got := w.await(1)
+		if !got.exited || got.code != first.code {
+			t.Fatalf("повтор %d: получили {exited:%v code:%d}, ждали {true %d}",
+				i, got.exited, got.code, first.code)
+		}
 	}
 }
 
