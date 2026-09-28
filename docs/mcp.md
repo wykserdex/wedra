@@ -35,6 +35,7 @@ wedra mcp --plugins /abs/path/plugins --workdir /abs/path/project
 | `run_pipeline` | `yaml`\|`path`, `wait_seconds?` (0..300) | сначала validate, затем `{run_id, status: running\|waiting_human\|done\|failed\|cancelled}` |
 | `get_run` | `run_id`, `since?` | статус, stats, новые события, выходы (~20KB), `pending_gate{step,form,actions}` без токена; события окном: `total`, `first`, `next` (курсор догрузки), `truncated` при обрезании по потолку ответа |
 | `cancel_run` | `run_id` | `{status:"cancelling"}`; затем `get_run` → `cancelled` (`E_RUN_DONE`, если ран уже завершён) |
+| `exec_plugin` | `id`, `input?` | результат плагина (`stdout`, `exit_code`, `err_code?`); **выключен по умолчанию**, см. ниже |
 
 ## Гейты: как человек одобряет шаг агента
 
@@ -68,6 +69,40 @@ stderr MCP-клиента, экран или профиль браузера т�
 Для раннов из MCP `AllowAutoApprove=false` всегда, независимо от YAML.
 
 Коды ошибок — `protocol/v0.2/ERRORS.md` (публичный контракт).
+
+## `exec_plugin`: запуск плагина агентом
+
+Отдельный инструмент: агент исполняет плагин напрямую, без пайплайна и без гейта.
+Выключен по умолчанию, включается флагом при запуске:
+
+```bash
+wedra mcp --plugins /abs/path/plugins --workdir /abs/path/project --allow-agent-exec
+```
+
+| Флаг | Что разрешает |
+|---|---|
+| `--allow-agent-exec` | вообще вызовы `exec_plugin` (без него `E_AGENT_EXEC_DENIED`) |
+| `--allow-untrusted-plugins` | плагины агента и untrusted-манифесты идут в изолятор; без флага — `E_AGENT_PLUGIN_UNTRUSTED` |
+| `--deny-untrusted-plugins` | запретить untrusted при `--allow-agent-exec`, оставив доверенные |
+
+**Гейт не запрашивается, и это осознанно.** У инструмента нет шага, где человек
+ответил бы «нет»: агент звонит, политика решает. Спросить человека нельзя
+технически — агент не человек, а `waiting_human` на этом инструменте был бы
+вечным ожиданием. Плагин, написанный агентом, распознаётся по пути
+(`plugins/agent-plugins/...`) и по умолчанию изолируется, а не выполняется
+с правами пользователя.
+
+Плагин считается «написанным агентом», если **любая компонента его пути**
+равна `agent-plugins` (`internal/plugin/trust.go:52`). Сравнение идёт по
+компонентам, а не по подстроке и с учётом регистра на Windows: иначе
+`Agent-Plugins\` признавался бы обычным каталогом, то есть доверенным, а
+`mailer-agent-plugins/` — наоборот, агентским. Ошибка всегда в сторону
+песочницы: лишняя песочница дешевле обхода доверия.
+
+Каждый запуск пишет строку в `<runs-dir>/agent-exec.jsonl` (формат —
+`protocol/v0.2/ERRORS.md`). Если запись не удалась, плагин не запускается:
+`E_AGENT_EXEC_AUDIT`. Одновременных запусков не больше 4, дальше
+`E_AGENT_EXEC_BUSY` — не очередь.
 
 ## Конфиги клиентов
 

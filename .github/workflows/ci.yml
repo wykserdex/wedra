@@ -23,22 +23,10 @@ jobs:
           grep -Fq "## v${protocol_version} " protocol/CHANGELOG.md
           grep -Fq "\"protocol\": \"${protocol_version}\"" conformance/manifest.json
           test -z "$(git ls-files var/runs)"
-      - name: go vet
-        run: go vet ./...
-      - name: go mod verify
-        run: go mod verify
       - name: vulnerability scan
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           "$RUNNER_TEMP/bin/govulncheck" ./...
-      - name: go fmt check
-        run: |
-          out=$(gofmt -l $(find cmd internal -name '*.go' -type f))
-          if [ -n "$out" ]; then
-            echo "gofmt needed:"
-            echo "$out"
-            exit 1
-          fi
       - name: workflow lint
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
@@ -60,38 +48,26 @@ jobs:
             python:3.12-slim bash -c '
               apt-get update -qq && apt-get install -y -qq --no-install-recommends bubblewrap >/dev/null &&
               /plugin.test -test.run "Sandbox|Untrusted|Trust" -test.v'
-      - name: go test
-        run: go test ./... -count=1 -run Test -v -race -timeout 12m
-      - name: conformance tests
-        run: go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1
+      # Единая точка проверки: fmt, vet, mod, build, test, conformance,
+      # pipelines, plugins, registry. Локально это ровно та же команда
+      # (`wedra check`), поэтому расхождение между CI и разработчиком
+      # невозможно по построению, а не по договорённости.
+      #
+      # ВАЖНО: шаг стоит ПОСЛЕ установки bubblewrap и sandbox-тестов. Если
+      # поднять его выше, `go test ./...` пройдёт без изолятора, и sandbox-тесты
+      # начнут SKIP вместо PASS — покрытие молча уедет вниз, и никто этого
+      # не заметит по зелёной галке.
+      - name: wedra check (fmt, vet, mod, build, test, conformance, pipelines, plugins, registry)
+        run: go run ./cmd/wedra check --race --timeout=720
       - name: build legacy tool
         run: go build -o tool ./cmd/tool
       - name: build wedra
         run: go build -o wedra ./cmd/wedra
-      - name: plugin validate + test (official/community)
-        run: |
-          for d in plugins/official/* plugins/community/*; do
-            if [ -f "$d/plugin.yaml" ]; then
-              echo "== $d =="
-              ./wedra plugin validate "$d"
-              ./wedra plugin test "$d"
-            fi
-          done
       - name: plugin list + search
         run: |
           ./wedra plugin list
           ./wedra plugin search csv
           ./wedra plugin search llm
-      - name: pipeline validate + lint + plan (all pipelines)
-        run: |
-          for f in examples/*.yaml; do
-            echo "== validate $f =="
-            ./wedra pipeline validate "$f"
-            echo "== lint $f =="
-            ./wedra pipeline lint "$f"
-            echo "== plan $f =="
-            ./wedra pipeline plan "$f"
-          done
       - name: v0.20 control flow live (when, foreach-step, parallel)
         run: |
           ./wedra pipeline run examples/when_demo.yaml --yes
