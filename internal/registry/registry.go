@@ -146,7 +146,7 @@ func Load(source string) (*Handle, error) {
 		return nil, err
 	}
 	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", "--", ref, tmp)
-	out, err := cmd.CombinedOutput()
+	out, err := common.CombinedOutput(cmd)
 	if err != nil {
 		os.RemoveAll(tmp)
 		return nil, fmt.Errorf("клон реестра %s: %s: %s", source, err, string(out))
