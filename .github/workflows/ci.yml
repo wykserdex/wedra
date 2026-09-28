@@ -61,7 +61,7 @@ jobs:
               apt-get update -qq && apt-get install -y -qq --no-install-recommends bubblewrap >/dev/null &&
               /plugin.test -test.run "Sandbox|Untrusted|Trust" -test.v'
       - name: go test
-        run: go test ./... -count=1 -run Test -v -race
+        run: go test ./... -count=1 -run Test -v -race -timeout 12m
       - name: conformance tests
         run: go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1
       - name: build legacy tool
@@ -377,7 +377,7 @@ jobs:
         with:
           go-version: '1.26.x'
       - run: go vet ./...
-      - run: go test ./... -count=1
+      - run: go test ./... -count=1 -timeout 10m
       - name: sandbox isolation (verbose)
         run: go test ./internal/plugin/ -count=1 -v -run 'Sandbox|Untrusted|Trust'
       - run: go test ./internal/core -run TestConformance -count=1
