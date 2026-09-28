@@ -56,6 +56,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $script:IsWin = ($env:OS -eq 'Windows_NT')
 $script:Start = Get-Date
+$script:NoticeSeq = 0
 $script:SummaryPath = $StepSummary
 $resolved = Resolve-Path -LiteralPath $RepoDir -ErrorAction SilentlyContinue
 $script:RepoDir = if ($resolved) { $resolved.Path } else { $RepoDir }
@@ -90,7 +91,13 @@ function Write-Line {
 function Write-Notice {
     param([string]$Text, [ValidateSet('warning', 'error', 'notice')][string]$Level = 'warning')
     $esc = $Text -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
-    Write-Output ("::{0} title=census::{1}" -f $Level, $esc)
+    # title уникален НА КАЖДУЮ строку, иначе GitHub склеивает все аннотации с
+    # одинаковым title в один объект и оставляет только 10 — проверено дважды
+    # (21 аннотация → 10 строк, потом 19 → те же 10, причём отбрасывались
+    # самые свежие). Уникальный title делает склейку невозможной, и все строки
+    # читаются из /annotations. Префикс census/ оставлен для выборки.
+    $script:NoticeSeq = [int]$script:NoticeSeq + 1
+    Write-Output ("::{0} title=census/{1}::{2}" -f $Level, $script:NoticeSeq, $esc)
 }
 
 # --- снимок таблицы процессов --------------------------------------------------
