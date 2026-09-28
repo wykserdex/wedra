@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"wedra/internal/common"
+
 	"wedra/internal/core"
 	"wedra/internal/pipeline"
 	"wedra/internal/registry"
@@ -194,7 +196,8 @@ func resolveRoot(entry registry.Entry, hDir, localSource string, cache map[strin
 
 // sameRepo — совпадает ли git origin каталога с entry.Source (для --local-source).
 func sameRepo(sourceURL, dir string) bool {
-	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	gitCmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	out, err := common.Output(gitCmd)
 	if err != nil {
 		return false
 	}

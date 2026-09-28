@@ -19,17 +19,6 @@ import (
 
 type Manifest = pipeline.Manifest
 
-// ioWaitDelay — сколько ждём закрытия пайпов вывода после выхода процесса.
-//
-// cmd.Wait() без WaitDelay ждёт закрытия пайпов БЕСКОНЕЧНО. Плагин, запустивший
-// фонового потомка, отдаёт ответ и выходит, но потомок наследует stdout/stderr
-// и держит пайп открытым (на Windows потомок наследует их всегда —
-// golang/go#60942). Раньше такой плагин приводил ран к таймауту: его собственный
-// выход уже был готов, но Wait() не возвращался. 2 с — потому что ответ
-// нормального плагина приходит до выхода процесса, и WaitDelay не добавляет
-// ему задержки; платит только тот, кто действительно что-то утек.
-const ioWaitDelay = 2 * time.Second
-
 type ExecResult struct {
 	Output    map[string]interface{}
 	ErrCode   string
@@ -96,7 +85,8 @@ func pythonInterpreter() (string, error) {
 			continue
 		}
 		if runtime.GOOS == "windows" {
-			out, probeErr := exec.Command(p, "-X", "utf8", "-c", "import sys; print(sys.executable)").Output()
+			probe := exec.Command(p, "-X", "utf8", "-c", "import sys; print(sys.executable)")
+			out, probeErr := common.Output(probe)
 			candidate := strings.TrimSpace(string(out))
 			if probeErr == nil {
 				if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
@@ -256,13 +246,13 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// пайпов, унаследованных дочерними, и без group kill «замрёт» до их
 	// естественной смерти (sleep 30 = 30 секунд).
 	//
-	// ioWaitDelay ограничивает ровно эту ждобу: сколько готовы ждать закрытия
-	// пайпов вывода ПОСЛЕ выхода процесса. Без него cmd.Wait() ждёт вечно,
-	// если пайп удерживает кто-то живой (на Windows потомок наследует
+	// common.ProcWaitDelay ограничивает ровно эту ждобу: сколько готовы ждать
+	// закрытия пайпов вывода ПОСЛЕ выхода процесса. Без него cmd.Wait() ждёт
+	// вечно, если пайп удерживает кто-то живой (на Windows потомок наследует
 	// stdin/stdout/stderr всегда — см. golang/go#60942). Величина не влияет на
 	// нормальные плагины: они пишут ответ до выхода, и WaitDelay не
 	// добавляет им задержки — платит только тот, кто действительно утек.
-	cmd.WaitDelay = ioWaitDelay
+	cmd.WaitDelay = common.ProcWaitDelay
 	if err := prepareProcessGroup(cmd); err != nil {
 		res.Platform, res.ErrCode, res.ErrMsg = true, "process_group", err.Error()
 		res.ExitCode = 2
@@ -370,7 +360,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 				res.ExitCode = cmd.ProcessState.ExitCode()
 			}
 			warn := "плагин оставил фоновый процесс: пайп вывода не закрылся за " +
-				ioWaitDelay.String() + ", ответ плагина принят, потомок мог остаться жив"
+				common.ProcWaitDelay.String() + ", ответ плагина принят, потомок мог остаться жив"
 			if res.Stderr == "" {
 				res.Stderr = warn
 			} else {
