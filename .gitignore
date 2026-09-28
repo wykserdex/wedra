@@ -2,6 +2,8 @@
 /bin/
 /runs/
 /var/runs/
+/var/check/
+/var/census/
 /pipelines/
 /wedra
 /wedragui
