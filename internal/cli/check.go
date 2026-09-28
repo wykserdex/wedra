@@ -522,6 +522,10 @@ func printCheckHelp() {
   --race              go test с -race, как в CI
   --json              только сводка в stdout, ход шагов в stderr (всегда ещё var/check/last-check.json)
 
+Шаг registry сверяет commit-пины с историей git, поэтому на мелкой копии
+(git clone --depth 1) он упадёт с «Not a valid commit name». Лечится
+git fetch --unshallow, а не отключением шага.
+
 Примеры:
   wedra check --fast          перед коммитом
   wedra check                 полный прогон, как в CI
