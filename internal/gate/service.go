@@ -22,6 +22,9 @@ type GateOptions struct {
 	// v0.9: RequireHuman — пайплайн требует человека (pipeline.gates:
 	// human_only); вычисляет раннер, у гейта нет доступа к pipeline.
 	RequireHuman bool
+	// AllowAgentAuto — агент может одобрить гейт (source: agent_auto).
+	// Структурная граница: approval: human запрещает это независимо от флага.
+	AllowAgentAuto bool
 }
 
 func gateActions(actions []string) []string {
@@ -49,15 +52,23 @@ type Policy struct {
 
 // Источники решения гейта — поле source события gate_decision.
 const (
-	SourceTerminal = "terminal"
-	SourceGUI      = "gui"
-	SourceAutoYes  = "auto_yes"
+	SourceTerminal  = "terminal"
+	SourceGUI       = "gui"
+	SourceAutoYes   = "auto_yes"
+	SourceAgentAuto = "agent_auto"
 )
 
 // autoApproveAllowed — --yes срабатывает, только если политика разрешает и
 // ни шаг (approval: human), ни пайплайн (gates: human_only) не требуют человека.
 func autoApproveAllowed(st *pipeline.Step, opts GateOptions) bool {
 	return opts.Yes && opts.Policy.AllowAutoApprove && !opts.RequireHuman && st.Approval != "human"
+}
+
+// agentAutoAllowed — агент может одобрить гейт только если шаг не требует
+// человека явно (approval: human). Это структурная граница: флаг
+// AgentCanExec не отменяет гарантию, выставленную человеком руками.
+func agentAutoAllowed(st *pipeline.Step, opts GateOptions) bool {
+	return opts.AllowAgentAuto && st.Approval != "human"
 }
 
 // GateUI — канал ввода human_gate.
@@ -190,6 +201,14 @@ func (s *Service) Run(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, op
 			ctx.SetStep(st.ID, m)
 		}
 		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "auto": true, "source": SourceAutoYes, "materialized": m})
+		return "ok"
+	}
+	if opts.AllowAgentAuto && agentAutoAllowed(st, opts) {
+		m := gateMaterialize(st.Form, ctx, nil)
+		if len(m) > 0 {
+			ctx.SetStep(st.ID, m)
+		}
+		j.Event("gate_decision", map[string]interface{}{"step": st.ID, "action": "accept", "auto": true, "source": SourceAgentAuto, "materialized": m})
 		return "ok"
 	}
 	if opts.Yes && !opts.Quiet {

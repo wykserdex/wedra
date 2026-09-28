@@ -2,6 +2,9 @@ package plugin
 
 import (
 	"context"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"wedra/internal/pipeline"
 )
@@ -25,6 +28,60 @@ type TrustPolicy struct {
 	// уходит в изолятор; если изолятора на хосте нет, запуск падает
 	// (fail-closed), а не выполняется без песочницы.
 	AllowUntrusted bool
+	// AgentCanExec — агент может самостоятельно запускать плагины через
+	// exec_plugin (MCP). По умолчанию false: без явного --allow-agent-exec
+	// инструмент отказывает, ничего не запуская. Каждый запуск пишется в
+	// <runs-dir>/agent-exec.jsonl с source: agent_auto, то есть решение агента
+	// о запуске кода остаётся читаемым в журнале.
+	//
+	// Оговорка про гейт: одобрения человеком exec_plugin НЕ спрашивает. Гейт
+	// в проекте — это точка входа для human_gate внутри РАНА, а exec_plugin
+	// рана не создаёт; блокировать MCP-вызов на живого человека здесь означало
+	// бы, что агент не сможет работать без человека вовсе. Структурную границу
+	// даёт не гейт, а политика: плагин из agent-plugins/ всегда untrusted, и
+	// для его запуска нужен ещё и --allow-untrusted-plugins.
+	AgentCanExec bool
+	// AgentCanWritePlugins — агент может создавать новые плагины в
+	// выделенный каталог (agent-plugins/). Основной plugins/ не затрагивается.
+	// Написанное агентом считается untrusted по построению.
+	AgentCanWritePlugins bool
+}
+
+// AgentPluginDir — каталог для плагинов, написанных агентом.
+// Всегда внутри workdir, всегда untrusted.
+const AgentPluginDir = "agent-plugins"
+
+// IsAgentWrittenPlugin — плагин написан агентом (лежит в agent-plugins/).
+//
+// Сравнение идёт ПО КОМПОНЕНТАМ пути, а не по подстроке. Подстрока давала
+// ошибки в обе стороны, и обе опасны:
+//
+//   - «backups/agent-plugins», «plugins/agent-plugins-x/»,
+//     «plugins/mailer-agent-plugins/» — считались написанными агентом;
+//   - на Windows «Agent-Plugins\» и «AGENT-PLUGINS\» это ТОТ ЖЕ САМОГО
+//     каталог, а строковое сравнение регистрозависимо, поэтому плагин,
+//     написанный агентом, признавался обычным, то есть ДОВЕРЕННЫМ. Это
+//     прямо противоречит «написанное агентом — untrusted по построению».
+//
+// Направление ошибки выбрано намеренно: любая компонента, равная
+// agent-plugins, делает плагин агентским. Ложное срабатывание стоит лишней
+// песочницы, ложное отсутствие — обхода доверия.
+func IsAgentWrittenPlugin(m *Manifest) bool {
+	if m == nil || m.Dir == "" {
+		return false
+	}
+	want := filepath.ToSlash(filepath.Clean(AgentPluginDir))
+	equal := func(a, b string) bool { return a == b }
+	if runtime.GOOS == "windows" {
+		// Файловая система Windows регистр не различает: различать должны и мы.
+		equal = strings.EqualFold
+	}
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(m.Dir)), "/") {
+		if part != "" && equal(part, want) {
+			return true
+		}
+	}
+	return false
 }
 
 type trustPolicyKey struct{}
