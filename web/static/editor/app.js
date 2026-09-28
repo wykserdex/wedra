@@ -181,7 +181,12 @@ function renderPalette() {
     </div>`;
   }).join('') || '<div class="empty">плагинов нет</div>';
   // v0.8a: mouse-based drag (нативный DnD мёртв в sandboxed iframe)
-  el.querySelectorAll('.plug').forEach(el2 => {
+  //
+  // Область сбора — вся палитра (#palette), а не только #plugin-list. Карточка
+  // core/human_gate лежит в разметке РЯДОМ с #plugin-list (index.html), и
+  // раньше подписывалась только #plugin-list — то есть гейт нельзя было ни
+  // перетащить, ни добавить кликом, хотя выглядел он как остальные.
+  document.querySelectorAll('#palette .plug').forEach(el2 => {
     el2.addEventListener('mousedown', e => startPaletteDrag(e, el2.dataset.plugin));
   });
 }
@@ -231,6 +236,10 @@ function startPaletteDrag(e, pluginId) {
 function renderNodes() {
   const canvas = $('#canvas');
   canvas.querySelectorAll('.node').forEach(n => n.remove());
+  // Подсказку «связи — не перетаскиванием» показываем только на пустом
+  // холсте: дальше она перекрывала бы узлы и мешала работать.
+  const hint = $('#canvas-hint');
+  if (hint) hint.classList.toggle('hidden', state.doc.steps.length > 0);
   for (const st of state.doc.steps) {
     const gate = st.plugin === 'core/human_gate';
     const info = pluginInfo(st.plugin);

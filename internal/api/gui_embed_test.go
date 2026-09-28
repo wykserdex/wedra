@@ -21,7 +21,12 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		{"/", "WEDRA"},
 		{"/index.html", "WEDRA"},
 		{"/editor/", "редактор"},
-		{"/editor/app.js", "pluginNetworkHint"}, // маркер v0.6 UI
+		{"/editor/app.js", "pluginNetworkHint"},
+		// Подсказку «связи — не перетаскиванием» легко потерять при
+		// рефакторинге редактора, и заметят это те, кто уже споткнулся.
+		// Пином маркер по конвенции остальных кусков UI.
+		{"/editor/", "Связи — не перетаскиванием"},
+		{"/editor/app.js", "canvas-hint"}, // маркер v0.6 UI
 		{"/app.js", "api/health"},
 	}
 	for _, c := range cases {
