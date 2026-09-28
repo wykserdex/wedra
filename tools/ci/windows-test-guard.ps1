@@ -352,7 +352,13 @@ foreach ($pkg in $pkgs) {
     }
     $safe = ($pkg -replace '[^A-Za-z0-9._-]', '_')
     $pkgLog = Join-Path $LogDir "$safe.txt"
-    Write-Line "=== $pkg ===" -Notice -NoticeText ">$pkg"
+    # Аннотацию на каждую строку НЕ ставим: GitHub держит на шаг ровно 10
+    # аннотаций и отбрасывает самые новые (проверено дважды: 21 → 10 и 19 → те
+    # же 10, причём терялись хвост с итогом и последние пакеты). 17 строк
+    # `=== pkg ===` съели бы весь бюджет и вытеснили бы всё, что важно.
+    # В аннотацию идут только: старт, находки rel=1, провалы и итог. Обычно
+    # это 2 строки. Полный ход остаётся в логе и в summary.
+    Write-Line "=== $pkg ==="
     $before = Get-CensusTimed
     $t0 = Get-Date
     $r = Start-BoundedCommand -FilePath $go `
