@@ -101,6 +101,20 @@ func StepCapabilities(st *Step, m *Manifest) Capabilities {
 	if IsBuiltin(st.Plugin) {
 		return Capabilities{}
 	}
+	return ManifestCapabilities(m)
+}
+
+// ManifestCapabilities — объявленные права по одному манифесту плагина.
+//
+// Существует отдельно от StepCapabilities, потому что то же самое нужно там,
+// где шага нет вовсе: инструмент MCP exec_plugin исполняет плагин напрямую,
+// минуя пайплайн. Определение «что опасно» должно быть ОДНО: если каждая
+// проверка объявит своё, они разъедутся, и разъедутся тихо — одна из них
+// начнёт считать безопасным то, что другая считает опасным.
+func ManifestCapabilities(m *Manifest) Capabilities {
+	if m == nil {
+		return Capabilities{Unknown: true}
+	}
 	return Capabilities{
 		Network:   len(m.Permissions.Network) > 0,
 		DiskWrite: FilesystemWrites(m.Permissions.Filesystem),

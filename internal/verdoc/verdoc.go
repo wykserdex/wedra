@@ -81,9 +81,11 @@ var (
 )
 
 const (
-	mcpServerFile = "internal/mcp/server.go"
-	mcpReadmeRow  = "| Агенты (MCP) |"
-	mcpCallTool   = "callTool"
+	mcpServerFile  = "internal/mcp/server.go"
+	mcpSchemasFile = "internal/mcp/schemas.go"
+	mcpToolDefs    = "toolDefs"
+	mcpReadmeRow   = "| Агенты (MCP) |"
+	mcpCallTool    = "callTool"
 )
 
 // CheckRepo сверяет версии. Отчёт возвращается строкой, а решение — через
@@ -140,6 +142,24 @@ func CheckRepo(repo string) (string, error) {
 	}
 	problems = append(problems, checkReadmeTools(readme, tools)...)
 	notes = append(notes, fmt.Sprintf("MCP: %d инструментов принимает %s (%s)", len(tools), mcpCallTool, mcpServerFile))
+
+	// (5) Публикуемый список против принимаемого.
+	//
+	// Сверки README против callTool недостаточно: она осталась бы зелёной, если
+	// бы инструмент вызывался, но не публиковался в tools/list. Агент в таком
+	// случае не может открыть инструмент через discovery и получает отказ,
+	// ничего не объясняющий. Именно так и было с exec_plugin: он вызывался,
+	// в README значился и проверку проходил — а объявления у него не было.
+	published, err := publishedTools(filepath.Join(repo, filepath.FromSlash(mcpSchemasFile)))
+	if err != nil {
+		return "", err
+	}
+	if len(published) == 0 {
+		return "", fmt.Errorf("%s: в %s не найдено ни одного инструмента — проверка сломана, а не прошла",
+			mcpSchemasFile, mcpToolDefs)
+	}
+	problems = append(problems, checkPublishedVsDispatched(published, tools)...)
+	notes = append(notes, fmt.Sprintf("MCP: %d инструментов публикует %s (%s)", len(published), mcpToolDefs, mcpSchemasFile))
 
 	notes = append([]string{fmt.Sprintf("VERSION %s сходится с %s", current, strings.Join(versionDocs, ", "))}, notes...)
 	if len(problems) > 0 {
@@ -309,6 +329,81 @@ func dispatchedTools(path string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// publishedTools — имена, которые сервер отдаёт в tools/list.
+//
+// Читает toolDefs, то есть ровно то, что уходит агенту при discovery. Отдельная
+// функция, а не переиспользование dispatch-таблицы: сверять надо две разные
+// вещи, и если взять одну вместо другой, проверка станет тавтологией — всегда
+// зелёной и всегда бесполезной.
+func publishedTools(path string) ([]string, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv != nil || fn.Name == nil || fn.Name.Name != mcpToolDefs || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "Name" {
+				return true
+			}
+			lit, ok := kv.Value.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			if name := strings.Trim(lit.Value, `"`); name != "" {
+				out = append(out, name)
+			}
+			return true
+		})
+		break
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// checkPublishedVsDispatched сверяет объявленный список с принимаемым.
+//
+// Оба расхождения плохи, но не одинаково:
+//
+//   - принимается, но не объявлено: агент не найдёт инструмент через discovery
+//     и получит отказ без объяснения. Возможность есть, а её не видно;
+//   - объявлено, но не принимается: tools/list обещает инструмент, которого
+//     нет. Это хуже: агент строит план на несуществующем шаге.
+func checkPublishedVsDispatched(published, dispatched []string) []string {
+	disp := map[string]bool{}
+	for _, t := range dispatched {
+		disp[t] = true
+	}
+	pub := map[string]bool{}
+	for _, t := range published {
+		pub[t] = true
+	}
+	var problems []string
+	for _, name := range published {
+		if !disp[name] {
+			problems = append(problems, fmt.Sprintf("    %-22s публикует инструмент %q, которого нет в %s: tools/list обещает несуществующий",
+				mcpSchemasFile, name, mcpCallTool))
+		}
+	}
+	for _, name := range dispatched {
+		if !pub[name] {
+			problems = append(problems, fmt.Sprintf("    %-22s не публикует инструмент %q, который %s принимает: агент не найдёт его через discovery",
+				mcpSchemasFile, name, mcpCallTool))
+		}
+	}
+	return problems
 }
 
 // checkReadmeTools сверяет строку таблицы README с dispatch-таблицей.
