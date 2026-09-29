@@ -261,18 +261,36 @@ func TestAnthropicOK(t *testing.T) {
 
 // ── Mock-режим: демо без ключей и без сети ──────────────────────────────
 
-func TestMockModeNoKeyNoNetwork(t *testing.T) {
+// Ответ провайдера проходит контракт манифеста: text и model объявлены и
+// возвращены. Раньше здесь проверялся mock-ответ, но mock-режим больше не
+// достижим из обычного запуска: LLM_MOCK убран из permissions.secrets, потому
+// что объявленный секретом переключатель ядро подставляло из окружения хоста и
+// плагин молча возвращал подделку. Теперь источник ответа настоящий.
+func TestProviderAnswerPassesOutputContract(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
-	t.Setenv("GEMINI_API_KEY", "") // демонстрация: ключ не нужен
+	stubLLM(t, "gemini", "")
 
 	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), 5*time.Second)
-	if !res.OK() || !strings.HasPrefix(res.Output["text"].(string), "[mock:") {
-		t.Fatalf("mock-режим: %+v", res)
+	if !res.OK() {
+		t.Fatalf("ответ заглушки не ok: %+v", res)
 	}
-	// проходит enforce манифеста: text, model объявлены и возвращены
+	if !strings.HasPrefix(res.Output["text"].(string), "эхо: ") {
+		t.Fatalf("ожидалось эхо входа: %+v", res.Output)
+	}
 	if _, _, err := EnforceOutput(llmFx("llm_gemini"), res.Output); err != nil {
-		t.Fatalf("mock-ответ не прошёл контракт: %v", err)
+		t.Fatalf("ответ не прошёл контракт: %v", err)
+	}
+}
+
+// Без ключа провайдер обязан отказать ДО сети. Проверяется, что локальная
+// заглушка не была поднята: иначе проверялось бы не то.
+func TestNoKeyRefusedBeforeAnyRequest(t *testing.T) {
+	requirePython(t)
+	t.Setenv("GEMINI_API_KEY", "")
+
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), 5*time.Second)
+	if res.OK() || res.ErrCode != "no_api_key" {
+		t.Fatalf("без ключа ожидался no_api_key: %+v", res)
 	}
 }
 
@@ -280,7 +298,10 @@ func TestMockModeNoKeyNoNetwork(t *testing.T) {
 
 func TestLLMEmptyPromptIsDomainError(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
+	// Не LLM_MOCK: переменная больше не объявлена секретом, поэтому ядро больше
+	// не подставляет её в плагин — раньше доходила именно потому, что была
+	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
+	stubLLM(t, "gemini", "")
 	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":""}`), 5*time.Second)
 	if res.OK() || res.Platform || res.ErrCode != "empty_prompt" {
 		t.Fatalf("пустой prompt → доменная ошибка: %+v", res)
@@ -289,7 +310,10 @@ func TestLLMEmptyPromptIsDomainError(t *testing.T) {
 
 func TestLLMBadJSONIsPlatform(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
+	// Не LLM_MOCK: переменная больше не объявлена секретом, поэтому ядро больше
+	// не подставляет её в плагин — раньше доходила именно потому, что была
+	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
+	stubLLM(t, "gemini", "")
 	res := execPlugin(llmFx("llm_openai"), []byte(`{oops`), 5*time.Second)
 	if !res.Platform {
 		t.Fatalf("битый JSON на входе → платформенная ошибка (exit 2): %+v", res)
@@ -300,9 +324,18 @@ func TestLLMBadJSONIsPlatform(t *testing.T) {
 //   draft(gemini) → human_gate(правки человека) → refine(openai)
 // Проверяет главный пользовательский сценарий ТЗ.
 
+// Цепочка: два разных провайдера через гейт человека. Имя теста оставлено
+// прежним ради истории; mock-режима в нём больше нет — вместо него локальный
+// сервер, отвечающий эхом входа.
 func TestLLMChainEndToEndMock(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
+	// Не LLM_MOCK: переменная больше не объявлена секретом, поэтому ядро больше
+	// не подставляет её в плагин — раньше доходила именно потому, что была
+	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
+	stubLLM(t, "gemini", "")
+	// refine — llm_openai, у него другие имена переменных (LLM_OAI_*), поэтому
+	// заглушка поднимается для него отдельно.
+	stubLLM(t, "openai", "")
 
 	pf := &PipelineFile{
 		FormatVersion: PlatformAPI,
@@ -322,7 +355,11 @@ func TestLLMChainEndToEndMock(t *testing.T) {
 				{ID: "review", Plugin: "core/human_gate",
 					Form: []FormField{{Field: "steps.draft.text", Editable: true, Type: "string"}}},
 				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_openai"),
-					OnError: "stop", Timeout: sec(10)},
+					OnError: "stop", Timeout: sec(10),
+					Bind: map[string]string{
+						"system": "input.refine_system",
+						"prompt": "steps.review.text",
+					}},
 			},
 		},
 	}
@@ -349,10 +386,19 @@ func TestLLMChainEndToEndMock(t *testing.T) {
 	if review != draft {
 		t.Fatalf("гейт не материализовал текст: review=%q draft=%q", review, draft)
 	}
-	// refine получил текст из гейта (prompt = steps.review.text), а не из draft напрямую
+	// refine получил prompt ИЗ ГЕЙТА, то есть данные дошли до третьего шага.
+	//
+	// Заглушка отвечает эхом ВХОДА, а не всей переписки: плагин отправляет
+	// system отдельно от prompt, и возвращать system в ответе было бы
+	// подменой: тест проверяет путь данных, а не то, что плагин умеет
+	// пересказывать служебное поле. Поэтому сверяем ровно то, что пришло в
+	// prompt: текст черновика, прошедший через гейт.
 	refine := steps["refine"].(map[string]interface{})["text"].(string)
-	if !strings.Contains(refine, "доработанный") {
-		t.Fatalf("refine не отработал: %q", refine)
+	if !strings.HasPrefix(refine, "эхо: ") {
+		t.Fatalf("refine не получил эхо входа: %q", refine)
+	}
+	if !strings.Contains(refine, draft) {
+		t.Fatalf("refine не содержит текст черновика из гейта: %q", refine)
 	}
 
 	events := readEvents(t, stats.RunDir)
@@ -365,8 +411,13 @@ func TestLLMChainEndToEndMock(t *testing.T) {
 
 func TestLLMChainHumanEditFlowsDownstream(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
-	// „aпринял с правкой”: на prompt правки — новый текст, на действие — accept
+	// Не LLM_MOCK: переменная больше не объявлена секретом, поэтому ядро больше
+	// не подставляет её в плагин — раньше доходила именно потому, что была
+	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
+	stubLLM(t, "gemini", "")
+	// refine — llm_openai: имена переменных другие, заглушка своя.
+	stubLLM(t, "openai", "")
+	// „aпринял с правкой": на prompt правки — новый текст, на действие — accept
 	newStdin(t, "\"отредактировано человеком\"\na\n")
 
 	pf := &PipelineFile{
@@ -377,11 +428,19 @@ func TestLLMChainHumanEditFlowsDownstream(t *testing.T) {
 			Input:   map[string]interface{}{"topic": "x", "refine_system": "y"},
 			Steps: []Step{
 				{ID: "draft", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_gemini"),
-					OnError: "stop", Timeout: sec(10)},
+					OnError: "stop", Timeout: sec(10),
+					Bind: map[string]string{
+						"prompt": "input.topic",
+						"system": "input.refine_system",
+					}},
 				{ID: "review", Plugin: "core/human_gate",
 					Form: []FormField{{Field: "steps.draft.text", Editable: true, Type: "string"}}},
 				{ID: "refine", Plugin: filepath.Join("..", "..", "plugins", "official", "llm_openai"),
-					OnError: "stop", Timeout: sec(10)},
+					OnError: "stop", Timeout: sec(10),
+					Bind: map[string]string{
+						"prompt": "steps.review.text",
+						"system": "input.refine_system",
+					}},
 			},
 		},
 	}

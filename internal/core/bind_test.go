@@ -125,7 +125,10 @@ func TestValidateGateRejectsBind(t *testing.T) {
 
 func TestBindSamePluginTwiceEndToEnd(t *testing.T) {
 	requirePython(t)
-	t.Setenv("LLM_MOCK", "1")
+	// Не LLM_MOCK: переменная больше не объявлена секретом и потому не
+	// доходит до плагина — раньше доходила именно потому, что была объявлена.
+	// Заглушка поднимается явно и по настоящему пути HTTP.
+	stubLLM(t, "gemini", "")
 	absLLM := filepath.Join("..", "..", "plugins", "official", "llm_gemini")
 
 	pf := &PipelineFile{
@@ -170,10 +173,14 @@ func TestBindSamePluginTwiceEndToEnd(t *testing.T) {
 	if review != draft {
 		t.Fatalf("гейт не материализовал: review=%q", review)
 	}
-	// refine получил prompt ИЗ ГЕЙТА (мок возвращает эхо промпта):
-	// в тексте refine дважды встречается mock-тег — вложенный черновик
-	if n := strings.Count(refine, "[mock:"); n != 2 {
-		t.Fatalf("refine получил не review.text (ожидалось 2 mock-тега): %q", refine)
+	// refine получил prompt ИЗ ГЕЙТА: заглушка отвечает эхом входа, поэтому
+	// ответ refine ОБЯЗАН содержать выход review целиком.
+	//
+	// Раньше здесь считались маркеры "[mock:" — это проверка ФОРМЫ ответа, а не
+	// содержимого: тест проходил бы и при том, что bind передал бы не то.
+	// Теперь утверждается ровно то, что проверяет тест по названию.
+	if !strings.Contains(refine, "эхо: ") {
+		t.Fatalf("refine не получил эхо своего входа: %q", refine)
 	}
 	if !strings.Contains(refine, draft) {
 		t.Fatalf("refine не содержит текст черновика: %q", refine)
