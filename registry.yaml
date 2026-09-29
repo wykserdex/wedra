@@ -159,7 +159,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/crtsh
     version: v0.32c
-    commit: dde35e6fef7564d052b011ccf6ab45fc456bb586
+    commit: 49cd609191370f49faf88ee7227705eaeb2e2247
     description: "crt.sh (Certificate Transparency) — сертификаты по домену. Без зависимостей (stdlib-HTTP)."
   the_harvester:
     source: https://github.com/wykserdex/wedra
