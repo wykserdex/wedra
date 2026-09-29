@@ -173,8 +173,12 @@ const (
 	E_RUN_BUSY = "E_RUN_BUSY"
 	// Отмена уже завершённого рана.
 	E_RUN_DONE = "E_RUN_DONE"
-	// HTTP 401: мутация без cookie сессии человека.
+	// HTTP 401: запрос к /api/* без cookie сессии человека (в т.ч. чтение).
 	E_SESSION_REQUIRED = "E_SESSION_REQUIRED"
+	// HTTP 401/429: неверный, истёкший или уже использованный одноразовый код входа.
+	E_SESSION_CODE_INVALID = "E_SESSION_CODE_INVALID"
+	// HTTP 403: Host запроса не в allow-list сервера (например DNS-rebinding).
+	E_HOST_NOT_ALLOWED = "E_HOST_NOT_ALLOWED"
 	// MCP exec_plugin: запуск без --allow-agent-exec.
 	E_AGENT_EXEC_DENIED = "E_AGENT_EXEC_DENIED"
 	// MCP exec_plugin: плагин агента при политике trusted.

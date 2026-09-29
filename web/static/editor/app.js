@@ -73,14 +73,72 @@ async function api(path, opts = {}) {
   const r = await fetch(path, opts);
   const ct = r.headers.get('content-type') || '';
   const body = ct.includes('json') ? await r.json() : await r.text();
-  if (!r.ok) throw new Error(typeof body === 'string' ? body : JSON.stringify(body));
+  if (!r.ok) {
+    // H4: 401 — нет сессии человека (cookie выдаётся обменом одноразового кода)
+    if (r.status === 401) { sessionOverlay(); throw new Error('нет сессии: нужен одноразовый код из терминала wedra'); }
+    throw new Error(typeof body === 'string' ? body : JSON.stringify(body));
+  }
   return body;
 }
 async function apiRaw(path, opts = {}) {
   const r = await fetch(path, opts);
   const text = await r.text();
-  if (!r.ok) throw new Error(text);
+  if (!r.ok) {
+    if (r.status === 401) { sessionOverlay(); throw new Error('нет сессии: нужен одноразовый код из терминала wedra'); }
+    throw new Error(text);
+  }
   return text;
+}
+
+// ── H4: сессия человека ──────────────────────────────────────────────────
+// Всё под /api/* (кроме /api/health) требует cookie. Cookie выдаётся обменом
+// ОДНОРАЗОВОГО кода, напечатанного в терминале, где запущен wedra. Пока cookie
+// нет, редактор показывает поле ввода кода вместо пустого холста: тот же путь,
+// что и у `wedra gui --open` (там код едет в ссылке ?c= и ставит cookie сразу).
+function sessionOverlay() {
+  if (document.getElementById('wedra-session-box')) return;
+  const box = document.createElement('div');
+  box.id = 'wedra-session-box';
+  box.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,.94);display:flex;align-items:center;justify-content:center;z-index:9999';
+  box.innerHTML =
+    '<div style="background:#161b22;border:1px solid #2d333b;border-radius:10px;padding:24px;max-width:440px;font-family:system-ui,sans-serif">' +
+    '<h2 style="margin:0 0 10px;font-size:15px;color:#e6edf3">Вход в WEDRA</h2>' +
+    '<p style="color:#8b949e;font-size:13px;line-height:1.6;margin:0 0 14px">' +
+    'Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
+    'обменяется на cookie, и редактор перезагрузится сам.</p>' +
+    '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" ' +
+    'style="width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #2d333b;border-radius:6px;padding:9px 11px;font-family:ui-monospace,monospace;font-size:14px"/>' +
+    '<div id="wedra-code-err" style="color:#f85149;font-size:12px;margin-top:8px;min-height:16px"></div>' +
+    '<button id="wedra-code-go" style="margin-top:10px;width:100%;background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:9px;font-size:14px;cursor:pointer">Войти</button>' +
+    '</div>';
+  document.body.appendChild(box);
+  const input = box.querySelector('#wedra-code');
+  const err = box.querySelector('#wedra-code-err');
+  const submit = async () => {
+    const code = input.value.trim();
+    if (!code) return;
+    err.textContent = '';
+    const r = await fetch('/api/session', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code}),
+    });
+    if (r.ok) { location.reload(); return; }
+    const d = await r.json().catch(() => ({}));
+    err.textContent = d.error || 'код не подошёл';
+    input.select();
+  };
+  box.querySelector('#wedra-code-go').onclick = submit;
+  input.onkeydown = e => { if (e.key === 'Enter') submit(); };
+  input.focus();
+}
+
+// wedraSession — можно ли работать. Сессия выключена (--no-session) или уже
+// есть — сразу true; иначе показываем поле кода и ждём перезагрузки.
+async function wedraSession() {
+  let st = null;
+  try { st = await (await fetch('/api/session')).json(); } catch (e) { return true; }
+  if (!st || !st.required || st.authenticated) return true;
+  sessionOverlay();
+  return false;
 }
 
 // ── manifest-хелперы ─────────────────────────────────────────────────────
@@ -897,6 +955,8 @@ window.closeYaml = () => { $('#yaml-view').style.display = 'none'; };
 
 // ── init ──────────────────────────────────────────────────────────────────
 async function init() {
+  // H4: без сессии /api/* закрыт, поэтому сначала вход, потом редактор
+  if (!await wedraSession()) return;
   try { state.plugins = await api('/api/plugins'); } catch (e) { console.error(e); }
   renderPalette();
   initCanvas();

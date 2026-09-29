@@ -43,7 +43,10 @@ func Run() {
 		}
 	case "gui", "serve":
 		if helpRequested(os.Args[2:]) {
-			printHelp()
+			// у gui свои флаги (--allow-remote/--public-host/--trusted-proxy),
+			// о которых короткая справка знает: молча печатать общую — значит
+			// человек не увидит главного про внешний доступ
+			PrintGUIUsage()
 			return
 		}
 		RunGUI(os.Args[2:])
@@ -123,7 +126,8 @@ func printHelp() {
   wedra runs list [var/runs]               # список прогонов (fs + json)
   wedra runs show <run_id> [var/runs]      # журнал + context + artifacts
   wedra runs resume <run_id> <pipeline.yaml> [--yes] [--runs-dir=var/runs] [--store=fs|json] [--db-path=file] [--no-auto-approve] [--deny-untrusted-plugins] [--allow-untrusted-plugins]
-  wedra gui [--port 8765] [--open] [--no-session] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]  # консоль; мутации — по ссылке ?k= из терминала
+  wedra gui [--listen 127.0.0.1:8765] [--open] [--no-session] [--allow-remote] [--public-host=<имя:порт>] [--trusted-proxy] [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]
+                                                  # консоль; вход — по одноразовому коду из терминала, /api/* кроме /api/health требует cookie
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY
   wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети

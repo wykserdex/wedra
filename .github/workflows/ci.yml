@@ -86,15 +86,23 @@ jobs:
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf 127.0.0.1:8917/api/health >/dev/null && break; sleep 0.5; done
           curl -sf 127.0.0.1:8917/api/health | grep '"status":"ok"'
-          curl -sf 127.0.0.1:8917/api/runs | grep -E 'status|^\[\]$'
-          # v0.9: без сессии человека мутации → 401
+          # H4: без сессии человека закрыто ВСЁ под /api/*, включая чтение
+          curl -s -o /dev/null -w '%{http_code}' 127.0.0.1:8917/api/runs | grep 401
           curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep 401
-          LINK=$(grep -oE 'https?://[^[:space:]]+k=[0-9a-f]+' /tmp/gui.log | head -1)
-          test -n "$LINK"
-          curl -sf -o /dev/null -c /tmp/cj17 "$LINK"   # ?k= → HttpOnly cookie
+          # чужой Host (DNS-rebinding) — 403 даже без cookie
+          curl -s -o /dev/null -w '%{http_code}' 127.0.0.1:8917/api/health -H 'Host: evil.example' | grep 403
+          # не-loopback без явного флага — отказ с внятным текстом
+          ./wedra gui --listen 0.0.0.0:8917 2>&1 | grep -q 'allow-remote'
+          # вход по одноразовому коду из терминала → cookie
+          CODE=$(grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' /tmp/gui.log | head -1)
+          test -n "$CODE"
+          curl -sf -o /dev/null -c /tmp/cj17 -X POST 127.0.0.1:8917/api/session -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}"
+          # код одноразовый: повторно не войти
+          curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8917/api/session -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}" | grep 401
+          curl -sf -b /tmp/cj17 127.0.0.1:8917/api/runs | grep -E 'status|^\[\]$'
           curl -sf -b /tmp/cj17 -X POST 127.0.0.1:8917/api/run -H 'Content-Type: application/json' -d '{"file":"when_demo.yaml","yes":true}' | grep started
           sleep 4
-          curl -sf 127.0.0.1:8917/api/runs | grep when_demo
+          curl -sf -b /tmp/cj17 127.0.0.1:8917/api/runs | grep when_demo
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui.log
       - name: v0.24 browser gate live (wait → decision via API)
@@ -102,29 +110,30 @@ jobs:
           ./wedra gui --listen 127.0.0.1:8918 >/tmp/gui-gate.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf 127.0.0.1:8918/api/health >/dev/null && break; sleep 0.5; done
-          LINK=$(grep -oE 'https?://[^[:space:]]+k=[0-9a-f]+' /tmp/gui-gate.log | head -1)
-          test -n "$LINK"
-          curl -sf -o /dev/null -c /tmp/cj18 "$LINK"   # ?k= → HttpOnly cookie
+          CODE=$(grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' /tmp/gui-gate.log | head -1)
+          test -n "$CODE"
+          curl -sf -o /dev/null -c /tmp/cj18 -X POST 127.0.0.1:8918/api/session -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}"
           RUN_ID=$(curl -sf -b /tmp/cj18 -X POST 127.0.0.1:8918/api/run -H 'Content-Type: application/json' -d '{"file":"gate_demo.yaml","yes":false}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])')
           echo "run: $RUN_ID"
           for i in $(seq 1 40); do
-            curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep '"pending":true' && break
+            curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep '"pending":true' && break
             sleep 0.5
           done
-          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep '"pending":true'
-          # агент без cookie не может одобрить
+          curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep '"pending":true'
+          # агент без cookie не может ни прочитать гейт, ни одобрить
+          curl -s -o /dev/null -w '%{http_code}' "127.0.0.1:8918/api/runs/$RUN_ID/gate" | grep 401
           curl -s -o /dev/null -w '%{http_code}' -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep 401
-          curl -sf -b /tmp/cj18 -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep queued
+          curl -sf -b /tmp/cj18 -X POST 127.0.0.1:8918/api/runs/$RUN_ID/gate -H 'Content-Type: application/json' -d '{"action":"accept"}' | grep queued
           # повторный submit — 409
-          curl -s -b /tmp/cj18 -o /dev/null -w '%{http_code}' -X POST "127.0.0.1:8918/api/runs/$RUN_ID/gate" -H 'Content-Type: application/json' -d '{"action":"reject"}' | grep 409
+          curl -s -b /tmp/cj18 -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8918/api/runs/$RUN_ID/gate -H 'Content-Type: application/json' -d '{"action":"reject"}' | grep 409
           for i in $(seq 1 40); do
-            curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"gate_decision"' && break
+            curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"gate_decision"' && break
             sleep 0.5
           done
-          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"gate_decision"'
-          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"action":"accept"'
-          curl -sf "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"source":"gui"'
-          ! grep -rq "$(echo "$LINK" | sed 's/.*k=//')" var/runs examples 2>/dev/null  # секрет не в журналах
+          curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"gate_decision"'
+          curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"action":"accept"'
+          curl -sf -b /tmp/cj18 "127.0.0.1:8918/api/runs/$RUN_ID/journal?since=0" | grep '"source":"gui"'
+          ! grep -rq "$CODE" var/runs examples 2>/dev/null  # код и токен не в журналах
           kill $GUI_PID 2>/dev/null || true
           tail -n 5 /tmp/gui-gate.log
       - name: v0.25 editor live (parse/serialize round-trip)
@@ -133,30 +142,38 @@ jobs:
           ./wedra gui --listen 127.0.0.1:8919 >/tmp/gui-ed.log 2>&1 &
           GUI_PID=$!
           for i in $(seq 1 20); do curl -sf localhost:8919/api/health >/dev/null && break; sleep 0.5; done
+          CODE=$(grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' /tmp/gui-ed.log | head -1)
+          test -n "$CODE"
+          curl -sf -o /dev/null -c /tmp/cj19 -X POST localhost:8919/api/session -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}"
+          # страница и редактор живы без сессии (одностраничный сценарий)
           curl -sf localhost:8919/editor/ | grep "редактор"
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep '"name":"gate_demo"'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml | grep '"plugin":"core/human_gate"'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep '"when":{"path":"steps.stats.words","op":"gte","value":10}'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d "$(curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml)" | grep '"ok":true'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"truthy"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":true'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci2","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"gt","value":"15"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep 'value: 15'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci3","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"bogo"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":false'
+          curl -sf localhost:8919/ | grep "WEDRA"
+          # без cookie редакторские /api/* закрыты
+          curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep 401
+          ed() { curl -sf -b /tmp/cj19 "$@"; }
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/gate_demo.yaml | grep '"name":"gate_demo"'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml | grep '"plugin":"core/human_gate"'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/when_demo.yaml | grep '"when":{"path":"steps.stats.words","op":"gte","value":10}'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d "$(ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/single_check.yaml)" | grep '"ok":true'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"truthy"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":true'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci2","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"gt","value":"15"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep 'value: 15'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"when_ci3","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","when":{"path":"input.x","op":"bogo"},"form":[],"actions":["accept"],"on_reject":"stop","unsupported":[]}]}' | grep '"ok":false'
           echo "when editor: live checks ok"
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/foreach_step_demo.yaml | grep '"foreach":"input.texts"'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/parallel_demo.yaml | grep '"parallel_group":"analyze"'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep '"after_foreach":true'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep '"foreach":"steps.load.rows"'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/foreach_step_demo.yaml | grep '"foreach":"input.texts"'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/parallel_demo.yaml | grep '"parallel_group":"analyze"'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep '"after_foreach":true'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/csv_foreach_summary.yaml | grep '"foreach":"steps.load.rows"'
           echo "flow editor: live checks ok"
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"secrets":\["GEMINI_API_KEY"\]'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"retry":{"attempts":3,"delay":"2s","backoff":"exponential"}'
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"on_error":"retry"'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"retry_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"retry","bind":{},"form":[],"actions":["accept"],"on_reject":"","retry":{"attempts":0,"delay":"1s","backoff":"fixed"},"unsupported":[]}]}' | grep '"ok":false'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"secrets":\["GEMINI_API_KEY"\]'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"retry":{"attempts":3,"delay":"2s","backoff":"exponential"}'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/llm_same_provider.yaml | grep '"on_error":"retry"'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"retry_ci","input":[],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"retry","bind":{},"form":[],"actions":["accept"],"on_reject":"","retry":{"attempts":0,"delay":"1s","backoff":"fixed"},"unsupported":[]}]}' | grep '"ok":false'
           echo "retry editor: live checks ok"
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"secrets_ci","input":[],"secrets":["CI_KEY_XYZ"],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","bind":{},"form":[],"actions":["accept"],"on_reject":"","unsupported":[]}]}' | grep "secrets:"
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"secrets_ci","input":[],"secrets":["CI_KEY_XYZ"],"steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","bind":{},"form":[],"actions":["accept"],"on_reject":"","unsupported":[]}]}' | grep "secrets:"
           echo "secrets editor: live checks ok"
-          curl -sf -X POST localhost:8919/api/parse/pipeline --data-binary @examples/text_stats.yaml | grep '"network":"deny"'
-          curl -sf -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"net_ci","input":[],"network":"deny","steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","bind":{},"form":[],"actions":["accept"],"on_reject":"","unsupported":[]}]}' | grep "network: deny"
-          curl -sf localhost:8919/api/plugins | grep '"any_host":true'
+          ed -X POST localhost:8919/api/parse/pipeline --data-binary @examples/text_stats.yaml | grep '"network":"deny"'
+          ed -X POST localhost:8919/api/serialize/pipeline -H 'Content-Type: application/json' -d '{"name":"net_ci","input":[],"network":"deny","steps":[{"id":"g","plugin":"core/human_gate","pos":[0,0],"on_error":"stop","bind":{},"form":[],"actions":["accept"],"on_reject":"","unsupported":[]}]}' | grep "network: deny"
+          ed localhost:8919/api/plugins | grep '"any_host":true'
           echo "network editor: live checks ok"
           kill $GUI_PID 2>/dev/null || true
           tail -n 3 /tmp/gui-ed.log
