@@ -11,9 +11,13 @@ package registry
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"wedra/internal/common"
 )
 
 func envValue(env []string, key string) string {
@@ -99,6 +103,47 @@ func TestLegacyCloneStillWorksWithHardenedGit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, "f.txt")); err != nil {
 		t.Fatalf("в клоне нет файла: %v", err)
+	}
+}
+
+// Транспорт ext:: выполняет произвольную команду (CVE-2022-39253). Проверка
+// не «флаги в аргументах», а результат: команда обязана не выполниться, и
+// метка рядом с temp-каталогом — не появиться.
+//
+// На Windows ext:: и без того не работает (нет sh), поэтому проверять там
+// нечего и тест был бы вакуумно-зелёным.
+func TestGitCmdRefusesExtTransport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ext:: опирается на sh, которого на Windows нет")
+	}
+	marker := filepath.Join(t.TempDir(), "pwned")
+	dst := filepath.Join(t.TempDir(), "clone")
+	if _, err := runGit("clone", "--depth", "1", "--quiet", "--", "ext::sh -c touch "+marker, dst); err == nil {
+		t.Fatal("транспорт ext:: принят — это исполнение произвольной команды от имени git")
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatalf("команда из ext:: выполнилась: метка %s создана", marker)
+	}
+}
+
+// Список протоколов не «написан и забыт», а работает: тот же клон по file://
+// с тем же protocol.allow=never, но БЕЗ protocol.file.allow обязан упасть.
+// Иначе проверка «флаги в аргументах» ничего не доказывала бы.
+func TestGitProtocolAllowListIsEnforced(t *testing.T) {
+	src, _, _ := pinRepo(t, false)
+
+	denyFile := exec.Command("git", append(append([]string{}, gitHarden...),
+		"-c", "protocol.file.allow=never",
+		"clone", "--depth", "1", "--quiet", "--", src, filepath.Join(t.TempDir(), "x"))...)
+	denyFile.Env = gitEnv()
+	if out, err := common.CombinedOutput(denyFile); err == nil {
+		t.Fatalf("file:// клонирован, хотя протокол не разрешён: %s", out)
+	}
+
+	// С настоящим набором тот же клон обязан пройти.
+	dst := filepath.Join(t.TempDir(), "y")
+	if out, err := runGit("clone", "--depth", "1", "--quiet", "--", src, dst); err != nil {
+		t.Fatalf("file:// в рабочем наборе разрешён, но клон упал: %v: %s", err, out)
 	}
 }
 
