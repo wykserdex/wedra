@@ -510,6 +510,16 @@ func TestMCPServeHandlesCancelWhileRunWaits(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(plugDir, "main.py"), []byte(py), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// sleeper создан ПОСЛЕ testServer(), который посчитал allow-list, поэтому
+	// плагина в нём не было и он остался недоверенным: без изолятора на этой
+	// платформе ран падал сразу, не выполнив ни одного шага.
+	//
+	// Тест это пропускал случайно, а не потому что был прав. currentRunID
+	// ставится ДО исполнения, и сразу после падения сбрасывается в ""; тест
+	// опрашивает его каждые 20 мс, поэтому локально успевал зацепить это
+	// короткое окно и пройти, а на CI (медленнее) — нет. Раньше это выглядело
+	// как «иногда тест падает», теперь ран реально живёт 30 секунд.
+	srv.trust.Trusted = trustDirsIn(t, srv.pluginsDirs[0])
 	yamlText := "format_version: \"0.2\"\npipeline:\n  name: concurrent_cancel\n  input: {}\n  steps:\n    - id: sleep\n      plugin: " + strconv.Quote(plugDir) + "\n      timeout: 30s\n"
 	runArgs := map[string]interface{}{"name": "run_pipeline", "arguments": map[string]interface{}{"yaml": yamlText, "wait_seconds": 10.0}}
 	runReq := Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: mustJSON(t, runArgs)}
