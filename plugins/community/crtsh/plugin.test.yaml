@@ -1,7 +1,7 @@
 # Контракт-тесты crtsh (mock HTTP-ответ, без сети).
 tests:
   - name: реестр → агрегаты (имена, issuers, просроченные)
-    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    env: { CRT_SH_MOCK_FILE: "mock_response.json" }
     input: { domain: "example.com" }
     expect:
       status: ok
@@ -19,7 +19,7 @@ tests:
           - "O=DigiCert, CN=Secure Site CA G2"
 
   - name: пустой реестр (домена нет) → ok, total 0
-    env: { CRTHS_MOCK_FILE: "mock_response_empty.json" }
+    env: { CRT_SH_MOCK_FILE: "mock_response_empty.json" }
     input: { domain: "nikogdenet.example" }
     expect:
       status: ok
@@ -30,7 +30,7 @@ tests:
         issuers: []
 
   - name: пустой domain → доменная ошибка
-    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    env: { CRT_SH_MOCK_FILE: "mock_response.json" }
     input: { domain: "  " }
     expect:
       status: error
@@ -38,14 +38,14 @@ tests:
       error: { code: empty_domain }
 
   - name: mock-файла нет → платформенная ошибка
-    env: { CRTHS_MOCK_FILE: "no_such_file.json" }
+    env: { CRT_SH_MOCK_FILE: "no_such_file.json" }
     input: { domain: "example.com" }
     expect:
       exit_code: 2
       error: { code: platform:bad_response }
 
   - name: битый JSON входа → платформенная ошибка
-    env: { CRTHS_MOCK_FILE: "mock_response.json" }
+    env: { CRT_SH_MOCK_FILE: "mock_response.json" }
     input_raw: "[не json"
     expect:
       exit_code: 2

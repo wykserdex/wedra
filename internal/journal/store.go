@@ -144,11 +144,12 @@ func (s *FilesystemStore) SaveArtifact(runID string, name string, data []byte) e
 		return err
 	}
 	dir := filepath.Join(runDir, "artifacts")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Режимы — как у каталога рана и файлов в нём (runDirPerm/filePerm).
+	if err := os.MkdirAll(dir, runDirPerm); err != nil {
 		return err
 	}
 	clean := filepath.Base(name)
-	return os.WriteFile(filepath.Join(dir, clean), data, 0o644)
+	return os.WriteFile(filepath.Join(dir, clean), data, filePerm)
 }
 
 func (s *FilesystemStore) LoadContext(runID string) (map[string]interface{}, error) {
@@ -389,14 +390,16 @@ func (s *JsonStore) loadDB() (*dbFile, error) {
 }
 
 func (s *JsonStore) saveDB(db *dbFile) error {
-	if err := os.MkdirAll(filepath.Dir(s.DBPath), 0o755); err != nil {
+	// Индекс ранов перечисляет выходы шагов, поэтому закрыт так же, как они
+	// сами (runDirPerm/filePerm).
+	if err := os.MkdirAll(filepath.Dir(s.DBPath), runDirPerm); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.DBPath, raw, 0o644)
+	return os.WriteFile(s.DBPath, raw, filePerm)
 }
 
 func (s *JsonStore) ensureRun(runID string) error {

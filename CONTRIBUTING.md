@@ -6,7 +6,10 @@ registry policy, CLI compatibility, or repository structure.
 
 ## Development workflow
 
-1. Use Go 1.22 or newer and Python 3 for plugin fixtures.
+1. Use Go 1.26 or newer and Python 3 for plugin fixtures. The floor is the
+   `go` directive in `go.mod`, and CI builds the floor job on it: a toolchain
+   older than the directive refuses to build the module, so the documented
+   minimum is always a tested one.
 2. Build the primary CLI with `go build -o wedra ./cmd/wedra`.
 3. Run `go test ./... -count=1` and `go vet ./...`.
 4. Keep generated run data under ignored `var/runs/`; never commit journals,

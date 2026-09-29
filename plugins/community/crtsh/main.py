@@ -13,7 +13,7 @@ names — дедупликация CN + SAN; issuers — дедупликаци�
 expired — записи с not_after < now(UTC). Сырьё (тысячи записей) в выход
 не идёт — только агрегаты.
 
-Тест-режим: CRTHS_MOCK_FILE — тело HTTP-ответа читать из файла (как
+Тест-режим: CRT_SH_MOCK_FILE — тело HTTP-ответа читать из файла (как
 LLM_MOCK у llm_openai — без сети в CI).
 
 Доменные ошибки: empty_domain, timeout (retryable), bad_response
@@ -72,7 +72,7 @@ def main():
     except (TypeError, ValueError):
         return fail("bad_timeout", "timeout обязан быть числом", exit_code=2)
 
-    mock_file = os.environ.get("CRTHS_MOCK_FILE", "").strip()
+    mock_file = os.environ.get("CRT_SH_MOCK_FILE", "").strip()
     if mock_file:
         # тест-режим: тело ответа из файла, сети нет
         try:
@@ -80,7 +80,7 @@ def main():
                 body = f.read()
             http_code = 200
         except Exception as e:
-            return fail("bad_response", f"CRTHS_MOCK_FILE не читается: {e}",
+            return fail("bad_response", f"CRT_SH_MOCK_FILE не читается: {e}",
                         exit_code=2)
     else:
         url = API % urllib.parse.quote("%." + domain, safe="")

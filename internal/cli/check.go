@@ -25,6 +25,7 @@ import (
 
 	"wedra/internal/errdoc"
 	"wedra/internal/schemacheck"
+	"wedra/internal/verdoc"
 )
 
 type checkStep struct {
@@ -72,6 +73,10 @@ func checkSteps() []checkStep {
 		{name: "mod", desc: "проверка целостности go.mod/go.sum", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return runCapture(o.repo, "go", "mod", "verify")
+			}},
+		{name: "versions", desc: "VERSION ↔ README и минимум Go ↔ go.mod", fast: true,
+			run: func(o checkOpts) (string, error) {
+				return verdoc.CheckRepo(o.repo)
 			}},
 		{name: "errcodes", desc: "коды ошибок в Go ↔ protocol/v0.2/ERRORS.md", fast: true,
 			run: func(o checkOpts) (string, error) {
@@ -513,6 +518,7 @@ func printCheckHelp() {
   fmt          gofmt -l по исходникам
   vet          go vet ./...
   mod          go mod verify
+  versions     VERSION ↔ README/docs, минимум Go ↔ директива в go.mod
   errcodes     коды ошибок в Go ↔ protocol/v0.2/ERRORS.md
   schemas      schemas/ против примеров и манифестов
   build        сборка cmd/wedra, cmd/wedragui, cmd/tool
@@ -525,7 +531,7 @@ func printCheckHelp() {
 Флаги:
   --list              показать шаги и выйти
   --only=<step>       прогнать один шаг
-  --fast              только быстрые шаги (fmt, vet, mod, errcodes, schemas, registry)
+  --fast              только быстрые шаги (fmt, vet, mod, versions, errcodes, schemas, registry)
   --census            тесты поштучно по пакетам с пределом на пакет
   --pkg=<substr>      в census ограничить список пакетов подстрокой
   --per-package=<s>   предел на пакет в режиме census (по умолчанию 200)

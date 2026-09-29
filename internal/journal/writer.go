@@ -19,6 +19,23 @@ const maxJournalPayloadSize = 16 << 20
 // тот же приём, что metaScanByteBudget в reader.go.
 var maxSnapshotPayloadSize = maxJournalPayloadSize
 
+// Режимы каталога рана и файлов в нём. В каталоге лежат входы шагов и их
+// выходы (journal.jsonl, context.json, artifacts/, runs.db), то есть
+// содержимое данных пользователя; при 0755/0644 их читал любой локальный
+// пользователь машины.
+//
+// Именованные константы, а не литералы в вызовах: режимы — это контракт,
+// который проверяется тестом на любой платформе, тогда как фактический режим
+// на диске проверяется только там, где режимы вообще действуют.
+//
+// На Windows они не действуют (права задаёт DACL каталога, см. SECURITY.md),
+// и код обязан оставаться кроссплатформенным: MkdirAll/OpenFile с такими
+// режимами на Windows — обычный вызов, ошибок он не добавляет.
+const (
+	runDirPerm os.FileMode = 0o700
+	filePerm   os.FileMode = 0o600
+)
+
 // Journal — append-only журнал прогона: var/runs/<run_id>/journal.jsonl
 type Journal struct {
 	// v0.23: счётчик потерянных событий (write-ошибки)
@@ -35,11 +52,13 @@ type Journal struct {
 	Dir     string
 }
 
+// Режимы каталога рана и журнала — см. runDirPerm/filePerm. На Windows режимы
+// не действуют, и код обязан оставаться кроссплатформенным.
 func NewJournal(dir string) (*Journal, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, runDirPerm); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePerm)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +66,10 @@ func NewJournal(dir string) (*Journal, error) {
 }
 
 func OpenJournalAppend(dir string) (*Journal, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, runDirPerm); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	f, err := os.OpenFile(filepath.Join(dir, "journal.jsonl"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, filePerm)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +157,10 @@ func (j *Journal) writeSnapshot(ctx *runctx.Ctx) (reason string, size int, err e
 		return "too_large", len(b), fmt.Errorf("context snapshot exceeds %d bytes", maxSnapshotPayloadSize)
 	}
 	tmp := filepath.Join(j.Dir, "context.json.tmp")
-	if werr := os.WriteFile(tmp, b, 0o644); werr != nil {
+	// temp не хуже итогового файла: он тоже содержит весь контекст рана, а
+	// rename сохраняет его режим — то есть незакрытый temp стал бы открытым
+	// context.json.
+	if werr := os.WriteFile(tmp, b, filePerm); werr != nil {
 		return "write", 0, fmt.Errorf("context snapshot: %w", werr)
 	}
 	if rerr := os.Rename(tmp, filepath.Join(j.Dir, "context.json")); rerr != nil {

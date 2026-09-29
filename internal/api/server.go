@@ -361,7 +361,7 @@ func networkJSON(list []pipeline.NetworkPermission) []map[string]interface{} {
 
 func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 	dirs := []string{}
-	// agent-plugins обходится вместе с остальными. До 0.33b каталог не был
+	// agent-plugins обходится вместе с остальными. До 0.33a каталог не был
 	// виден НИ В ОДНОМ списке, хотя плагин из него резолвился по ссылке:
 	// агент мог вызвать то, что человек не видел. Хуже всего, что на хостах
 	// без изолятора такой плагин и запустить нельзя — поэтому рядом с

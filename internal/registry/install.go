@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"wedra/internal/common"
 )
 
 // Lock — метка установленного плагина (.wedra в каталоге плагина).
@@ -69,29 +66,26 @@ func VerifyCheckoutPath(dir, commit, path string) error {
 	if err := ValidateCommit(commit); err != nil {
 		return err
 	}
-	ancestor := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", commit, "HEAD")
-	if out, err := common.CombinedOutput(ancestor); err != nil {
-		return fmt.Errorf("pin %s не является предком HEAD: %s: %s", commit, err, strings.TrimSpace(string(out)))
+	ancestorOut, err := runGit("-C", dir, "merge-base", "--is-ancestor", commit, "HEAD")
+	if err != nil {
+		return fmt.Errorf("pin %s не является предком HEAD: %s: %s", commit, err, strings.TrimSpace(string(ancestorOut)))
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
 	if clean == "." || clean == "" {
 		clean = "."
 	}
-	gitCmd := exec.Command("git", "-C", dir, "rev-parse", commit+":"+clean)
-	pinned, err := common.CombinedOutput(gitCmd)
+	pinned, err := runGit("-C", dir, "rev-parse", commit+":"+clean)
 	if err != nil {
 		return fmt.Errorf("pin %s не содержит %s: %s", commit, clean, strings.TrimSpace(string(pinned)))
 	}
-	gitCmd = exec.Command("git", "-C", dir, "rev-parse", "HEAD:"+clean)
-	current, err := common.CombinedOutput(gitCmd)
+	current, err := runGit("-C", dir, "rev-parse", "HEAD:"+clean)
 	if err != nil {
 		return fmt.Errorf("HEAD не содержит %s: %s", clean, strings.TrimSpace(string(current)))
 	}
 	if strings.TrimSpace(string(pinned)) != strings.TrimSpace(string(current)) {
 		return fmt.Errorf("локальный %s отличается от pin %s", clean, commit)
 	}
-	gitCmd = exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=all", "--", clean)
-	status, err := common.CombinedOutput(gitCmd)
+	status, err := runGit("-C", dir, "status", "--porcelain", "--untracked-files=all", "--", clean)
 	if err != nil {
 		return fmt.Errorf("не удалось проверить локальное состояние %s: %s", clean, err)
 	}
@@ -105,8 +99,7 @@ func VerifyCheckoutCommit(dir, commit string) error {
 	if err := ValidateCommit(commit); err != nil {
 		return err
 	}
-	gitCmd := exec.Command("git", "-C", dir, "rev-parse", "--verify", "HEAD^{commit}")
-	out, err := common.CombinedOutput(gitCmd)
+	out, err := runGit("-C", dir, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать HEAD %s: %s: %s", dir, err, strings.TrimSpace(string(out)))
 	}
@@ -151,8 +144,7 @@ func CloneToPinned(source, ref, commit, dir string) error {
 		{"-C", dir, "checkout", "-q", "-f", "FETCH_HEAD"},
 	}
 	for _, a := range steps {
-		gitCmd := exec.Command("git", a...)
-		out, err := common.CombinedOutput(gitCmd)
+		out, err := runGit(a...)
 		if err != nil {
 			return fmt.Errorf("supply-chain пин %s@%s: %s: %s", source, commit, err, string(out))
 		}
@@ -164,9 +156,8 @@ func cloneRef(source, ref, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	cmd := exec.Command("git", "-c", "core.autocrlf=false",
+	out, err := runGit("-c", "core.autocrlf=false",
 		"clone", "--depth", "1", "--branch", ref, "--quiet", "--", source, dir)
-	out, err := common.CombinedOutput(cmd)
 	if err != nil {
 		return fmt.Errorf("git clone %s@%s: %s: %s", source, ref, err, string(out))
 	}

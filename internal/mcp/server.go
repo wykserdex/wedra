@@ -45,7 +45,7 @@ const (
 
 var supportedProtocolVersions = []string{defaultProtocolVersion}
 
-// Server — MCP-сервер: JSON-RPC stdio + 7 инструментов поверх core/pipeline/execution.
+// Server — MCP-сервер: JSON-RPC stdio + 8 инструментов поверх core/pipeline/execution.
 // Решения гейтов через MCP невозможны никогда; get_run в waiting_human
 // просит пользователя одобрить в окне wedra.
 type Server struct {
