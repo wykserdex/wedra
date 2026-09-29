@@ -30,19 +30,56 @@ MCP path checks are a reference and path policy, not an operating-system
 sandbox. Do not treat an MCP client or a plugin manifest as a security boundary
 without separate OS-level isolation.
 
-## Untrusted plugin code (`sandbox: untrusted`)
+## Trust is granted by the kernel, not by the plugin
 
-A plugin manifest may declare `sandbox: untrusted`, meaning the author
-considers the code to be third-party. Such a plugin is refused unless the
-operator explicitly opts in with `--allow-untrusted-plugins`, and even then it
-only runs inside an OS-level sandbox. A `untrusted` plugin may not declare
-`permissions.secrets`.
+A plugin is **trusted** — meaning it runs with the permissions of the current
+user, with no isolation — only when the kernel has confirmed it. Confirmation
+requires **both** the plugin `id` and the **sha256 of the plugin directory's
+contents** to appear in the allow-list:
+
+- the operator's own `wedra-trust.yaml` in the working directory
+  (`--trust-config=<file>` overrides the path);
+- the built-in allow-list, generated from the commit pins in `registry.yaml`
+  (`internal/plugin/trustseed_gen.go`, regenerate with
+  `go run ./internal/plugin/cmd/genseed`).
+
+The manifest can only **lower** trust, never raise it. `sandbox: untrusted` in a
+manifest makes the plugin untrusted even when its hash is allow-listed, and
+`sandbox: trusted` grants nothing at all. Plugins under `agent-plugins/` are
+untrusted by construction regardless of any allow-list entry.
+
+This is the direction the decision was previously pointing the wrong way in:
+trust used to be read from the plugin's own `sandbox` field, which is written by
+the plugin author. No manifest in this repository set that field, and
+`internal/registry` did not know it existed — so a malicious community plugin
+simply omitted the line and ran with full user privileges.
+
+Because trust is content-addressed, tampering is caught even when the `id` is
+unchanged: editing, replacing, or adding a file inside an installed plugin
+revokes trust. A plugin directory that cannot be read, contains a symlink, or
+does not exist is untrusted as well — `sandbox: untrusted` was never the only
+thing that could disqualify a plugin.
+
+`GET /api/plugins` reports the effective `trusted` flag, the `content_sha256` it
+computed, and a `blocked_reason` for **every** untrusted plugin (not only
+agent-written ones), so the hash for an allow-list entry is observable rather
+than something to compute blind.
+
+### Untrusted plugin code
+
+An untrusted plugin is refused unless the operator explicitly opts in with
+`--allow-untrusted-plugins`, and even then it only runs inside an OS-level
+sandbox. A `untrusted` plugin may not declare `permissions.secrets`.
 
 | Platform | Backend | Notes |
 | --- | --- | --- |
 | Linux | `bwrap` (bubblewrap) | read-only host filesystem (including `/tmp` and the plugin directory), separate PID/IPC/UTS, a private writable scratch directory created per run and deleted afterwards, **network namespace always separate**. A plugin that declares `any_host` gets egress through a userspace stack (`slirp4netns`); without it there is no network at all, and without `slirp4netns` installed the run is refused |
 | macOS | none | fail-closed: backend archived, see below |
 | Windows | none | fail-closed: untrusted plugins cannot run (blocked on low-integrity sandbox root, see below) |
+
+A plugin that writes into its own directory revokes its own trust after the
+first run, because the write changes the content hash. This is intended, and it
+is the same reason the Linux backend mounts the plugin directory read-only.
 
 ### macOS: backend archived
 

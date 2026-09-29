@@ -47,6 +47,11 @@ type Server struct {
 	PipelinesDir string
 	RunsDir      string
 	Engine       *plugin.Engine
+	// Trusted — allow-list доверенных плагинов. Используется и списком
+	// (/api/plugins), и запуском ранов: одно и то же решение о доверии, иначе
+	// список показывал бы «доверен», а ран — падал бы (или наоборот).
+	// nil = никто не доверен.
+	Trusted *plugin.AllowList
 
 	// v0.22: in-process запуск из GUI — один ран за раз
 	runMu sync.Mutex
@@ -84,6 +89,11 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 		PipelinesDir: pipelinesDir,
 		RunsDir:      runsDir,
 		Engine:       eng,
+		// Дефолт — встроенный allow-list (пины реестра), а не пустой: иначе
+		// GUI-консоль перестала бы запускать официальные плагины на хостах без
+		// изолятора. Конфиг оператора поверх него подкладывает вызывающий
+		// (cmd/gui.go, cmd/mcp.go).
+		Trusted:      plugin.BuiltinAllowList(),
 		gates:        map[string]*gate.ChannelUI{},
 		cancels:      map[string]context.CancelFunc{},
 		summaryCache: map[string]summaryCacheEntry{},
@@ -406,24 +416,44 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 				"secrets":    m.Permissions.Secrets,
 			},
 		}
+		// Доверие решает ядро по хэшу содержимого, а не поле манифеста, поэтому
+		// и список, и ран обязаны считать его ОДИНАКОВО. Показывать «доверен»
+		// там, где ран уведёт плагина в песочницу (или упадёт), — значит
+		// подсунуть человеку кнопку, которая не сработает.
+		decision := plugin.DecideTrust(m, plugin.TrustPolicy{Trusted: s.Trusted})
+		item["trusted"] = decision.Trusted
+		if decision.Digest != "" {
+			item["content_sha256"] = decision.Digest
+		}
 		if plugin.IsAgentWrittenPlugin(m) {
 			item["agent_written"] = true
-			// Плагин агента — внешний код по построению. Показать его и
-			// промолчать, что запустить нельзя, значит подсунуть человеку
-			// кнопку, которая всегда откажет.
-			if !plugin.SandboxUsable() {
-				item["blocked_reason"] = fmt.Sprintf(
-					"плагин написан агентом: для внешнего кода нужен изолятор, а на %s его нет "+
-						"(запуск возможен на Linux через bwrap)", runtime.GOOS)
-			} else {
-				item["blocked_reason"] = "плагин написан агентом: запуск только в изоляторе " +
-					"и только с флагом --allow-untrusted-plugins"
-			}
+		}
+		// Причина — у ЛЮБОГО недоверенного плагина, а не только у написанного
+		// агентом: после инверсии внешним кодом стал любой плагин, которого нет
+		// в allow-list. Молчать об этом — значит показать плагин и не сказать,
+		// что запустить его нельзя.
+		if !decision.Trusted {
+			item["blocked_reason"] = blockedReason(decision.Reason)
 		}
 		list = append(list, item)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
+}
+
+// blockedReason — человекочитаемое объяснение, почему плагин не запустится на
+// этой машине прямо сейчас.
+//
+// Формулировка зависит от наличия изолятора, но суть одна: нужен изолятор.
+// Раньше текст был привязан к «плагин написан агентом», и после инверсии это
+// стало лишь одним из частных случаев — поэтому причина теперь начинается с
+// вердикта ядра, а изолятор добавляется как условие запуска.
+func blockedReason(decisionReason string) string {
+	if !plugin.SandboxUsable() {
+		return decisionReason + ": для внешнего кода нужен изолятор, а на " + runtime.GOOS +
+			" его нет (запуск возможен на Linux через bwrap)"
+	}
+	return decisionReason + ": запуск только в изоляторе и только с флагом --allow-untrusted-plugins"
 }
 
 func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
@@ -886,7 +916,7 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		defer s.clearGate(runID)
 		defer s.clearCancel(runID)
 		defer cancel()
-		opts := core.RunOptions{Yes: req.Yes, Quiet: true, RunsDir: s.RunsDir, RunID: runID, Ctx: runCtx}
+		opts := core.RunOptions{Yes: req.Yes, Quiet: true, RunsDir: s.RunsDir, RunID: runID, Ctx: runCtx, Trusted: s.Trusted}
 		if !req.Yes || pipelineNeedsHuman(pf) {
 			opts.GateUI = func(st *pipeline.Step) gate.GateUI {
 				ui := gate.NewChannelUI()

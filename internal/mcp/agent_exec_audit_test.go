@@ -88,7 +88,11 @@ func rpcCodeOf(e *RPCError) string {
 func TestAgentExecAuditIntentHasNoResultYet(t *testing.T) {
 	dir := t.TempDir()
 	s := auditTestServer(t, dir)
-	writeIntent(t, s, "text_stats", auditManifest("text_stats"))
+	// Доверенный плагин. После инверсии (H1) в журнал пишется реальный вердикт
+	// ядра, а не «не написан агентом»: проверять untrusted=false на плагине,
+	// которому никто не выдавал доверия, было бы проверкой противоположного.
+	fxDir := writeFakePluginDir(t, t.TempDir(), "text_stats", echoerScript)
+	writeIntent(t, s, "text_stats", trustManifest(t, s, fxDir))
 
 	recs := readAudit(t, dir)
 	if len(recs) != 1 {
@@ -192,12 +196,13 @@ func TestAgentExecAuditMarksUntrusted(t *testing.T) {
 	dir := t.TempDir()
 	s := auditTestServer(t, dir)
 
+	// Первый — плагин агента: внешний код по построению.
 	agent := &pipeline.Manifest{ID: "mailer", Version: "0.1.0",
 		Dir: filepath.Join("work", "agent-plugins", "mailer")}
-	plain := &pipeline.Manifest{ID: "text_stats", Version: "0.1.0",
-		Dir: filepath.Join("plugins", "text_stats")}
+	// Второй — доверенный плагин: ядро выдало доверие по хэшу содержимого.
+	plain := trustManifest(t, s, writeFakePluginDir(t, t.TempDir(), "echoer", echoerScript))
 	writeIntent(t, s, "agent-plugins/mailer", agent)
-	writeIntent(t, s, "text_stats", plain)
+	writeIntent(t, s, plain.ID, plain)
 
 	recs := readAudit(t, dir)
 	if len(recs) != 2 {
@@ -313,7 +318,14 @@ func sleeperServer(t *testing.T, slept float64) (*Server, string) {
 		PluginsDirs: []string{plugins},
 		WorkDir:     work,
 		RunsDir:     runs,
-		Trust:       plugin.TrustPolicy{AgentCanExec: true, AllowUntrusted: true},
+		// Фикстурный плагин доверен явно (по хэшу содержимого): после
+		// инверсии (H1) он иначе внешний код, и на хостах без изолятора не
+		// запустился бы вовсе — а тесту нужен реальный запуск.
+		Trust: plugin.TrustPolicy{
+			AgentCanExec:   true,
+			AllowUntrusted: true,
+			Trusted:        trustDirsIn(t, plugins),
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +381,11 @@ func TestAgentExecAuditFailurePreventsExecution(t *testing.T) {
 		PluginsDirs: []string{plugins},
 		WorkDir:     work,
 		RunsDir:     runs,
-		Trust:       plugin.TrustPolicy{AgentCanExec: true, AllowUntrusted: true},
+		Trust: plugin.TrustPolicy{
+			AgentCanExec:   true,
+			AllowUntrusted: true,
+			Trusted:        trustDirsIn(t, plugins),
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

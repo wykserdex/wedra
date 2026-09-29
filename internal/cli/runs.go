@@ -127,6 +127,7 @@ func RunRunsResume(args []string) {
 	noAuto := false
 	denyUntrusted := false
 	allowUntrusted := false
+	trustCfg := ""
 	runsDir := ""
 	store := ""
 	dbPath := ""
@@ -143,6 +144,8 @@ func RunRunsResume(args []string) {
 			denyUntrusted = true
 		case a == "--allow-untrusted-plugins":
 			allowUntrusted = true
+		case strings.HasPrefix(a, "--trust-config="):
+			trustCfg = strings.TrimPrefix(a, "--trust-config=")
 		case strings.HasPrefix(a, "--runs-dir="):
 			runsDir = strings.TrimPrefix(a, "--runs-dir=")
 		case a == "--runs-dir":
@@ -196,6 +199,11 @@ func RunRunsResume(args []string) {
 	}
 	if allowUntrusted {
 		newArgs = append(newArgs, "--allow-untrusted-plugins")
+	}
+	// Конфиг доверия пробрасывается в ран: без него resume поднялся бы с пустым
+	// allow-list и упал бы на первом же плагине, который resume вправе запустить.
+	if trustCfg != "" {
+		newArgs = append(newArgs, "--trust-config="+trustCfg)
 	}
 	if runsDir != "" {
 		newArgs = append(newArgs, "--runs-dir="+runsDir)

@@ -19,6 +19,7 @@ import (
 
 	"wedra/internal/gate"
 	"wedra/internal/pipeline"
+	"wedra/internal/plugin"
 )
 
 // writeGatePlugin — плагин с заданными permissions. Права задаются явно,
@@ -96,6 +97,17 @@ func gateServer(t *testing.T, opts gateServerOpts) (*Server, string) {
 		perms = dangerPerms()
 	}
 	pluginDir := writeGatePlugin(t, plugins, "stepper", perms)
+	// Плагин, написанный тестом, ни в чьём allow-list не значится, поэтому
+	// после введения доверия он недоверенный: без изолятора (а на Windows её
+	// нет) запуск обязан быть отклонён. Тест проверяет ГЕЙТ, а не доверие,
+	// поэтому доверие выдаётся явно — ровно так же, как это сделал бы
+	// оператор через wedra-trust.yaml. Ослаблять политику ради теста нельзя:
+	// тогда тест гейта начал бы проходить на коде, который в жизни не
+	// запустится.
+	allow, err := plugin.AllowListFromDirs(pluginDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if opts.extraSafeStep {
 		writeGatePlugin(t, plugins, "counter", safePerms())
 	}
@@ -104,6 +116,7 @@ func gateServer(t *testing.T, opts gateServerOpts) (*Server, string) {
 		WorkDir:          work,
 		Human:            opts.human,
 		AllowUngatedRuns: opts.allowUngated,
+		Trust:            plugin.TrustPolicy{Trusted: allow},
 	})
 	if err != nil {
 		t.Fatal(err)

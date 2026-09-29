@@ -76,7 +76,8 @@ func TestUntrustedManifestRefusedWithoutIsolation(t *testing.T) {
 	}
 }
 
-func TestDenyUntrustedPolicyBlocksTrustedManifest(t *testing.T) {
+// TestDenyUntrustedPolicyBlocksEverything
+func TestDenyUntrustedPolicyBlocksEverything(t *testing.T) {
 	requirePython(t)
 	m, marker := trustManifest(t, "")
 	ctx := WithTrustPolicy(context.Background(), TrustPolicy{DenyUntrusted: true})
@@ -90,10 +91,16 @@ func TestDenyUntrustedPolicyBlocksTrustedManifest(t *testing.T) {
 	}
 }
 
-func TestTrustedManifestRunsByDefault(t *testing.T) {
+// Плагин, которому ядро выдало доверие (allow-list по хэшу), работает как
+// раньше: с правами пользователя, без изолятора.
+//
+// Это ОБРАТНАЯ сторона инверсии, и она тоже обязана быть закреплена тестом:
+// иначе « доверен = всегда в песочнице» прошло бы незамеченным, и официальные
+// плагины потеряли бы доступ к файлам и сети без всякой видимой причины.
+func TestAllowedPluginRunsWithoutSandbox(t *testing.T) {
 	requirePython(t)
 	m, marker := trustManifest(t, "")
-	res := Exec(m, []byte("{}"), 20*time.Second)
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 20*time.Second, nil)
 	if !res.OK() {
 		t.Fatalf("доверенный плагин должен работать как раньше: %+v (stderr: %s)", res, res.Stderr)
 	}
@@ -130,7 +137,22 @@ func TestAllowUntrustedPolicyIsExplicit(t *testing.T) {
 	if denied := enforceTrust(&Manifest{ID: "y"}, TrustPolicy{DenyUntrusted: true}); denied == nil {
 		t.Fatal("DenyUntrusted должен блокировать любой плагин")
 	}
-	if denied := enforceTrust(&Manifest{ID: "y", Sandbox: pipeline.SandboxTrusted}, TrustPolicy{}); denied != nil {
-		t.Fatalf("доверенный плагин с пустой политикой должен идти в exec: %+v", denied)
+	// `sandbox: trusted` в манифесте НЕ является разрешением на запуск. Раньше
+	// именно это поле было единственным источником доверия, поэтому проверка
+	// обязана остаться: иначе возврат к модели «плагин сам себя объявляет
+	// доверенным» прошёл бы незамеченным.
+	selfTrusted := &Manifest{ID: "y", Sandbox: pipeline.SandboxTrusted, Dir: t.TempDir()}
+	if denied := enforceTrust(selfTrusted, TrustPolicy{}); denied == nil {
+		t.Fatal("sandbox: trusted в манифесте не должен давать доверия без записи в allow-list")
+	}
+	// А вот с выданным ядром доверием — должен.
+	trusted := NewAllowList()
+	digest, err := ContentDigest(selfTrusted.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trusted.Allow(selfTrusted.ID, digest)
+	if denied := enforceTrust(selfTrusted, TrustPolicy{Trusted: trusted}); denied != nil {
+		t.Fatalf("плагин из allow-list должен идти в exec: %+v", denied)
 	}
 }
