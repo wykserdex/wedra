@@ -10,6 +10,7 @@ import (
 
 	"wedra/internal/api"
 	"wedra/internal/guidirs"
+	"wedra/internal/plugin"
 )
 
 // RunGUI — wedra gui [--listen 127.0.0.1:8765] [--open]
@@ -29,6 +30,7 @@ func RunGUI(args []string) {
 	listen := "127.0.0.1:8765"
 	open := false
 	noSession := false
+	trustCfg := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if len(a) > 9 && a[:9] == "--listen=" {
@@ -41,13 +43,21 @@ func RunGUI(args []string) {
 		} else if a == "--port" && i+1 < len(args) {
 			listen = "127.0.0.1:" + args[i+1]
 			i++
+		} else if strings.HasPrefix(a, "--trust-config=") {
+			trustCfg = strings.TrimPrefix(a, "--trust-config=")
 		} else if a == "--open" {
 			open = true
 		} else if a == "--no-session" {
 			noSession = true
 		}
 	}
+	trusted, err := plugin.EffectiveAllowList(trustConfigPath(trustCfg))
+	if err != nil {
+		fmt.Println("gui: ошибка конфига доверия:", err)
+		os.Exit(2)
+	}
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
+	srv.Trusted = trusted
 	// v0.9: сессия человека — мутации (запуск, гейт, отмена) только с cookie
 	// из ссылки ?k=, напечатанной в ЭТОТ терминал. --no-session — старое
 	// поведение (любой локальный процесс может одобрить гейт).

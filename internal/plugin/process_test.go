@@ -54,10 +54,11 @@ func TestCappedWriterKeepsPrefixAtLimit(t *testing.T) {
 }
 
 // Гигантский stdout (17MB) — не «всю память», а честная ошибка протокола.
+// TestExecStdoutCap
 func TestExecStdoutCap(t *testing.T) {
 	requirePythonT(t)
 	m := fixtureManifest(t, "chatter")
-	res := Exec(m, []byte("{}"), 30*time.Second)
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 30*time.Second, nil)
 	if !res.Platform || res.ErrCode != "protocol_violation" {
 		t.Fatalf("ожидался protocol_violation, got platform=%v err=%q msg=%q", res.Platform, res.ErrCode, res.ErrMsg)
 	}
@@ -71,7 +72,7 @@ func TestExecTimeoutKillsProcessGroup(t *testing.T) {
 	requirePythonT(t)
 	m := fixtureManifest(t, "spawner")
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	res := ExecWithEnv(m, []byte("{}"), time.Second, []string{"SPID_FILE=" + pidFile})
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), time.Second, []string{"SPID_FILE=" + pidFile})
 	if res.ErrCode != "timeout" {
 		t.Fatalf("ожидался timeout, got %q (%q)", res.ErrCode, res.ErrMsg)
 	}
@@ -170,7 +171,7 @@ func TestPluginOnlyReceivesDeclaredSecrets(t *testing.T) {
 		},
 		Permissions: pipeline.Permissions{Secrets: []string{"WEDRA_TEST_DECLARED_SECRET"}},
 	}
-	res := Exec(m, []byte("{}"), 10*time.Second)
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 10*time.Second, nil)
 	if !res.OK() {
 		t.Fatalf("plugin failed: %+v", res)
 	}
@@ -264,7 +265,8 @@ func TestExecExit2WithRetryableIsPlatformAndNotRetried(t *testing.T) {
 		{"bad_input", "platform:bad_input"},
 		{"platform:bad_input", "platform:bad_input"},
 	} {
-		res := Exec(manifestExitingWith(t, c.pluginCode, 2, true), []byte("{}"), 15*time.Second)
+		m := manifestExitingWith(t, c.pluginCode, 2, true)
+		res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 15*time.Second, nil)
 		if !res.Platform {
 			t.Fatalf("code=%q: exit>=2 обязан быть платформенной ошибкой: %+v", c.pluginCode, res)
 		}
@@ -287,7 +289,8 @@ func TestExecExit2WithRetryableIsPlatformAndNotRetried(t *testing.T) {
 // проходит по exit-коду, а не по флагу.
 func TestExecExit1RetryableStillRetried(t *testing.T) {
 	requirePythonT(t)
-	res := Exec(manifestExitingWith(t, "rate_limit", 1, true), []byte("{}"), 15*time.Second)
+	m := manifestExitingWith(t, "rate_limit", 1, true)
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 15*time.Second, nil)
 	if res.OK() || res.Platform {
 		t.Fatalf("exit 1 — доменная ошибка, не платформенная: %+v", res)
 	}

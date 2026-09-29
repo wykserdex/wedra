@@ -141,7 +141,8 @@ func TestCancelSleeper(t *testing.T) {
 	start := time.Now()
 	go func() {
 		var err error
-		stats, err = Run(pf, eng, RunOptions{Quiet: true, RunsDir: runsDir, Ctx: runCtx})
+		stats, err = Run(pf, eng, RunOptions{Quiet: true, RunsDir: runsDir, Ctx: runCtx,
+			Trusted: trustPluginsDir(t, filepath.Join(dir, "plugins"))})
 		done <- err
 	}()
 	time.Sleep(200 * time.Millisecond)
@@ -347,7 +348,8 @@ func TestRunPlatformErrorWithRetryableFlagIsNotRetried(t *testing.T) {
 			}},
 		},
 	}
-	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs"),
+		Trusted: trustPluginsDir(t, filepath.Join(dir, "plugins"))})
 	if err == nil {
 		t.Fatal("платформенная ошибка обязана остановить ран")
 	}
@@ -380,7 +382,8 @@ func TestRunPlatformErrorCodeHasSinglePrefix(t *testing.T) {
 			}},
 		},
 	}
-	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	_, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs"),
+		Trusted: trustPluginsDir(t, filepath.Join(dir, "plugins"))})
 	if err == nil {
 		t.Fatal("платформенная ошибка обязана остановить ран (on_error=skip не спасает)")
 	}
@@ -415,7 +418,8 @@ func TestRunBatchSurvivesPartialAborts(t *testing.T) {
 			}},
 		},
 	}
-	stats, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs")})
+	stats, err := Run(pf, &mapEngine{}, RunOptions{Quiet: true, RunsDir: filepath.Join(dir, "runs"),
+		Trusted: trustPluginsDir(t, filepath.Join(dir, "plugins"))})
 	if err != nil {
 		t.Fatalf("частичный abort в батче не должен валить ран: %v", err)
 	}

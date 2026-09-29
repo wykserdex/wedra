@@ -1,13 +1,11 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"wedra/internal/pipeline"
 )
 
 // Плагин, который завершился УСПЕШНО, но оставил фонового потомка.
@@ -23,7 +21,6 @@ import (
 // за ~5 с и сохраняет ответ плагина.
 func TestPluginLeavingBackgroundChildDoesNotHang(t *testing.T) {
 	requirePythonT(t)
-	dir := t.TempDir()
 	script := `import subprocess, sys
 # Потомок переживает плагин и держит унаследованный stdout. 120 с — заведомо
 # больше таймаута рана ниже, поэтому без WaitDelay тест обязан упасть.
@@ -31,12 +28,12 @@ subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
 sys.stdout.write('{"status":"ok","output":{"done":true}}')
 sys.stdout.flush()
 `
-	m := writePlugin(t, dir, script)
-	// Песочница тут не предмет теста, а на Windows untrusted и вовсе отвергается.
-	m.Sandbox = pipeline.SandboxTrusted
-
+	m, _ := writePlainPlugin(t, "sandbox-test", script)
+	// Песочница тут не предмет теста, а на Windows изолятора нет вовсе: доверие
+	// выдаём явно (allow-list по хэшу каталога), иначе тест проверял бы отказ по
+	// политике вместо поведения фонового потомка.
 	start := time.Now()
-	res := ExecWithEnvCtx(context.Background(), m, []byte("{}"), 10*time.Second, nil)
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 10*time.Second, nil)
 	elapsed := time.Since(start)
 
 	if !res.OK() {
@@ -62,7 +59,6 @@ sys.stdout.flush()
 // вакуумно — потому что утечки не было.
 func TestPluginBackgroundChildActuallySurvives(t *testing.T) {
 	requirePythonT(t)
-	dir := t.TempDir()
 	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
 	script := fmt.Sprintf(`import os, subprocess, sys
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
@@ -71,11 +67,10 @@ with open(%q, "w") as f:
 sys.stdout.write('{"status":"ok","output":{"done":true}}')
 sys.stdout.flush()
 `, pidFile)
-	m := writePlugin(t, dir, script)
-	// Песочница тут не предмет теста, а на Windows untrusted и вовсе отвергается.
-	m.Sandbox = pipeline.SandboxTrusted
-
-	res := ExecWithEnvCtx(context.Background(), m, []byte("{}"), 10*time.Second, nil)
+	m, _ := writePlainPlugin(t, "sandbox-test", script)
+	// Доверие выдаём явно: тест про поведение фонового потомка, а не про отказ
+	// по политике.
+	res := ExecWithEnvCtx(trustCtx(t, m), m, []byte("{}"), 10*time.Second, nil)
 	if !res.OK() {
 		t.Fatalf("плагин не отработал: %+v", res)
 	}
