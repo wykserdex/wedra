@@ -61,11 +61,23 @@
 | E_FORMAT_INPUT | литерал `input` не соответствует `format` | исправьте значение |
 | E_FORMAT_MISMATCH | формат источника не покрывает формат порта | `fix.candidates: совместимые steps.*` |
 | E_OPTIONAL_REQUIRED | читает из `skip`-able шага, но порт не `optional` | сделайте `optional` |
-| E_PARALLEL_SPLIT | шаги `parallel_group` не рядом | поставьте рядом |
-| E_FILE_REF_NOT_FOUND | `file_ref` файл не найден | положите рядом с плагином |
+| E_PARALLEL_SPLIT | шаг в `parallel_group` не один | разбей группу |
+| E_FILE_REF_NOT_FOUND | `file_ref` файла нет | верните путь или уберите шаг |
 | E_APPROVAL_VALUE | `approval` не human/any | `fix.candidates: [human,any]` |
 | E_GATES_VALUE | `pipeline.gates` не human_only/any | `fix.candidates` |
+| E_FOREACH_LIMIT | `foreach` разворачивает больше `MaxForeachItems` (10000) элементов | сузьте вход или разбейте шаг |
+| E_PARALLEL_LIMIT | в группе больше `MaxConcurrentBranches` (32) шагов | разбейте группу |
+| E_RETRY_LIMIT | `retry.attempts` вне 1..10 | `fix.candidates: 1..10` |
+| E_TIMEOUT_LIMIT | `timeout` вне 0..30m | `timeout: "5m"`, ноль = без предела |
+| E_GATE_ACTIONS | `form.actions` пустой или не подмножество `accept`/`reject` | `actions: [accept, reject]` |
+| E_BIND_SOURCE_INVALID | `bind` ссылается не на `input.*`/`steps.*` | `fix.candidates: input.* + steps.*` |
 | E_MANIFEST_* | битый `plugin.yaml` (`VERSION`, `PLATFORM_API`, `RUNTIME`, `ENTRY`, `INPUT_TYPE`, `FORMAT`, `OUTPUT_EMPTY`) | чините манифест |
+
+`E_MANIFEST_*` — глоб семьи, и тут важна честная оговорка: валидатор отдаёт
+эти проблемы **одним** кодом `E_PLUGIN_LOAD`, а не семью отдельными. Подкоды
+объявлены (`internal/pipeline/issue.go`), но не эмитятся, поэтому агент их не
+получит. Семью считаем зарезервированной; то, что приходит на самом деле, —
+`E_PLUGIN_LOAD`.
 
 ## Предупреждения (pre-run, не блокируют)
 
@@ -85,6 +97,9 @@
 | W_SECRETS_UNDECLARED | плагину нужен ключ — объявите в `pipeline.secrets` |
 | W_PARALLEL_SINGLE | `parallel_group` из одного шага |
 | W_FILE_REF_ROOT | `file_ref` найден от корня, но не от плагина |
+| W_PARALLEL_SINGLE | `parallel_group` у одного шага | уберите группу |
+| W_FILE_REF_ROOT | `file_ref` ведёт в корень, не в рабочую папку | сузьте путь |
+| W_FILESYSTEM_HOST_PATH | шаг или плагин заявил доступ к пути хоста, а не рабочей папки | `filesystem: workspace` и относительный путь |
 
 ## Ошибки рантайма (журнал: `step_failed` / `run_failed` → `code`)
 
@@ -113,6 +128,8 @@
 | Код | Где | Когда |
 |---|---|---|
 | E_PLUGIN_OUTSIDE_ROOT | MCP | ссылка на плагин вне `--plugins` / `--workdir` |
+| E_FILE_REF_OUTSIDE_ROOT | MCP | `file_ref` ведёт за пределы `--workdir` |
+| E_FILE_REF_UNCHECKED | MCP | `file_ref` не удалось проверить, путь не подтверждён — шаг не исполняется |
 | E_RUN_BUSY | MCP, HTTP 409 | уже идёт ран (один за раз) |
 | E_RUN_DONE | MCP `cancel_run`, HTTP 409 | отмена уже завершённого рана |
 | E_NO_HUMAN_CHANNEL | MCP `run_pipeline` | в пайплайне есть гейт, а консоли человека нет (`wedra mcp --no-gui`); отказ до старта |
