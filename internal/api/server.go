@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -360,7 +361,17 @@ func networkJSON(list []pipeline.NetworkPermission) []map[string]interface{} {
 
 func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 	dirs := []string{}
-	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community")} {
+	// agent-plugins обходится вместе с остальными. До 0.33b каталог не был
+	// виден НИ В ОДНОМ списке, хотя плагин из него резолвился по ссылке:
+	// агент мог вызвать то, что человек не видел. Хуже всего, что на хостах
+	// без изолятора такой плагин и запустить нельзя — поэтому рядом с
+	// плагином идёт причина, а не только флаг.
+	for _, base := range []string{
+		s.PluginsDir,
+		filepath.Join(s.PluginsDir, "official"),
+		filepath.Join(s.PluginsDir, "community"),
+		filepath.Join(s.PluginsDir, plugin.AgentPluginDir),
+	} {
 		if _, err := os.Stat(base); err != nil {
 			continue
 		}
@@ -386,17 +397,30 @@ func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[m.ID] = true
-		list = append(list, map[string]interface{}{
+		item := map[string]interface{}{
 			"id": m.ID, "version": m.Version, "description": m.Description, "author": m.Author,
 			"dir": d, "runtime": m.Runtime.Type, "input": m.Input, "output": m.Output,
-			// v0.5: редактор показывает, какие env-ключи просит плагин
-			// (явные нижние ключи: у struct-полей манифеста нет json-тегов)
 			"permissions": map[string]interface{}{
 				"network":    networkJSON(m.Permissions.Network),
 				"filesystem": m.Permissions.Filesystem,
 				"secrets":    m.Permissions.Secrets,
 			},
-		})
+		}
+		if plugin.IsAgentWrittenPlugin(m) {
+			item["agent_written"] = true
+			// Плагин агента — внешний код по построению. Показать его и
+			// промолчать, что запустить нельзя, значит подсунуть человеку
+			// кнопку, которая всегда откажет.
+			if !plugin.SandboxUsable() {
+				item["blocked_reason"] = fmt.Sprintf(
+					"плагин написан агентом: для внешнего кода нужен изолятор, а на %s его нет "+
+						"(запуск возможен на Linux через bwrap)", runtime.GOOS)
+			} else {
+				item["blocked_reason"] = "плагин написан агентом: запуск только в изоляторе " +
+					"и только с флагом --allow-untrusted-plugins"
+			}
+		}
+		list = append(list, item)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)

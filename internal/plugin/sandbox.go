@@ -111,6 +111,23 @@ func sandboxBackendName() string {
 	return "нет"
 }
 
+// SandboxUsable — есть ли на этой платформе рабочий изолятор.
+//
+// Наружу, потому что интерфейс должен объяснять человеку, ПОЧЕМУ плагин
+// агента не запустится, а не просто не показывать его. Ответ «плагина нет»
+// и ответ «плагин есть, но на этой ОС изолятора нет» — разные сообщения, и
+// второе полезнее.
+//
+// BackendName для сообщения: на Linux bwrap, на остальных платформах «нет».
+func SandboxUsable() bool {
+	_, ok := sandboxBackend()
+	return ok
+}
+
+// SandboxBackendName — имя изолятора или «нет», если его на этой платформе
+// не существует.
+func SandboxBackendName() string { return sandboxBackendName() }
+
 // resolveSandboxPath — путь для правил песочницы. Обязательно резолвим symlink'и:
 // на macOS $TMPDIR лежит под /var -> /private/var, а sandbox-exec матчится по
 // уже резолвнутому пути, из-за чего нерезолвнутый путь не попадает в allow-правило

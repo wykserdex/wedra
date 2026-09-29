@@ -3,13 +3,15 @@ package core
 import (
 	"os"
 	"path/filepath"
+
+	"wedra/internal/plugin"
 )
 
 // ScanPlugins — плагины из plugins/official, plugins/community и plugins
 // (v0.17: общий сканер для cmd/orchestrator и cmd/tool; CI проверяет и тот, и другой).
 func ScanPlugins() []Manifest {
 	eng := NewEngine()
-	roots := []string{"plugins", "plugins/official", "plugins/community"}
+	roots := []string{"plugins", "plugins/official", "plugins/community", "plugins/" + plugin.AgentPluginDir}
 	var out []Manifest
 	seen := map[string]bool{}
 	for _, root := range roots {

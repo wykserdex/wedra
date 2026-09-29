@@ -721,7 +721,8 @@ func (s *Server) toolListPlugins(args map[string]interface{}) (string, bool, *RP
 	seen := map[string]bool{}
 	var list []map[string]interface{}
 	for _, base := range append(append([]string{}, s.pluginsDirs...), filepath.Join(s.workDir, "plugins")) {
-		for _, sub := range []string{base, filepath.Join(base, "official"), filepath.Join(base, "community")} {
+		for _, sub := range []string{base, filepath.Join(base, "official"), filepath.Join(base, "community"),
+			filepath.Join(base, plugin.AgentPluginDir)} {
 			if err := s.multi.checkPluginDir(sub); err != nil {
 				continue
 			}
