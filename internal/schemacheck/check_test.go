@@ -1,0 +1,196 @@
+package schemacheck
+
+// Тесты проверки схем. Ключевое свойство здесь — ОТКАЗ, а не успех: валидатор
+// подмножества обязан говорить, чего он не понимает. Молчаливый пропуск
+// неизвестной конструкции сделал бы проверку хуже, чем её отсутствие: она
+// выглядела бы работающей.
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func schemaOf(t *testing.T, body string) interface{} {
+	t.Helper()
+	var v interface{}
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestValidateTypeAndRequired(t *testing.T) {
+	sch := schemaOf(t, `{"type":"object",
+		"required":["a"],
+		"properties":{"a":{"type":"string"},"n":{"type":"integer"}}}`)
+	if errs := validate(sch, map[string]interface{}{"a": "x", "n": float64(3)}, "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("должно было пройти: %v", errs)
+	}
+	if errs := validate(sch, map[string]interface{}{}, "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("без обязательного поля должно падать")
+	}
+	if errs := validate(sch, map[string]interface{}{"a": float64(1)}, "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("строка вместо числа должна падать")
+	}
+}
+
+func TestValidateAdditionalPropertiesFalse(t *testing.T) {
+	sch := schemaOf(t, `{"type":"object","additionalProperties":false,
+		"properties":{"a":{"type":"string"}}}`)
+	if errs := validate(sch, map[string]interface{}{"a": "x"}, "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("должно было пройти: %v", errs)
+	}
+	errs := validate(sch, map[string]interface{}{"a": "x", "b": 1}, "$", map[string]bool{})
+	if len(errs) == 0 {
+		t.Fatal("лишнее поле должно падать при additionalProperties:false")
+	}
+	if !strings.Contains(errs[0], `"b"`) {
+		t.Errorf("в ошибке должно называться поле: %v", errs)
+	}
+}
+
+func TestValidateOneOfRequiresExactlyOne(t *testing.T) {
+	sch := schemaOf(t, `{"oneOf":[{"type":"string"},{"type":"object"}]}`)
+	if errs := validate(sch, "s", "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("строка должна подходить ровно одной ветви: %v", errs)
+	}
+	if errs := validate(sch, map[string]interface{}{}, "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("объект должен подходить ровно одной ветви: %v", errs)
+	}
+	// Ни одной ветви: нарушителя ровно ноль — это тоже не «ровно одна».
+	if errs := validate(sch, float64(1), "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("число не подходит ни одной ветви и должно падать")
+	}
+}
+
+func TestValidateIfThen(t *testing.T) {
+	// Связка status=ok требует output. Именно так выражена схема ответа.
+	sch := schemaOf(t, `{"type":"object",
+		"properties":{"status":{"type":"string"},"output":{"type":"object"}},
+		"if":{"properties":{"status":{"const":"ok"}}},
+		"then":{"required":["output"]}}`)
+	if errs := validate(sch, map[string]interface{}{"status": "ok", "output": map[string]interface{}{}}, "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("status=ok с output должен проходить: %v", errs)
+	}
+	if errs := validate(sch, map[string]interface{}{"status": "ok"}, "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("status=ok без output должен падать по then")
+	}
+	if errs := validate(sch, map[string]interface{}{"status": "error"}, "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("then не применяется, если if не сошёлся: %v", errs)
+	}
+}
+
+func TestValidatePatternAndBounds(t *testing.T) {
+	sch := schemaOf(t, `{"type":"string","pattern":"^[a-z]+$","minLength":2,"maxLength":5}`)
+	if errs := validate(sch, "abc", "$", map[string]bool{}); len(errs) != 0 {
+		t.Fatalf("должно было пройти: %v", errs)
+	}
+	if errs := validate(sch, "a", "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("короче minLength должно падать")
+	}
+	if errs := validate(sch, "abcdefg", "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("длиннее maxLength должно падать")
+	}
+	if errs := validate(sch, "ABC", "$", map[string]bool{}); len(errs) == 0 {
+		t.Error("не под pattern должно падать")
+	}
+}
+
+// Правило, которое движок Go применить не может, должно ПОПАДАТЬ В ОТЧЕТ, а не
+// молча пропускаться. Иначе в отчёте написано «всё проверено».
+func TestUncompilablePatternIsReportedNotSkipped(t *testing.T) {
+	// Отрицательный просмотр вперёд — RE2 так не умеет, а draft-07 умеет.
+	sch := schemaOf(t, `{"type":"string","pattern":"^(?!x).+"}`)
+	seen := map[string]bool{}
+	if errs := validate(sch, "abc", "$", seen); len(errs) != 0 {
+		t.Fatalf("это не нарушение, а граница инструмента, попадать в ошибки не должно: %v", errs)
+	}
+	if len(seen) == 0 {
+		t.Fatal("непроверяемое правило обязано быть зафиксировано, иначе отчёт врёт")
+	}
+}
+
+// Ключ, которого валидатор не знает, обязан быть отвергнут. Иначе схема может
+// набирать правила, которые никто не проверяет.
+func TestUnknownConstructIsRejected(t *testing.T) {
+	sch := schemaOf(t, `{"type":"object","propertyNames":{"pattern":"^x"}}`)
+	out := map[string]bool{}
+	unsupportedConstructs(sch, "", out)
+	if len(out) != 0 {
+		t.Errorf("здесь всё поддержано, а найдено: %v", out)
+	}
+
+	sch2 := schemaOf(t, `{"type":"object","dependencies":{"a":["b"]}}`)
+	out2 := map[string]bool{}
+	unsupportedConstructs(sch2, "", out2)
+	if len(out2) == 0 {
+		t.Error("конструкция dependencies не поддержана и обязана быть названа")
+	}
+}
+
+// ИМЕНА СВОЙСТВ — НЕ КЛЮЧЕВЫЕ СЛОВА СХЕМЫ. Обход, который этого не различает,
+// объявляет каждое свойство неподдержанной конструкцией: так было в первой
+// версии, и шаг падал на 78 таких.
+func TestPropertyNamesAreNotTreatedAsKeywords(t *testing.T) {
+	sch := schemaOf(t, `{"type":"object","properties":{
+		"title":{"type":"string"},
+		"default":{"type":"string"},
+		"items":{"type":"array"},
+		"type":{"type":"string"}}}`)
+	out := map[string]bool{}
+	unsupportedConstructs(sch, "", out)
+	if len(out) != 0 {
+		t.Errorf("имена свойств не должны считаться конструкциями схемы: %v", out)
+	}
+}
+
+// Настоящий репозиторий должен сходиться.
+func TestCheckRepoOnRealRepository(t *testing.T) {
+	repo, err := findRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := CheckRepo(repo)
+	if err != nil {
+		t.Fatalf("репозиторий разошёлся со своими схемами:\n%s", out)
+	}
+	if !strings.Contains(out, "пайплайны:") || !strings.Contains(out, "манифесты:") {
+		t.Errorf("отчёт неполон — проверка, скорее всего, ничего не нашла:\n%s", out)
+	}
+}
+
+// Правило, которое не применилось, обязано быть видно в отчёте: иначе «37/37
+// соответствуют» звучит как «всё проверено», хотя одно правило не проверено.
+func TestCheckRepoMentionsUnverifiableRule(t *testing.T) {
+	repo, err := findRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := CheckRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "не компилируется движком Go") {
+		t.Errorf("правило, которое Go не берёт, должно быть названо в отчёте:\n%s", out)
+	}
+}
+
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", os.ErrNotExist
+		}
+		dir = parent
+	}
+}
