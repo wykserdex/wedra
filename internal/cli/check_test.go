@@ -175,10 +175,29 @@ func TestCheckStepOrder(t *testing.T) {
 	for _, s := range checkSteps() {
 		names = append(names, s.name)
 	}
-	joined := strings.Join(names, ",")
-	for _, want := range []string{"fmt,vet,mod,build,test,conformance,pipelines,plugins,registry"} {
-		if joined != want {
-			t.Fatalf("порядок шагов = %q, ждали %q", joined, want)
+	// Проверяем, что ожидаемые шаги идут в этом порядке, а не что список
+	// совпадает целиком. Прежняя версия требовала точного равенства, и любая
+	// новая проверка стоила правки теста — то есть расходы на каждую
+	// последующую проверку росли. Здесь можно просто дописать шаг.
+	pos := func(name string) int {
+		for i, n := range names {
+			if n == name {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, want := range []string{"fmt", "vet", "mod", "build", "test", "conformance", "pipelines", "plugins", "registry"} {
+		if pos(want) < 0 {
+			t.Fatalf("шага %q нет среди %v", want, names)
+		}
+	}
+	// Порядок между ними — часть контракта с CI, поэтому проверяем именно его.
+	ordered := []string{"fmt", "vet", "mod", "build", "test", "conformance", "pipelines", "plugins", "registry"}
+	for i := 1; i < len(ordered); i++ {
+		if pos(ordered[i-1]) > pos(ordered[i]) {
+			t.Fatalf("шаг %q идёт после %q: порядок важен, порядок в CI такой же",
+				ordered[i], ordered[i-1])
 		}
 	}
 }

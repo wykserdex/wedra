@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"wedra/internal/errdoc"
 )
 
 type checkStep struct {
@@ -69,6 +71,10 @@ func checkSteps() []checkStep {
 		{name: "mod", desc: "проверка целостности go.mod/go.sum", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return runCapture(o.repo, "go", "mod", "verify")
+			}},
+		{name: "errcodes", desc: "коды ошибок в Go ↔ protocol/v0.2/ERRORS.md", fast: true,
+			run: func(o checkOpts) (string, error) {
+				return errdoc.CheckRepo(o.repo)
 			}},
 		{name: "build", desc: "сборка всех точек входа", fast: false,
 			run: func(o checkOpts) (string, error) {
