@@ -148,16 +148,26 @@ type Manifest struct {
 	Input       map[string]Port `yaml:"input"`
 	Output      map[string]Port `yaml:"output"`
 	Permissions Permissions     `yaml:"permissions"`
-	// Sandbox — доверие к коду плагина: "" (по умолчанию) — доверенный
-	// локальный код с правами пользователя; "untrusted" — внешний код,
-	// который обязан исполняться только в изолированном окружении. Ядро
-	// fail-closed: без isolation backend запуск untrusted невозможен.
+	// Sandbox — МОЖЕТ ТОЛЬКО ПОНИЗИТЬ доверие, никогда не повысить.
+	// "untrusted" — автор считает код внешним: плагин уходит в изолятор даже
+	// если его хэш внесён в allow-list оператора. "trusted" НЕ даёт доверия
+	// вообще: доверие выдаёт ядро по хэшу содержимого каталога
+	// (internal/plugin.DecideTrust).
+	//
+	// Исторически это поле было ЕДИНСТВЕННЫМ источником доверия, и отсутствие
+	// строки означало «доверен» — то есть вредоносный плагин получал права
+	// пользователя, просто не написав строку. Поле оставлено как инструмент
+	// понижения, а решение перешло к ядру.
 	Sandbox string `yaml:"sandbox"`
 
 	Dir string `yaml:"-"`
 }
 
 // Untrusted — плагин объявил себя внешним кодом (sandbox: untrusted).
+//
+// Это НЕ признак «недоверенности» вообще, а только понижение: плагин вне
+// allow-list недоверен и при пустом поле. Итоговое решение — DecideTrust в
+// internal/plugin, и именно оно смотрит и на это поле, и на allow-list.
 func (m *Manifest) Untrusted() bool { return m != nil && m.Sandbox == SandboxUntrusted }
 
 const (

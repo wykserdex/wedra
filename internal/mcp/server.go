@@ -941,6 +941,12 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		opts := execution.RunOptions{
 			Yes: false, Quiet: true, RunsDir: s.runsDir, RunID: runID,
 			NoAutoApprove: true, MCPMode: true, Ctx: runCtx,
+			// Политика доверия обязана дойти до рана. Без неё runWithStore
+			// собирает нулевую, то есть «не доверен никто», и ЛЮБОЙ плагин
+			// падает с sandbox_unavailable — включая те, что оператор явно
+			// внёс в allow-list. То же решение о доверии, что и у exec_plugin
+			// (строка с WithTrustPolicy ниже), обязано быть и у раннера.
+			Trusted: s.trust.Trusted,
 		}
 		if s.human != nil {
 			opts.GateUI = func(*pipeline.Step) gate.GateUI {
@@ -1395,6 +1401,18 @@ func (s *Server) writeAuditRecord(record map[string]interface{}) error {
 	return nil
 }
 
+// auditUntrusted — что писать в журнал аудита как "untrusted".
+//
+// Раньше здесь стоял IsAgentWrittenPlugin(m), и это было равносильно верно:
+// внешним кодом был ровно плагин из agent-plugins/. После инверсии доверия
+// (H1) внешним стал ЛЮБОЙ плагин, которого нет в allow-list, — и запись
+// IsAgentWrittenPlugin дала бы в журнале безопасности "untrusted": false для
+// кода, который на самом деле ушёл в песочницу. Журнал, в котором враньё,
+// хуже отсутствия журнала: на него смотрят при разборе инцидента.
+func (s *Server) auditUntrusted(m *pipeline.Manifest) bool {
+	return !plugin.IsTrusted(m, s.trust)
+}
+
 // auditAgentExecIntent фиксирует НАМЕРЕНИЕ запустить плагин и возвращает id
 // запуска. Вызывается до исполнения, и её ошибка означает отказ: код не
 // запускается вовсе.
@@ -1414,7 +1432,7 @@ func (s *Server) auditAgentExecIntent(pluginRef string, m *pipeline.Manifest, ti
 		"source":    "agent_auto",
 		"plugin":    pluginRef,
 		"plugin_id": m.ID,
-		"untrusted": plugin.IsAgentWrittenPlugin(m),
+		"untrusted": s.auditUntrusted(m),
 		"timeout":   timeout,
 	})
 	if err != nil {
@@ -1433,7 +1451,7 @@ func (s *Server) auditAgentExecResult(execID, pluginRef string, m *pipeline.Mani
 		"source":    "agent_auto",
 		"plugin":    pluginRef,
 		"plugin_id": m.ID,
-		"untrusted": plugin.IsAgentWrittenPlugin(m),
+		"untrusted": s.auditUntrusted(m),
 		"exit_code": res.ExitCode,
 		"err_code":  res.ErrCode,
 		"duration":  took.String(),

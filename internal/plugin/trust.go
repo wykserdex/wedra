@@ -28,6 +28,15 @@ type TrustPolicy struct {
 	// уходит в изолятор; если изолятора на хосте нет, запуск падает
 	// (fail-closed), а не выполняется без песочницы.
 	AllowUntrusted bool
+	// Trusted — allow-list доверенных плагинов оператора (id → хэши
+	// содержимого). Это единственный источник доверия: поле `sandbox` в
+	// манифесте может только ПОНИЗИТЬ его, никогда не повысить.
+	//
+	// nil означает «allow-list не задан» и равносилен пустому: доверенных
+	// плагинов нет. Подставлять BuiltinAllowList() по умолчанию нельзя —
+	// иначе пустой ctx (Exec без политики) выглядел бы доверенным, и ошибка
+	// «allow-list не передан» маскировалась бы зелёным.
+	Trusted *AllowList
 	// AgentCanExec — агент может самостоятельно запускать плагины через
 	// exec_plugin (MCP). По умолчанию false: без явного --allow-agent-exec
 	// инструмент отказывает, ничего не запуская. Каждый запуск пишется в
@@ -109,14 +118,77 @@ func AllowUntrustedPlugins(ctx context.Context) context.Context {
 	return WithTrustPolicy(ctx, TrustPolicy{AllowUntrusted: true})
 }
 
+// TrustDecision — вердикт ядра по конкретному плагину.
+type TrustDecision struct {
+	// Trusted — плагину выданы права пользователя (полный exec без песочницы).
+	Trusted bool
+	// Digest — фактический хэш содержимого каталога плагина; пуст, если
+	// содержимое прочитать не удалось. Попадает в диагностику, чтобы оператор
+	// видел, ЧТО именно он должен внести в allow-list.
+	Digest string
+	// Reason — человекочитаемое объяснение для untrusted. Оно же уходит в
+	// сообщение об отказе, поэтому обязано называть причину, а не состоять из
+	// общих слов: «не доверен» без причины неотличимо от «сломалось».
+	Reason string
+}
+
+// DecideTrust — единственное место, где решается доверие к коду плагина.
+//
+// Правило одно и оно инверсивное: ДОВЕРЕНО только тогда, когда id и хэш
+// содержимого есть в allow-list оператора. Манифест может только понизить
+// доверие:
+//
+//   - `sandbox: untrusted` в манифесте — всегда untrusted, даже при совпавшем
+//     хэше. Автор может знать, что его код опаснее обычного (или репозиторий
+//     обновился, а автор забыл), и это нельзя перебить ничем извне;
+//   - `sandbox: trusted` в манифесте НЕ даёт доверия вообще: раньше это было
+//     единственным источником, и именно поэтому отсутствие строки означало
+//     «доверен».
+//
+// Порядок проверок соответствует направлению ошибки: сомнение всегда даёт
+// untrusted. В частности, каталог, который не удалось прочитать, — это
+// untrusted, а не «доверимся, не разобрались».
+func DecideTrust(m *pipeline.Manifest, policy TrustPolicy) TrustDecision {
+	if m == nil {
+		return TrustDecision{Reason: "манифест не загружен"}
+	}
+	// Написанное агентом — внешний код по построению. Это НЕ понижение
+	// доверия, а отдельное правило: агент создаёт плагины сам, и доверять
+	// результату по его же подписи нельзя в принципе.
+	if IsAgentWrittenPlugin(m) {
+		return TrustDecision{Reason: "плагин написан агентом (" + AgentPluginDir + "/): внешний код по построению"}
+	}
+	// Манифест вправе только понизить доверие.
+	if m.Sandbox == pipeline.SandboxUntrusted {
+		return TrustDecision{Reason: "манифест объявил себя внешним кодом (sandbox: untrusted)"}
+	}
+	digest, err := ContentDigest(m.Dir)
+	if err != nil {
+		return TrustDecision{Reason: "содержимое плагина не проверяется: " + err.Error()}
+	}
+	if policy.Trusted.Allows(m.ID, digest) {
+		return TrustDecision{Trusted: true, Digest: digest}
+	}
+	return TrustDecision{
+		Digest: digest,
+		Reason: "плагин " + m.ID + " не в allow-list доверия ядра (ожидалась запись " +
+			m.ID + "@" + digest + ")",
+	}
+}
+
+// IsTrusted — короткая форма DecideTrust для мест, где нужно только «да/нет».
+func IsTrusted(m *pipeline.Manifest, policy TrustPolicy) bool {
+	return DecideTrust(m, policy).Trusted
+}
+
 // untrustedCodeError — описание отказа, возвращаемое как платформенная ошибка
 // протокола (ErrCode "sandbox_unavailable"): ран падает, ничего не запускается.
 func untrustedCodeError(m *pipeline.Manifest, reason string) *ExecResult {
 	return &ExecResult{
 		Platform: true,
 		ErrCode:  "sandbox_unavailable",
-		ErrMsg: "плагин " + m.ID + " помечен как внешний код (sandbox: untrusted), " +
-			"но изоляция недоступна: " + reason + " — запуск невозможен",
+		ErrMsg: "плагин " + m.ID + " — внешний код (" + reason + "), " +
+			"но изоляция недоступна: согласие оператора не получено — запуск невозможен",
 		ExitCode: 2,
 	}
 }
@@ -128,12 +200,13 @@ func enforceTrust(m *pipeline.Manifest, policy TrustPolicy) *ExecResult {
 	if m == nil {
 		return nil
 	}
+	decision := DecideTrust(m, policy)
 	switch {
 	case policy.DenyUntrusted:
 		return untrustedCodeError(m, "ядро запущено с --deny-untrusted-plugins")
-	case m.Untrusted() && !policy.AllowUntrusted:
-		return untrustedCodeError(m,
-			"нет согласия на запуск внешнего кода (нужен флаг --allow-untrusted-plugins)")
+	case !decision.Trusted && !policy.AllowUntrusted:
+		return untrustedCodeError(m, decision.Reason+
+			"; нет согласия на запуск внешнего кода (нужен флаг --allow-untrusted-plugins)")
 	}
 	return nil
 }

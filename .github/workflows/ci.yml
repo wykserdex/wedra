@@ -42,6 +42,12 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends bubblewrap
           bwrap --version
+      # Встроенный allow-list (internal/plugin/trustseed_gen.go) засеян из
+      # пинов registry.yaml. Если пин сдвинули, а seed не перегенерировали,
+      # доверенным окажется не тот байт-в-байт код, который уедет пользователю,
+      # и официальные плагины молча перестанут работать на хостах без изолятора.
+      - name: trust seed matches registry pins
+        run: go run ./internal/plugin/cmd/genseed -check
       - name: sandbox isolation (verbose)
         run: go test ./internal/plugin/ -count=1 -v -run 'Sandbox|Untrusted|Trust'
       # На GitHub Linux-раннерах user namespaces запрещены, поэтому bwrap всегда

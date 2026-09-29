@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"wedra/internal/plugin"
 )
 
 func TestPruneRunsKeepsBoundedCompletedState(t *testing.T) {
@@ -97,7 +99,14 @@ func testServer(t *testing.T) *Server {
 	writeFakePlugin(t, plugins, "echoer",
 		map[string]interface{}{"text": map[string]interface{}{"type": "string", "from": "input.text"}},
 		map[string]interface{}{"done": map[string]interface{}{"type": "boolean"}})
-	srv, err := NewServer(Options{PluginsDirs: []string{plugins}, WorkDir: work})
+	// Фикстурный плагин доверен явно (по хэшу содержимого): после инверсии
+	// доверия (H1) он иначе внешний код, и на хостах без изолятора не запустился
+	// бы вовсе — а тесты этого сервера проверяют прочее.
+	srv, err := NewServer(Options{
+		PluginsDirs: []string{plugins},
+		WorkDir:     work,
+		Trust:       plugin.TrustPolicy{Trusted: trustDirsIn(t, plugins)},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,6 +444,10 @@ func TestMCPCancelRun(t *testing.T) {
 	os.WriteFile(sleeperSrc+"/plugin.yaml", raw, 0644)
 	py := "import sys,json,time\njson.load(sys.stdin)\ntime.sleep(30)\njson.dump({'status':'ok','output':{'done':True}},sys.stdout)\n"
 	os.WriteFile(sleeperSrc+"/main.py", []byte(py), 0644)
+	// sleeper добавлен ПОСЛЕ сборки сервера, поэтому доверие пересчитываем:
+	// иначе плагин остался бы внешним кодом и ран упал бы мгновенно, а
+	// отменять было бы нечего.
+	srv.trust.Trusted = trustDirsIn(t, srv.pluginsDirs[0])
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: sleep_demo\n  input: {}\n  steps:\n    - id: sleep\n      plugin: " + sleeperSrc + "\n      timeout: 30s\n"
 	res, _, rpcErr := srv.callTool("run_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil {
