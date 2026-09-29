@@ -53,9 +53,11 @@ cd wedra
 ```
 
 Требования: Python 3.9+ в `PATH` — только для Python-плагинов (встроенным и
-`wedra demo` он не нужен). Go 1.22+ нужен только для сборки из исходников. Для
-untrusted-плагинов на Linux нужен `bwrap`, а для их сетевого доступа — ещё и
-`slirp4netns`, иначе ран будет отклонён, а не запущен без изоляции.
+`wedra demo` он не нужен). Go 1.26+ нужен только для сборки из исходников: это
+директива `go` в `go.mod`, и CI собирает джоб `go-floor` ровно на ней, так что
+заявленный минимум всегда проверяется сборкой. Для untrusted-плагинов на Linux
+нужен `bwrap`, а для их сетевого доступа — ещё и `slirp4netns`, иначе ран будет
+отклонён, а не запущен без изоляции.
 
 ## Минимальный pipeline
 
@@ -101,7 +103,7 @@ pipeline:
 | Повторы | `retry` и доказуемый `resume` прерванного рана |
 | Проверки | `validate`/`lint` с кодами ошибок и machine-readable `--json` |
 | Плагины | отдельный процесс, JSON по stdin/stdout, `plugin create/test/install` |
-| Агенты (MCP) | 7 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run` |
+| Агенты (MCP) | 8 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` (выключен по умолчанию) |
 | Контроль | GUI локально, HTTP API, журнал `journal.jsonl`, снапшоты контекста |
 
 Примеры под разные вкусы: `examples/text_stats.yaml` (старт),
@@ -289,7 +291,7 @@ var/runs/             runtime output; ignored by git
 Стабильные сборки — в [GitHub Releases](https://github.com/wykserdex/wedra/releases):
 `wedra-{linux,darwin,windows}-{amd64,arm64}`, legacy `tool-*`, `wedragui-windows-*.exe`,
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
-Тег релиза совпадает с [`VERSION`](VERSION) — сейчас `0.32c`;
+Тег релиза совпадает с [`VERSION`](VERSION) — сейчас `0.33a`;
 protocol version — [`protocol/VERSION`](protocol/VERSION) (`0.2`), версии независимы.
 
 ## Документация

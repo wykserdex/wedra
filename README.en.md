@@ -8,7 +8,7 @@ point for gated actions.
 
 ## Current contract
 
-- Product version: `0.32c` from [`VERSION`](VERSION)
+- Product version: `0.33a` from [`VERSION`](VERSION)
 - Pipeline/plugin protocol: `0.2` from [`protocol/VERSION`](protocol/VERSION)
 - Primary CLI: `wedra`
 - Compatibility CLI: `tool` (legacy surface; do not add new behavior there)
@@ -26,6 +26,10 @@ go build -o wedra ./cmd/wedra
 ./wedra pipeline run examples/gate_demo.yaml
 ./wedra runs list
 ```
+
+Building from source needs Go 1.26 or newer. That floor is the `go` directive in
+`go.mod`, and the `go-floor` CI job builds on exactly it, so the documented
+minimum is always the tested one.
 
 The primary CLI supports pipeline validation and execution, plugin registry
 operations, resume, the local GUI, and an MCP stdio adapter. Plugin manifests

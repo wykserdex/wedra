@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -145,8 +144,7 @@ func Load(source string) (*Handle, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("git", "clone", "--depth", "1", "--quiet", "--", ref, tmp)
-	out, err := common.CombinedOutput(cmd)
+	out, err := runGit("clone", "--depth", "1", "--quiet", "--", ref, tmp)
 	if err != nil {
 		os.RemoveAll(tmp)
 		return nil, fmt.Errorf("клон реестра %s: %s: %s", source, err, string(out))

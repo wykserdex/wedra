@@ -116,7 +116,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			key := strings.TrimPrefix(p.Foreach, "input.")
 			val, ok := p.Input[key]
 			if !ok {
-				v.err(E_FOREACH_NOT_FOUND, "", "", "pipeline.foreach", fmt.Sprintf("доступные поля: %s", strings.Join(inputFieldList(pf), ", ")), &Fix{Op: "bind", Target: "pipeline.foreach", Candidates: inputFieldList(pf)}, "foreach: массив "+p.Foreach+" не найден в input")
+				v.err(E_FOREACH_NOT_FOUND, "", "", "pipeline.foreach", fmt.Sprintf("доступные поля: %s", strings.Join(inputFieldList(pf), ", ")), &Fix{Op: "bind", Target: "pipeline.foreach", Candidates: inputFieldList(pf)}, "foreach: массив %s не найден в input", p.Foreach)
 			} else if arr, isArr := val.([]interface{}); isArr && len(arr) > MaxForeachItems {
 				v.err(E_FOREACH_LIMIT, "", "", "pipeline.input."+key, "слишком много элементов", nil, "pipeline foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems)
 			} else if p.ItemType != "" || p.ItemFormat != "" {
@@ -169,7 +169,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 			continue
 		}
 		if seen[st.ID] {
-			v.err(E_STEP_ID_DUP, st.ID, "", "pipeline.steps."+st.ID, "id шагов должны быть уникальны", nil, "шаг "+st.ID+": дублирующийся id")
+			v.err(E_STEP_ID_DUP, st.ID, "", "pipeline.steps."+st.ID, "id шагов должны быть уникальны", nil, "шаг %s: дублирующийся id", st.ID)
 		}
 		seen[st.ID] = true
 		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
@@ -224,7 +224,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		switch st.OnError {
 		case "", "stop", "skip", "retry":
 		default:
-			v.err(E_ON_ERROR, st.ID, "", "pipeline.steps."+st.ID+".on_error", "допускаются: stop, skip, retry", &Fix{Op: "set", Target: "steps." + st.ID + ".on_error", Candidates: []string{"stop", "skip", "retry"}}, "шаг "+st.ID+": on_error="+st.OnError+", ожидается stop|skip|retry")
+			v.err(E_ON_ERROR, st.ID, "", "pipeline.steps."+st.ID+".on_error", "допустимы: stop, skip, retry", &Fix{Op: "set", Target: "steps." + st.ID + ".on_error", Candidates: []string{"stop", "skip", "retry"}}, "шаг %s: on_error=%s, ожидается stop|skip|retry", st.ID, st.OnError)
 		}
 		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
 			v.err(E_RETRY_ATTEMPTS, st.ID, "", "pipeline.steps."+st.ID+".retry.attempts", "attempts должен быть >= 1", nil, "шаг %s: retry.attempts < 1", st.ID)
@@ -240,7 +240,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		}
 		if IsBuiltin(st.Plugin) {
 			if len(st.Bind) > 0 {
-				v.err(E_GATE_BIND, st.ID, "", "pipeline.steps."+st.ID+".bind", "у human_gate данные берутся из form, не из bind", nil, "шаг "+st.ID+": human_gate не принимает bind")
+				v.err(E_GATE_BIND, st.ID, "", "pipeline.steps."+st.ID+".bind", "у human_gate данные берутся из form, не из bind", nil, "шаг %s: human_gate не принимает bind", st.ID)
 			}
 			switch st.OnReject {
 			case "", "stop", "continue":
@@ -275,7 +275,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 		}
 		m, err := eng.LoadManifest(st.Plugin)
 		if err != nil {
-			v.err(E_PLUGIN_LOAD, st.ID, "", "pipeline.steps."+st.ID+".plugin", "проверьте путь к плагину и plugin.yaml", nil, "шаг "+st.ID+": "+err.Error())
+			v.err(E_PLUGIN_LOAD, st.ID, "", "pipeline.steps."+st.ID+".plugin", "проверьте путь к плагину и plugin.yaml", nil, "шаг %s: %s", st.ID, err.Error())
 			continue
 		}
 		for b := range st.Bind {
