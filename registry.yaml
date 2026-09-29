@@ -42,19 +42,19 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_openai
     version: v0.32
-    commit: 442c4b0ce8eb66a7429763f461fbaef8abfde588
+    commit: 32cee797b7bb97acb403362a6436777ccac6eca3
     description: OpenAI-вызов (ключ из env)
   llm_anthropic:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_anthropic
     version: v0.32c
-    commit: 6478d51fb08eb224633e396e3e8099ad5476c782
+    commit: 32cee797b7bb97acb403362a6436777ccac6eca3
     description: Anthropic-вызов (ключ из env)
   llm_gemini:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/llm_gemini
     version: v0.32c
-    commit: 6478d51fb08eb224633e396e3e8099ad5476c782
+    commit: 32cee797b7bb97acb403362a6436777ccac6eca3
     description: Gemini-вызов (ключ из env)
   # community
   csv_loader:
