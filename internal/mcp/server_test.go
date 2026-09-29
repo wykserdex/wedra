@@ -41,14 +41,22 @@ func writeFakePlugin(t *testing.T, dir, id string, input, output map[string]inte
 		"runtime": map[string]interface{}{"type": "python", "entry": "main.py"},
 		"input":   input, "output": output,
 		"permissions": map[string]interface{}{
-			// Сеть не заявлена: фикстура проверяет механики MCP (запуск,
+			// Права не объявлены НИКАКИЕ — по двум причинам, и обе важны.
+			//
+			// Первая (сеть): фикстура проверяет механики MCP (запуск,
 			// разрешение путей, границы wait, file_ref), а не сетевую политику.
 			// У MCP собственная проверка жёстче рантаймной (checkPipelineSafety
 			// отказывает любой сетевой декларации), поэтому плагин с сетью здесь
 			// ломал бы тест не по своему предмету. Сетевые кейсы — через
 			// writePolicyPlugin.
+			//
+			// Вторая (диск/секреты): run_pipeline требует human_gate перед
+			// первым шагом с такими правами, и объявление их здесь ломало бы
+			// тесты, предмет которых — запуск без гейта. Плагин читает stdin и
+			// пишет stdout, то есть прав не заявляет; объявлять неиспользуемое
+			// было бы враньём манифеста, на которое смотрят другие проверки.
 			"network":    []map[string]interface{}{},
-			"filesystem": "workspace", "secrets": []string{"DEMO_TOKEN"},
+			"filesystem": "none", "secrets": []string{},
 		},
 	}
 	raw, _ := json.Marshal(manifest)

@@ -68,6 +68,11 @@ func assertPolicyRefusal(t *testing.T, srv *Server, yamlStr, wantCode, wantPolic
 	if _, _, runErr := srv.callTool("run_pipeline",
 		map[string]interface{}{"yaml": yamlStr, "wait_seconds": 1}); runErr == nil {
 		t.Fatal("run_pipeline выполнил запрещённый пайплайн — fail-closed нарушен")
+	} else if got := rpcCodeOf(runErr); got != wantPolicyPrefix {
+		// Проверяем ИМЕННО код отказа политики, а не «какой-нибудь отказ».
+		// Иначе тест проходит и когда пайплайн отклонён по другой причине
+		// (например, из-за отсутствия гейта) — и перестаёт проверять своё.
+		t.Fatalf("run_pipeline отказал по коду %q, а проверяли %q (%s)", got, wantPolicyPrefix, runErr.Message)
 	}
 }
 

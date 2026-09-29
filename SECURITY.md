@@ -239,6 +239,36 @@ reading is a poor trade.
 This still does not address exfiltration through a file in the scratch
 directory, through stdout, or through a DNS tunnel carried inside request names.
 
+### The agent cannot simply omit the gate (MCP `run_pipeline`)
+
+MCP is the only surface where the agent can initiate a run, so it is the only one
+that enforces approval ordering. `run_pipeline` refuses, before any run exists,
+when the **first** step whose plugin declares network, disk-write or secret
+capabilities has no `core/human_gate` before it: `E_GATE_REQUIRED`, with the step
+and plugin in the error payload. A gate placed *after* the dangerous step does not
+count - the person would see the result, not the intent. Steps with no such
+declarations run ungated, so ordinary local work (word counts, CSV parsing) is
+not blocked by this rule.
+
+What this control is and is not:
+
+- It reads **declarations**. `permissions` are not an OS sandbox, so a plugin that
+  lies in its manifest (`filesystem: none` while writing anyway) is not caught
+  here. That is what `sandbox: untrusted` plus the OS isolator is for.
+- It does not evaluate `when` or `foreach`. A step guarded by a false condition
+  may never execute, but that is not knowable statically, so it counts as
+  executing. An unneeded gate is the safe direction.
+- It covers `run_pipeline` only. `exec_plugin` bypasses pipelines and gates by
+  design, behind `--allow-agent-exec`, and that gap is known rather than closed
+  (see `docs/mcp.md`). The HTTP API and the CLI start runs from a human surface
+  and do not apply the rule.
+
+The operator can turn the requirement off with `wedra mcp
+--allow-unapproved-runs` for local trusted use. The bypass is not silent: the
+server prints a warning to stderr at startup and appends a record per bypassed
+run to `<runs-dir>/gate-bypass.jsonl`, flushed to disk before the run starts. If
+the record cannot be written, the run is refused.
+
 ### Fixed: an unset `network` field is now "deny"
 
 `network: deny` has always been the documented default, but the gate only ran
