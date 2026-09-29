@@ -227,6 +227,21 @@
               "parallel_group": {
                 "type": "string",
                 "description": "шаги с одинаковым именем группы выполняются параллельно, барьер — до следующего шага"
+              },
+              "loop": {
+                "type": "string",
+                "description": "пока loop_condition истинно, повторять группу шагов loop_steps; пусто — цикла нет. Источник loop_condition — путь в контексте (например steps.parser.found). Жёсткий предел MaxLoopIterations=100, суммарный бюджет MaxTotalLoopBudget=1000 (internal/pipeline/model.go)"
+              },
+              "loop_condition": {
+                "type": "string",
+                "pattern": "^(input|steps)\\.",
+                "description": "путь к значению, которое читается как «продолжать ли цикл»"
+              },
+              "max_iterations": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "потолок повторов в пределах MaxLoopIterations=100"
               }
             }
           }
