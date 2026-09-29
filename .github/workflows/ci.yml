@@ -266,6 +266,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Полная история нужна проверке доверия: TestGeneratedSeedMatchesRegistryPins
+          # разворачивает запиненные коммиты через git archive, и в мелком клоне
+          # их нет («not a tree object»). Ослаблять проверку скипом нельзя: тогда
+          # она начнёт молча ничего не проверять.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
@@ -291,6 +297,12 @@ jobs:
     timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Полная история нужна проверке доверия: TestGeneratedSeedMatchesRegistryPins
+          # разворачивает запиненные коммиты через git archive, и в мелком клоне
+          # их нет («not a tree object»). Ослаблять проверку скипом нельзя: тогда
+          # она начнёт молча ничего не проверять.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
@@ -332,6 +344,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Полная история нужна проверке доверия: TestGeneratedSeedMatchesRegistryPins
+          # разворачивает запиненные коммиты через git archive, и в мелком клоне
+          # их нет («not a tree object»). Ослаблять проверку скипом нельзя: тогда
+          # она начнёт молча ничего не проверять.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
@@ -351,6 +369,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Полная история нужна проверке доверия: TestGeneratedSeedMatchesRegistryPins
+          # разворачивает запиненные коммиты через git archive, и в мелком клоне
+          # их нет («not a tree object»). Ослаблять проверку скипом нельзя: тогда
+          # она начнёт молча ничего не проверять.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
