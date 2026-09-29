@@ -73,7 +73,8 @@ func repoUnderTest(t *testing.T) string {
 	dst := t.TempDir()
 	for _, rel := range []string{
 		"VERSION", "go.mod", "README.md", "README.en.md", "CONTRIBUTING.md",
-		"docs/versioning.md", "docs/architecture.md", "internal/mcp/server.go",
+		"docs/versioning.md", "docs/architecture.md",
+		"internal/mcp/server.go", "internal/mcp/schemas.go",
 	} {
 		body, readErr := os.ReadFile(filepath.Join(src, filepath.FromSlash(rel)))
 		if readErr != nil {
