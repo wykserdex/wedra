@@ -48,8 +48,10 @@ func toolDefs() []Tool {
 			}),
 		},
 		{
-			Name:        "run_pipeline",
-			Description: "Запуск пайплайна: сначала validate, затем {run_id, status}. Решения гейтов через MCP невозможны — статус waiting_human означает «попросите пользователя одобрить в окне wedra»",
+			Name: "run_pipeline",
+			Description: "Запуск пайплайна: сначала validate, затем {run_id, status}. " +
+				"Первый шаг с capabilities «сеть/запись на диск/чтение секретов» обязан идти после core/human_gate, иначе E_GATE_REQUIRED. " +
+				"Решения гейтов через MCP невозможны — статус waiting_human означает «попросите пользователя одобрить в окне wedra»",
 			InputSchema: obj(map[string]interface{}{
 				"yaml":         str("YAML пайплайна (или path)"),
 				"path":         str("путь к YAML в workdir"),
