@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"wedra/internal/api"
 	"wedra/internal/gate"
@@ -24,8 +25,8 @@ import (
 //
 // Гейты: MCP-процесс поднимает на 127.0.0.1 встроенную консоль с сессией
 // человека. Когда ран агента доходит до human_gate, браузер человека
-// открывается на этом ране (ссылка с ключом); агент получает только адрес
-// без ключа. Решение принимает человек в браузере → source: gui.
+// открывается на этом ране (одноразовый код обмена); агент получает только
+// адрес без кода. Решение принимает человек в браузере → source: gui.
 func RunMCP(args []string) {
 	var plugins []string
 	workdir, runsdir := "", ""
@@ -125,11 +126,12 @@ func RunMCP(args []string) {
 
 // humanConsole — mcp.HumanChannel поверх встроенного api.Server.
 type humanConsole struct {
-	srv    *api.Server
-	base   string // http://127.0.0.1:PORT (без ключа)
-	secret string
-	open   bool
-	print  bool
+	srv   *api.Server
+	base  string // http://127.0.0.1:PORT (без кода)
+	code  string // текущий одноразовый код обмена
+	open  bool
+	print bool
+	mu    sync.Mutex
 }
 
 func startHumanConsole(listen string, plugins []string, workdir, runsDir string, open, printLink bool) (*humanConsole, error) {
@@ -143,20 +145,30 @@ func startHumanConsole(listen string, plugins []string, workdir, runsDir string,
 	if !filepath.IsAbs(runsDir) {
 		runsDir = filepath.Join(workdir, runsDir)
 	}
+	// Тот же запрет, что у `wedra gui`: консоль гейтов на внешнем адресе —
+	// это чужой доступ к решениям человека, и по умолчанию он не включается.
+	if err := api.ValidateListen(api.ListenOptions{Addr: listen}); err != nil {
+		return nil, err
+	}
 	srv := api.NewServer(pluginsDir, filepath.Join(workdir, "examples"), runsDir)
-	secret, err := api.NewSessionSecret()
+	code, err := api.NewPairingCode()
 	if err != nil {
 		return nil, err
 	}
-	srv.EnableSession(secret)
+	srv.EnableSession(code)
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
 	}
+	if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+		if err := srv.ConfigureListen(api.ListenOptions{Addr: listen, ResolvedPort: port}); err != nil {
+			return nil, err
+		}
+	}
 	go func() { _ = srv.HTTPServer(ln.Addr().String()).Serve(ln) }()
 	base := "http://" + ln.Addr().String()
-	fmt.Fprintf(os.Stderr, "wedra mcp: консоль гейтов %s (ключ сессии — только в браузере человека)\n", base)
-	return &humanConsole{srv: srv, base: base, secret: secret, open: open, print: printLink}, nil
+	fmt.Fprintf(os.Stderr, "wedra mcp: консоль гейтов %s (вход — по одноразовому коду, только в браузер человека)\n", base)
+	return &humanConsole{srv: srv, base: base, code: code, open: open, print: printLink}, nil
 }
 
 func (h *humanConsole) AttachRun(id string, ui *gate.ChannelUI, cancel context.CancelFunc) {
@@ -167,10 +179,22 @@ func (h *humanConsole) DetachRun(id string) { h.srv.DetachRun(id) }
 
 func (h *humanConsole) PublicURL(id string) string { return h.base + "/?run=" + id }
 
+// GateWaiting — открыть браузер человека на этом ране. Код одноразовый, поэтому
+// на каждое ожидание гейта выдаётся свежий: иначе второй гейт (или вторая
+// вкладка) остался бы без входа. Агент через PublicURL кода не получает.
 func (h *humanConsole) GateWaiting(id string) {
-	link := h.base + "/?run=" + id + "&k=" + h.secret
+	h.mu.Lock()
+	if fresh, err := api.NewPairingCode(); err == nil {
+		h.code = fresh
+		h.srv.RotatePairingCode(fresh)
+	}
+	code := h.code
+	link := h.base + "/?run=" + id + "&c=" + code
+	h.mu.Unlock()
+
 	if h.print {
-		fmt.Fprintln(os.Stderr, "wedra mcp: гейт ждёт человека:", link)
+		fmt.Fprintln(os.Stderr, "wedra mcp: гейт ждёт человека. Откройте в браузере:", link)
+		fmt.Fprintln(os.Stderr, "            или введите код на странице GUI:", code)
 	}
 	if !h.open {
 		if !h.print {

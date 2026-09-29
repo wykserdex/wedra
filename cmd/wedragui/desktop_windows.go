@@ -31,9 +31,9 @@ func desktop(url string, debug bool, logf func(string, ...interface{})) {
 		},
 	})
 	if wv == nil {
-		// в лог-файл — без ключа сессии; ссылка с ключом — только в консоль и браузер
+		// в лог-файл — без кода входа; ссылка с кодом — только в консоль и браузер
 		logf("WebView2 не запустился (нет рантайма?) — открываю системный браузер (%s)", strings.SplitN(url, "?", 2)[0])
-		fmt.Println("  ссылка с ключом сессии (только для вас):", url)
+		fmt.Println("  ссылка с кодом входа (только для вас):", url)
 		logf("рантайм: https://developer.microsoft.com/microsoft-edge/webview2/")
 		openBrowser(url)
 		waitSignal()
