@@ -60,5 +60,6 @@ func RunApprove(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("код принят. Отправьте решение человеком через GUI (%s) или API с сессией:\n", server)
-	fmt.Printf("  POST %s/api/runs/%s/gate  {\"action\":\"accept\"}  (cookie сессии из терминала wedra gui)\n", server, runID)
+	fmt.Printf("  POST %s/api/runs/%s/gate  {\"action\":\"accept\"}\n", server, runID)
+	fmt.Println("  cookie сессии: откройте адрес GUI и введите одноразовый код из терминала wedra")
 }

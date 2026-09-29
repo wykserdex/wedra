@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -65,9 +64,22 @@ type Server struct {
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc
 
-	// v0.9: секрет сессии человека (EnableSession). Пусто — сессия не
-	// требуется (тесты, встраивание). Только в памяти и в cookie.
-	SessionSecret string
+	// v0.9: одноразовый код обмена (EnableSession) и живые сессии. Пустой
+	// PairingCode — сессия не требуется (--no-session, встраивание, тесты).
+	// Только в памяти процесса; в cookie — токен с TTL, не секрет.
+	PairingCode string
+
+	// H4: чем сервер объявляет себя наружу (allow-list Host, внешняя схема,
+	// доверие к прокси, имя cookie и TTL сессии). Наполняется ConfigureListen;
+	// пустая политика = loopback на любом порту, http, без прокси.
+	policy ListenPolicy
+
+	sessionMu           sync.Mutex
+	sessions            map[string]sessionEntry
+	pairingUsed         bool
+	pairingExpires      time.Time
+	pairingFailures     int
+	pairingBlockedUntil time.Time
 
 	summaryMu    sync.Mutex
 	summaryCache map[string]summaryCacheEntry
@@ -84,7 +96,7 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 	// v0.9: один резолв плагинов для validate/plan/list и run (раньше
 	// validate жил с дефолтным "plugins", а run — с PluginsDir)
 	eng.PluginsDir = pluginsDir
-	return &Server{
+	srv := &Server{
 		PluginsDir:   pluginsDir,
 		PipelinesDir: pipelinesDir,
 		RunsDir:      runsDir,
@@ -97,7 +109,35 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 		gates:        map[string]*gate.ChannelUI{},
 		cancels:      map[string]context.CancelFunc{},
 		summaryCache: map[string]summaryCacheEntry{},
+		sessions:     map[string]sessionEntry{},
 	}
+	// Политика по умолчанию: loopback на любом порту, http, без прокси. Порт
+	// неизвестен до Listen, поэтому cookie без суффикса и cookieName() допишет
+	// порт, как только вызовут ConfigureListen (все три точки входа — вызывают).
+	policy, err := NewListenPolicy(ListenOptions{Addr: "127.0.0.1:0"})
+	if err != nil {
+		panic("api: политика прослушивания по умолчанию не собралась: " + err.Error())
+	}
+	srv.policy = policy
+	return srv
+}
+
+// ConfigureListen — объявить, как сервер виден снаружи. Обязателен для любого
+// входа, который поднимает HTTP: без него имя cookie не знает порт, а
+// allow-list остаётся «loopback на любом порту».
+//
+// Вызывать ПОСЛЕ net.Listen (адрес с портом 0 становится конкретным только там)
+// и ДО первого обслуженного запроса: политика читается обработчиками без
+// синхронизации. ListenOptions проходит ту же проверку, что и CLI
+// (ValidateListen), поэтому не-loopback адрес без --allow-remote отвергается и
+// здесь.
+func (s *Server) ConfigureListen(opts ListenOptions) error {
+	policy, err := NewListenPolicy(opts)
+	if err != nil {
+		return err
+	}
+	s.policy = policy
+	return nil
 }
 
 func (s *Server) HTTPServer(addr string) *http.Server {
@@ -204,69 +244,17 @@ func (s *Server) gateFor(id string) *gate.ChannelUI {
 	return s.gates[id]
 }
 
-func csrfRequestHost(r *http.Request) string {
-	host := strings.TrimSpace(r.Host)
-	if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
-		host = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-	}
-	return host
-}
-
-func csrfURLMatchesScheme(rawURL, expectedHost, expectedScheme string) bool {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || u == nil {
-		return false
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if (scheme != "http" && scheme != "https") || u.Host == "" || u.User != nil {
-		return false
-	}
-	if expectedScheme != "" && scheme != strings.ToLower(expectedScheme) {
-		return false
-	}
-	h, err := url.Parse("//" + strings.TrimSpace(expectedHost))
-	if err != nil || h.Host == "" || h.User != nil || strings.ContainsAny(expectedHost, "/?#@ \t\r\n") {
-		return false
-	}
-	port := u.Port()
-	if port == "" {
-		if scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-	expectedPort := h.Port()
-	if expectedPort == "" {
-		if scheme == "https" {
-			expectedPort = "443"
-		} else {
-			expectedPort = "80"
-		}
-	}
-	return strings.EqualFold(u.Hostname(), h.Hostname()) && port == expectedPort
-}
-
-func csrfExpectedScheme(r *http.Request) string {
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded != "" {
-		return strings.ToLower(forwarded)
-	}
-	if r.Header.Get("X-Forwarded-Host") != "" {
-		return ""
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-	if r.URL != nil && (r.URL.Scheme == "http" || r.URL.Scheme == "https") {
-		return strings.ToLower(r.URL.Scheme)
-	}
-	return "http"
-}
-
-// csrfGuard — v0.28a: защита POST/PUT/PATCH/DELETE от cross-site форм (<form>
-// с чужого сайта запускает пайплайны с --yes). Same-site не равен
-// same-origin: Origin проверяется и для loopback, а запрос без браузерных
-// заголовков остаётся совместимым с curl CI.
+// csrfGuard — v0.28a, переработано в H4: защита POST/PUT/PATCH/DELETE от
+// cross-site форм (<form> с чужого сайта запускает пайплайны с --yes).
+// Same-site не равен same-origin: Origin проверяется и для loopback, а запрос
+// без браузерных заголовков остаётся совместимым с curl CI.
+//
+// Что изменилось: ожидаемая сторона больше НЕ берётся из того же запроса.
+// Раньше csrfRequestHost() отдавал r.Host (или X-Forwarded-Host от кого
+// угодно), и Origin сравнивался с ним — то есть сравнивался сам с собой: Name
+// «evil.com» в Origin и Host проходили проверку, стоило только объявить
+// правильный Host. Теперь Origin сверяется с политикой прослушивания:
+// allow-list Host (сервер объявляет их сам) + внешняя схема.
 func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
 	site := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")))
 	switch site {
@@ -279,25 +267,35 @@ func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	host := csrfRequestHost(r)
-	expectedScheme := csrfExpectedScheme(r)
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
-		if !csrfURLMatchesScheme(origin, host, expectedScheme) {
-			http.Error(w, "Origin не совпадает (CSRF)", 403)
+		if !s.policy.originAllowed(origin) {
+			http.Error(w, "Origin не совпадает с объявленным адресом (CSRF)", 403)
 			return false
 		}
 		return true
 	}
-	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" && !csrfURLMatchesScheme(referer, host, expectedScheme) {
-		http.Error(w, "Referer не совпадает (CSRF)", 403)
+	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" && !s.policy.originAllowed(referer) {
+		http.Error(w, "Referer не совпадает с объявленным адресом (CSRF)", 403)
 		return false
 	}
 	return true
 }
 
+// publicAPI — пути под /api/*, открытые БЕЗ сессии человека. Список закрытый и
+// задан здесь одним местом: всё остальное под /api/* требует cookie (журналы,
+// входы и выходы шагов, плагины, пайплайны, статусы гейта). Новый эндпоинт
+// поэтому по умолчанию защищён, а не наоборот.
+var publicAPI = map[string]string{
+	"/api/health": "живость и версия: ни журналов, ни входов/выходов шагов; нужен мониторингу " +
+		"и `curl -sf /api/health` без входа в GUI",
+	"/api/session": "обмен одноразового кода из терминала на cookie и проверка «есть ли уже " +
+		"сессия»; без самого кода отдаёт только {\"authenticated\":false}",
+}
+
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/", s.handlePluginDetail)
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
@@ -329,6 +327,15 @@ func (s *Server) Routes() http.Handler {
 		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. allow-list Host — до всего, включая статику и обмен кода на
+		//    cookie. Иначе DNS-rebinding (чужой домен → 127.0.0.1) проходит
+		//    дальше и читает журналы, входы и выходы шагов.
+		if !s.policy.hostAllowed(r.Host) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(403)
+			w.Write([]byte(`{"error":"Host не в списке разрешённых для этого сервера (DNS-rebinding?)","code":"E_HOST_NOT_ALLOWED"}` + "\n"))
+			return
+		}
 		if r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 		}
@@ -336,9 +343,20 @@ func (s *Server) Routes() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// 2. ?c=<одноразовый код> — вход в GUI одним кликом (cookie + redirect).
 		if s.sessionHandshake(w, r) {
 			return
 		}
+		// 3. сессия человека — на ВСЁ под /api/*, кроме перечисленного в
+		//    publicAPI. Раньше cookie проверялся только на мутациях, и все GET
+		//    (журналы, входы и выходы шагов, плагины, пайплайны, статус гейта)
+		//    отдавались любому, кто дотянулся до порта.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if _, open := publicAPI[r.URL.Path]; !open && !s.requireSession(w, r) {
+				return
+			}
+		}
+		// 4. CSRF на мутациях — здесь, а не в каждом обработчике.
 		if (r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "DELETE") && !s.csrfGuard(w, r) {
 			return
 		}
@@ -527,9 +545,7 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "PUT" {
-		if !s.requireSession(w, r) {
-			return
-		}
+		// H4: сессия человека проверена в Routes() (там же CSRF)
 		// v0.12 fix: раньше читал старый файл и писал его же обратно — молчаливая порча данных
 		// теперь читаем r.Body и валидируем перед сохранением
 		data, err := io.ReadAll(r.Body)
@@ -548,8 +564,17 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]interface{}{"ok": false, "issues": issues, "errors": errs})
 			return
 		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		// H4: 0600, а не 0644. Пайплайн может содержать и секреты (pipeline.secrets
+		// — имена env-ключей), и входы, и пути; читать его должен только
+		// пользователь. WriteFile режим применяет только к НОВОМУ файлу, поэтому
+		// для уже существующего (например созданного старой версией с 0644)
+		// права подтягиваются явно.
+		if err := os.WriteFile(path, data, 0600); err != nil {
 			http.Error(w, "write: "+err.Error(), 500)
+			return
+		}
+		if err := os.Chmod(path, 0600); err != nil {
+			http.Error(w, "chmod: "+err.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -848,12 +873,12 @@ func (s *Server) resolvePipelineFile(name string) (string, error) {
 // v0.24: yes=false — человеческий гейт в браузере: ран блокируется на
 // gate-шаге, решение — POST /api/runs/<runID>/gate. ID рана известен заранее
 // (в ответе 202) — карточка гейта не гадает имя.
+//
+// Сессию здесь проверять не нужно: Routes() требует её для всего под /api/*,
+// кроме publicAPI. Проверка в обработчике была бы второй копией одного правила.
 func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "POST {file, yes}", 405)
-		return
-	}
-	if !s.requireSession(w, r) {
 		return
 	}
 	var req struct {
@@ -953,7 +978,7 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// handleRunCancel — v0.9: POST /api/runs/<id>/cancel.
+// handleRunCancel — v0.9: POST /api/runs/<id>/cancel. Сессия — в Routes().
 func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id string) {
 	if _, err := journal.SafeRunDir(s.RunsDir, id); err != nil {
 		http.Error(w, "invalid run id", 400)
@@ -961,9 +986,6 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if r.Method != "POST" {
 		http.Error(w, "POST", 405)
-		return
-	}
-	if !s.requireSession(w, r) {
 		return
 	}
 	cancel := s.cancelFor(id)
@@ -1014,9 +1036,7 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 			json.NewEncoder(w).Encode(map[string]interface{}{"pending": false})
 		}
 	case "POST":
-		if !s.requireSession(w, r) {
-			return
-		}
+		// сессия человека уже проверена в Routes() — и на GET, и на POST
 		var req struct {
 			Action string                 `json:"action"`
 			Edits  map[string]interface{} `json:"edits"`
@@ -1041,7 +1061,7 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 			return
 		}
 		// source/session проставляет сервер: клиент их не задаёт (json:"-")
-		d := gate.Decision{Action: req.Action, Edits: req.Edits, Source: gate.SourceGUI, Session: s.sessionHash()}
+		d := gate.Decision{Action: req.Action, Edits: req.Edits, Source: gate.SourceGUI, Session: s.sessionHash(r)}
 		if !ui.SendDecision(d) {
 			w.WriteHeader(409)
 			json.NewEncoder(w).Encode(map[string]string{"error": "гейт уже решён"})
