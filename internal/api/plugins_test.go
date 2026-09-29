@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"wedra/internal/plugin"
@@ -171,17 +172,48 @@ func TestAPIPluginsMissingRootIsNotFatal(t *testing.T) {
 //
 // Если флаг включат, этот тест упадёт — и это правильный сигнал: значит
 // список и документацию надо привести в соответствие.
-func TestAPIPluginsOmitsAgentPluginsDir(t *testing.T) {
+// Тест раньше закреплял ОТСУТСТВИЕ agent-plugins в списке. Это было не
+// свойство, а дефект: плагин резолвился по ссылке и был виден агенту через
+// exec_plugin, но не виден ни человеку, ни самому агенту в list_plugins.
+// Поэтому список молчал о коде, к которому агент всё равно мог прийти.
+func TestAPIPluginsShowsAgentPluginsDirWithReason(t *testing.T) {
 	root := t.TempDir()
 	writePluginDir(t, root, "regular")
 	writePluginDir(t, filepath.Join(root, plugin.AgentPluginDir), "mailer")
 
-	got := pluginIDs(pluginsAPI(t, root))
-	if !got["regular"] {
+	byID := map[string]map[string]interface{}{}
+	for _, item := range pluginsAPI(t, root) {
+		id, _ := item["id"].(string)
+		byID[id] = item
+	}
+
+	if _, ok := byID["regular"]; !ok {
 		t.Fatal("обычный плагин должен быть в списке")
 	}
-	if got["mailer"] {
-		t.Errorf("плагин из %s попал в список, хотя каталог не обходится: %v",
-			plugin.AgentPluginDir, got)
+	// У обычного плагина ни бейджа, ни причины: причина должна значить
+	// «что-то не так», а не «все плагины подозрительны».
+	if v, ok := byID["regular"]["agent_written"]; ok {
+		t.Errorf("обычный плагин не должен помечаться как написанный агентом: %v", v)
+	}
+	if v, ok := byID["regular"]["blocked_reason"]; ok {
+		t.Errorf("у обычного плагина не должно быть причины отказа: %v", v)
+	}
+
+	mailer, ok := byID["mailer"]
+	if !ok {
+		t.Fatalf("плагин агента должен быть виден: %v", byID)
+	}
+	if mailer["agent_written"] != true {
+		t.Errorf("плагин из %s обязан нести бейдж agent_written: %v",
+			plugin.AgentPluginDir, mailer)
+	}
+	reason, _ := mailer["blocked_reason"].(string)
+	if reason == "" {
+		t.Fatal("плагин агента обязан нести причину: показать его и промолчать " +
+			"о невозможности запуска — значит подсунуть кнопку, которая всегда откажет")
+	}
+	// Формулировка зависит от наличия изолятора, но суть одна: нужен изолятор.
+	if !strings.Contains(reason, "изолятор") && !strings.Contains(reason, "изоляц") {
+		t.Errorf("причина должна называть изолятор, а не быть общей фразой: %q", reason)
 	}
 }
