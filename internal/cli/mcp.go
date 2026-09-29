@@ -35,6 +35,10 @@ func RunMCP(args []string) {
 	// --allow-agent-exec инструмент exec_plugin отказывает, без
 	// --allow-untrusted-plugins не запускается внешний код.
 	allowAgentExec, allowUntrusted, denyUntrusted := false, false, false
+	// Операторский обход требования одобрения. По умолчанию выключен: ран,
+	// где опасный шаг (сеть/диск/секреты) идёт без human_gate, отклоняется с
+	// E_GATE_REQUIRED. Локальное доверенное использование.
+	allowUngatedRuns := false
 	// docs/mcp.md и конфиги клиентов пишут "--plugins /abs" (через пробел):
 	// нормализуем в "--plugins=/abs" до разбора.
 	args = joinFlagValues(args, "--plugins", "--plugin", "--workdir", "--runs-dir", "--gui-listen")
@@ -62,14 +66,21 @@ func RunMCP(args []string) {
 			allowUntrusted = true
 		case a == "--deny-untrusted-plugins":
 			denyUntrusted = true
+		case a == "--allow-unapproved-runs":
+			allowUngatedRuns = true
 		case a == "--help" || a == "-h":
 			fmt.Fprintln(os.Stderr, "wedra mcp --plugins=<dir> [--plugins=<dir>...] [--workdir=<dir>] [--runs-dir=<dir>]")
 			fmt.Fprintln(os.Stderr, "          [--gui-listen=127.0.0.1:0] [--no-gui] [--no-open] [--print-link]")
 			fmt.Fprintln(os.Stderr, "          [--allow-agent-exec] [--allow-untrusted-plugins] [--deny-untrusted-plugins]")
+			fmt.Fprintln(os.Stderr, "          [--allow-unapproved-runs]")
 			fmt.Fprintln(os.Stderr, "")
 			fmt.Fprintln(os.Stderr, "exec_plugin (запуск плагинов агентом) по умолчанию ЗАПРЕЩЁН.")
 			fmt.Fprintln(os.Stderr, "Включается только --allow-agent-exec; каждый запуск пишется в <runs-dir>/agent-exec.jsonl.")
 			fmt.Fprintln(os.Stderr, "Плагин из agent-plugins/ всегда считается внешним кодом: для него нужен --allow-untrusted-plugins.")
+			fmt.Fprintln(os.Stderr, "")
+			fmt.Fprintln(os.Stderr, "run_pipeline по умолчанию ТРЕБУЕТ human_gate перед первым опасным шагом")
+			fmt.Fprintln(os.Stderr, "(сеть, запись на диск, чтение секретов — по capabilities плагина).")
+			fmt.Fprintln(os.Stderr, "--allow-unapproved-runs снимает это требование; каждый обход пишется в <runs-dir>/gate-bypass.jsonl.")
 			return
 		default:
 			fmt.Fprintf(os.Stderr, "неизвестный аргумент %q (см. --help)\n", a)
@@ -101,6 +112,12 @@ func RunMCP(args []string) {
 			DenyUntrusted:        denyUntrusted,
 			AgentCanWritePlugins: false, // запись плагинов агентом не реализована
 		},
+		AllowUngatedRuns: allowUngatedRuns,
+	}
+	if allowUngatedRuns {
+		// Обход виден в логе сразу при старте, а не только в момент обхода:
+		// оператор должен видеть, что сервер запущен с ослабленным требованием.
+		fmt.Fprintln(os.Stderr, "wedra mcp: ВНИМАНИЕ --allow-unapproved-runs: ран с опасным шагом (сеть/диск/секреты) пойдёт без human_gate. Каждый обход пишется в", filepath.Join(runsdir, "gate-bypass.jsonl"))
 	}
 	if !noGUI {
 		h, err := startHumanConsole(guiListen, plugins, absWork, runsdir, !noOpen, printLink)
