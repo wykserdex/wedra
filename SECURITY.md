@@ -31,6 +31,46 @@ sandbox. Do not treat an MCP client or a plugin manifest as a security boundary
 without separate OS-level isolation.
 
 ## Trust is granted by the kernel, not by the plugin
+## The GUI HTTP server (`wedra gui`, `wedragui`, the `wedra mcp` gate console)
+
+The GUI is an HTTP server that runs step plugins, so its port is a real
+attack surface on the machine. What it enforces:
+
+- **Session on everything.** Every path under `/api/*` requires the human's
+  session cookie — reads included: run journals, step inputs and outputs, plugin
+  lists, pipelines, gate state. Two paths are open and are listed in one place in
+  the code (`publicAPI`): `GET /api/health` (version and liveness, no run data)
+  and `/api/session` (the code exchange itself). `--no-session` turns the
+  requirement off and is refused on a non-loopback address.
+- **Host allow-list.** Requests are served only for `127.0.0.1`, `localhost`,
+  `[::1]`, the address the operator passed, and any `--public-host`. A foreign
+  `Host` is refused with `E_HOST_NOT_ALLOWED`. This is what stops DNS
+  rebinding: a page on someone else's domain resolving to `127.0.0.1` sends its
+  own `Host` header, and that header is now checked.
+- **No implicit proxies.** `X-Forwarded-Host` is never read.
+  `X-Forwarded-Proto` is read only under an explicit `--trusted-proxy`, and only
+  to set the `Secure` cookie flag — the value cannot come from the client that
+  is being judged.
+- **Origin against the server's own identity.** The `Origin`/`Referer` check on
+  mutations compares against the configured allow-list and external scheme, not
+  against a value taken from the same request (which would be a tautology).
+- **Entry by one-time code.** The server prints a short, single-use pairing code.
+  It exchanges for a cookie whose value is a separate token with a 12-hour TTL
+  held in server memory; the code itself dies on first use. The cookie name
+  carries the port, so two instances on `localhost` cannot overwrite each
+  other's session.
+- **Listening beyond loopback is explicit.** `--listen` on a non-loopback
+  address is refused unless `--allow-remote` is given, `0.0.0.0`/`::` additionally
+  requires at least one `--public-host`, and `--no-session` is refused there
+  outright. Pipelines are written with mode `0600` on POSIX.
+
+What this does **not** do: it does not stop a process running as the same OS
+user that can read the terminal, the browser profile, or the server's memory.
+The session protects against an agent (or any process) that can only send HTTP
+to the local port. TLS is not provided: put a reverse proxy in front and declare
+it with `--trusted-proxy --public-host=...`, or keep the server on loopback.
+
+## Untrusted plugin code (`sandbox: untrusted`)
 
 A plugin is **trusted** — meaning it runs with the permissions of the current
 user, with no isolation — only when the kernel has confirmed it. Confirmation

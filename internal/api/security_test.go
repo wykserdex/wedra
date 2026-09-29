@@ -15,6 +15,8 @@ import (
 )
 
 // secServer — минимальный сервер в tempdir + «жертва» вне PipelinesDir.
+// Адрес 127.0.0.1:8765 выбран не случайно: allow-list Host (H4) сверяет его с
+// тем, что сервер объявил, и тесты ходят именно туда.
 func secServer(t *testing.T) (http.Handler, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -27,6 +29,9 @@ func secServer(t *testing.T) (http.Handler, string) {
 		t.Fatal(err)
 	}
 	srv := NewServer(filepath.Join(dir, "plugins"), pipelines, filepath.Join(dir, "runs"))
+	if err := srv.ConfigureListen(ListenOptions{Addr: testAddr}); err != nil {
+		t.Fatal(err)
+	}
 	return srv.Routes(), outside
 }
 
@@ -34,7 +39,7 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	handler, _ := secServer(t)
 
 	// GET ..%2fregistry.yaml — раньше 200 с содержимым чужого файла
-	req, _ := http.NewRequest("GET", "http://x/api/pipelines/..%2fregistry.yaml", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8765/api/pipelines/..%2fregistry.yaml", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 400 {
@@ -43,7 +48,7 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 
 	// PUT ..%2f..%2f..%2fpwned.yaml — раньше 200 и файл появлялся
 	pwned := "pwned-wedra-test.yaml"
-	req, _ = http.NewRequest("PUT", "http://x/api/pipelines/..%2f..%2f..%2f..%2f..%2f"+pwned,
+	req, _ = http.NewRequest("PUT", "http://127.0.0.1:8765/api/pipelines/..%2f..%2f..%2f..%2f..%2f"+pwned,
 		bytes.NewReader([]byte("format_version: \"0.2\"\npipeline:\n  name: x\n  steps: []\n")))
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -52,7 +57,7 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 	}
 
 	// нормальные имена работают (регрессия: 404, а не 400)
-	req, _ = http.NewRequest("GET", "http://x/api/pipelines/absent.yaml", nil)
+	req, _ = http.NewRequest("GET", "http://127.0.0.1:8765/api/pipelines/absent.yaml", nil)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 404 {
@@ -63,11 +68,20 @@ func TestPipelineTraversalBlocked(t *testing.T) {
 func TestCSRFSameSiteWithSessionCookieRejected(t *testing.T) {
 	dir := t.TempDir()
 	srv := NewServer(filepath.Join(dir, "plugins"), filepath.Join(dir, "pipelines"), filepath.Join(dir, "runs"))
-	srv.EnableSession("session-secret")
-	req, _ := http.NewRequest("POST", "http://127.0.0.1:8765/api/run", bytes.NewReader([]byte(`{"file":"x.yaml","yes":true}`)))
+	if err := srv.ConfigureListen(ListenOptions{Addr: testAddr}); err != nil {
+		t.Fatal(err)
+	}
+	srv.EnableSession("ABCD-EFGH-JKMN")
+	// Настоящая сессия: тест проверяет именно CSRF, поэтому cookie должно быть
+	// валидным (иначе ответ 401 скрыл бы проверку Origin).
+	token, err := srv.exchangePairingCode("ABCD-EFGH-JKMN")
+	if err != nil || token == "" {
+		t.Fatalf("обмен кода: token=%q err=%v", token, err)
+	}
+	req, _ := http.NewRequest("POST", "http://"+testAddr+"/api/run", bytes.NewReader([]byte(`{"file":"x.yaml","yes":true}`)))
 	req.Header.Set("Origin", "http://127.0.0.1:8766")
 	req.Header.Set("Sec-Fetch-Site", "same-site")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "session-secret"})
+	req.AddCookie(&http.Cookie{Name: srv.policy.cookieName(), Value: token})
 	rec := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(rec, req)
 	if rec.Code != 403 {
@@ -94,15 +108,15 @@ func TestRunTraversalBlocked(t *testing.T) {
 		method string
 		target string
 	}{
-		{"detail-forward", "GET", "http://x/api/runs/..%2Foutside"},
-		{"detail-backslash", "GET", `http://x/api/runs/..%5Coutside`},
-		{"detail-literal-backslash", "GET", `http://x/api/runs/..\outside`},
-		{"journal-forward", "GET", "http://x/api/runs/..%2Foutside/journal"},
-		{"journal-backslash", "GET", `http://x/api/runs/..%5Coutside/journal`},
-		{"gate-forward", "GET", "http://x/api/runs/..%2Foutside/gate"},
-		{"gate-backslash", "GET", `http://x/api/runs/..%5Coutside/gate`},
-		{"cancel-forward", "POST", "http://x/api/runs/..%2Foutside/cancel"},
-		{"cancel-backslash", "POST", `http://x/api/runs/..%5Coutside/cancel`},
+		{"detail-forward", "GET", "http://127.0.0.1:8765/api/runs/..%2Foutside"},
+		{"detail-backslash", "GET", `http://127.0.0.1:8765/api/runs/..%5Coutside`},
+		{"detail-literal-backslash", "GET", `http://127.0.0.1:8765/api/runs/..\outside`},
+		{"journal-forward", "GET", "http://127.0.0.1:8765/api/runs/..%2Foutside/journal"},
+		{"journal-backslash", "GET", `http://127.0.0.1:8765/api/runs/..%5Coutside/journal`},
+		{"gate-forward", "GET", "http://127.0.0.1:8765/api/runs/..%2Foutside/gate"},
+		{"gate-backslash", "GET", `http://127.0.0.1:8765/api/runs/..%5Coutside/gate`},
+		{"cancel-forward", "POST", "http://127.0.0.1:8765/api/runs/..%2Foutside/cancel"},
+		{"cancel-backslash", "POST", `http://127.0.0.1:8765/api/runs/..%5Coutside/cancel`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,7 +141,7 @@ func TestRunTraversalBlocked(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(validRun, "journal.jsonl"), []byte("{}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest("GET", "http://x/api/runs/valid-run", nil)
+	req, err := http.NewRequest("GET", "http://127.0.0.1:8765/api/runs/valid-run", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +159,7 @@ func TestPipelineSymlinkBlocked(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	req, _ := http.NewRequest("GET", "http://x/api/pipelines/linked.yaml", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8765/api/pipelines/linked.yaml", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 400 {
@@ -156,7 +170,7 @@ func TestPipelineSymlinkBlocked(t *testing.T) {
 func TestRequestBodyLimit(t *testing.T) {
 	handler, _ := secServer(t)
 	body := bytes.Repeat([]byte("x"), maxRequestBodySize+1)
-	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/large.yaml", bytes.NewReader(body))
+	req, _ := http.NewRequest("PUT", "http://127.0.0.1:8765/api/pipelines/large.yaml", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 400 {
@@ -166,7 +180,7 @@ func TestRequestBodyLimit(t *testing.T) {
 
 func TestSecurityHeaders(t *testing.T) {
 	handler, _ := secServer(t)
-	req, _ := http.NewRequest("GET", "http://x/", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:8765/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "script-src 'self'") || !strings.Contains(got, "frame-ancestors 'none'") {
@@ -182,7 +196,7 @@ func TestSecurityHeaders(t *testing.T) {
 func TestPipelinePutRejectsInvalidPolicy(t *testing.T) {
 	handler, _ := secServer(t)
 	body := []byte("format_version: \"0.2\"\npipeline:\n  name: bad_policy\n  gates: typo_policy\n  steps:\n    - id: review\n      plugin: core/human_gate\n")
-	req, _ := http.NewRequest("PUT", "http://x/api/pipelines/policy.yaml", bytes.NewReader(body))
+	req, _ := http.NewRequest("PUT", "http://127.0.0.1:8765/api/pipelines/policy.yaml", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != 400 {
@@ -190,11 +204,17 @@ func TestPipelinePutRejectsInvalidPolicy(t *testing.T) {
 	}
 }
 
+// TestCSRFRejected — H4: Origin сверяется с тем, что сервер объявляет САМ
+// (allow-list Host + внешняя схема), а не со значением из того же запроса.
+//
+// Прежние случаи 2-4 проверяли ровно обратное: «публичный хост + свой Origin»
+// проходил, потому что Origin сравнивался с r.Host из этого же запроса, а
+// X-Forwarded-Host от любого клиента вообще считался «видимым именем».
 func TestCSRFRejected(t *testing.T) {
 	handler, _ := secServer(t)
 	body := []byte(`{"name":"t","input":[],"steps":[],"unsupported":[]}`)
 	post := func(modify func(*http.Request)) *httptest.ResponseRecorder {
-		req, _ := http.NewRequest("POST", "http://127.0.0.1:8765/api/serialize/pipeline", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "http://"+testAddr+"/api/serialize/pipeline", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		modify(req)
 		rec := httptest.NewRecorder()
@@ -219,36 +239,77 @@ func TestCSRFRejected(t *testing.T) {
 		t.Fatalf("SFS same-site: code=%d (want 403)", rec.Code)
 	}
 
-	// 2) публичный хост + чужой Origin — 403
+	// 2) свой Origin на объявленном адресе — 200 (регрессия: не сломали GUI)
 	rec = post(func(r *http.Request) {
-		r.Host = "public.example"
-		r.Header.Set("Origin", "http://evil.example")
-	})
-	if rec.Code != 403 {
-		t.Fatalf("публичный хост + evil Origin: code=%d (want 403)", rec.Code)
-	}
-
-	// 3) публичный хост + свой Origin — 200 (регрессия)
-	rec = post(func(r *http.Request) {
-		r.Host = "public.example"
-		r.Header.Set("Origin", "http://public.example")
+		r.Header.Set("Origin", "http://"+testAddr)
 	})
 	if rec.Code != 200 {
 		t.Fatalf("свой Origin: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
 	}
 
-	// 4) прокси: Host loopback + X-Forwarded-Host + Origin прокси — 200
+	// 3) Origin без порта, когда порт дефолтный для схемы, — 200
 	rec = post(func(r *http.Request) {
-		r.Header.Set("X-Forwarded-Host", "preview.e2b.app")
-		r.Header.Set("Origin", "https://preview.e2b.app")
+		r.Header.Set("Origin", "http://localhost")
 	})
 	if rec.Code != 200 {
-		t.Fatalf("XH-прокси: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("Origin без порта: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
 	}
 
-	// 5) curl без Origin/SFS (loopback) — 200 (CI живёт на curl)
+	// 4) чужой Host — 403 ещё до CSRF (DNS-rebinding)
+	rec = post(func(r *http.Request) {
+		r.Host = "evil.example"
+		r.Header.Set("Origin", "http://evil.example")
+	})
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "E_HOST_NOT_ALLOWED") {
+		t.Fatalf("чужой Host: code=%d body=%s (want 403 E_HOST_NOT_ALLOWED)", rec.Code, rec.Body.String())
+	}
+
+	// 5) чужой Origin при верном Host — 403
+	rec = post(func(r *http.Request) {
+		r.Header.Set("Origin", "http://evil.example")
+	})
+	if rec.Code != 403 {
+		t.Fatalf("evil Origin: code=%d (want 403), body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 6) X-Forwarded-Host/Proto от кого угодно — не даёт доверия:
+	//    без --trusted-proxy Origin=https://preview.e2b.app отвергается.
+	rec = post(func(r *http.Request) {
+		r.Header.Set("X-Forwarded-Host", "preview.e2b.app")
+		r.Header.Set("X-Forwarded-Proto", "https")
+		r.Header.Set("Origin", "https://preview.e2b.app")
+	})
+	if rec.Code != 403 {
+		t.Fatalf("X-Forwarded-* без --trusted-proxy: code=%d (want 403), body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 7) curl без Origin/SFS (loopback) — 200 (CI живёт на curl)
 	rec = post(func(*http.Request) {})
 	if rec.Code != 200 {
 		t.Fatalf("curl-стиль: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCSRFAllowedBehindDeclaredProxy — легитимный превью-сценарий: оператор
+// САМ назвал внешний хост (--public-host) и сказал, что за ним прокси
+// (--trusted-proxy). Тогда Origin внешнего хоста — наш, и GUI работает.
+func TestCSRFAllowedBehindDeclaredProxy(t *testing.T) {
+	dir := t.TempDir()
+	srv := NewServer(filepath.Join(dir, "plugins"), filepath.Join(dir, "pipelines"), filepath.Join(dir, "runs"))
+	if err := srv.ConfigureListen(ListenOptions{
+		Addr: testAddr, AllowRemote: true, TrustedProxy: true,
+		PublicHosts: []string{"preview.e2b.app"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"name":"t","input":[],"steps":[],"unsupported":[]}`)
+	req, _ := http.NewRequest("POST", "http://"+testAddr+"/api/serialize/pipeline", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Origin", "https://preview.e2b.app")
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("объявленный прокси: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
 	}
 }

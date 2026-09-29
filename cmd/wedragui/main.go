@@ -59,21 +59,31 @@ func main() {
 	}
 
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
-	// v0.9: сессия человека. Ключ уходит только в окно (WebView2/браузер),
-	// в лог и консоль пишется URL без ключа. Иначе любой локальный процесс
-	// (включая агента) мог бы POST-ить гейты на 127.0.0.1.
-	secret, err := api.NewSessionSecret()
-	if err != nil {
-		fmt.Println("не удалось сгенерировать ключ сессии:", err)
-		os.Exit(1)
-	}
-	srv.EnableSession(secret)
-
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		fmt.Println("порт недоступен:", err)
 		os.Exit(1)
 	}
+	// H4: адрес объявляем серверу ДО EnableSession — от него зависят имя cookie
+	// (в нём порт) и allow-list Host. Десктоп всегда слушает только loopback.
+	_, lnPort, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		fmt.Println("не удалось определить порт:", err)
+		os.Exit(1)
+	}
+	if err := srv.ConfigureListen(api.ListenOptions{Addr: "127.0.0.1:" + lnPort, ResolvedPort: lnPort}); err != nil {
+		fmt.Println("политика прослушивания:", err)
+		os.Exit(1)
+	}
+	// v0.9 → H4: вход по одноразовому коду. Постоянного ключа в ссылке и в
+	// логе нет: окно получает ссылку с кодом, сервер обменивает его на cookie.
+	// Лог-файл получает только адрес без кода.
+	code, err := api.NewPairingCode()
+	if err != nil {
+		fmt.Println("не удалось сгенерировать код входа:", err)
+		os.Exit(1)
+	}
+	srv.EnableSession(code)
 	url := "http://" + ln.Addr().String()
 
 	logPath, logFile := openLog()
@@ -95,13 +105,16 @@ func main() {
 	logf("WEDRA desktop v%s — GUI: %s", ver, url)
 	logf("каталоги: %s (plugins=%s, pipelines=%s, runs=%s)", workingDir(), dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	logf("лог: %s", logPath)
+	// Код — только в консоль и в окно. В лог-файл он не пишется: лог обычно
+	// переживает сессию, а код живёт 10 минут и обменивается на cookie.
+	fmt.Printf("  код входа (одноразовый): %s\n", code)
 	fmt.Println("  Закрыть окно (или Ctrl+C) — остановить WEDRA.")
 
 	httpErr := make(chan error, 1)
 	go func() { httpErr <- srv.HTTPServer(ln.Addr().String()).Serve(ln) }()
 
 	// окно (Windows) или браузер + ожидание (остальные ОС / фолбэк)
-	desktop(url+"/?k="+secret, debug, logf)
+	desktop(url+"/?c="+code, debug, logf)
 
 	ln.Close()
 	select {
