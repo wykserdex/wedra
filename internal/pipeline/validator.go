@@ -520,6 +520,15 @@ var (
 	manifestHostPattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
 	environmentNamePattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	manifestRequirementPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*==[A-Za-z0-9][A-Za-z0-9_.+-]*$`)
+	// testTogglePattern — имена, по которым плагин узнаёт, что работает в
+	// тестовом режиме. Проверяется только в permissions.secrets: там ошибка
+	// безопасна, потому что значение приходит из окружения хоста.
+	//
+	// Список намеренно узкий и читается как список: это буквально те имена,
+	// которые встречаются в плагинах репозитория, плюс распространённые
+	// синонимы. Широкий шаблон вроде «всё, что содержит TEST» запретил бы
+	// настоящие секреты вроде TESTWEBHOOK_URL.
+	testTogglePattern = regexp.MustCompile(`^(LLM_)?(MOCK|FAKE|STUB|DUMMY|SIMULATE|SIM)$|_MOCK$|_FAKE$|_STUB$|_TEST_?MODE$`)
 )
 
 var manifestPortTypes = map[string]bool{
@@ -530,6 +539,17 @@ var manifestFormats = map[string]bool{
 	"text": true, "email": true, "url": true, "ip": true, "file_ref": true,
 }
 
+// IsTestToggleName — имя env-переменной, по которому плагин переходит в
+// тестовый режим и начинает возвращать подделку вместо настоящей работы.
+//
+// Экспортировано, потому что правило о нём должны знать и валидатор, и
+// документация, и автор плагина. Если правило живёт в двух местах, они
+// разъедутся, и разъедутся тихо.
+func IsTestToggleName(name string) bool {
+	return testTogglePattern.MatchString(strings.ToUpper(strings.TrimSpace(name)))
+}
+
+// ValidateManifest — проверка манифеста плагина.
 func ValidateManifest(m *Manifest) error {
 	if m == nil {
 		return fmt.Errorf("манифест пуст")
@@ -606,7 +626,20 @@ func ValidateManifest(m *Manifest) error {
 		if !environmentNamePattern.MatchString(secret) {
 			add("permissions.secrets[%d] %q: ожидается имя env-переменной", i, secret)
 		} else if seenSecrets[secret] {
-			add("permissions.secrets[%d] %q: дубликат", i, secret)
+			add("permissions.secrets[%d] %q: повтор", i, secret)
+		} else if IsTestToggleName(secret) {
+			// Тестовый переключатель в secrets означает, что ядро подставит его
+			// значение из окружения хоста в обычный запуск. Плагин, читающий его,
+			// молча возвращает подделку вместо настоящей работы — и агент, и
+			// человек видят «ok» от кода, который ничего не делал.
+			//
+			// Объявлять его не нужно: harness тестов передаёт env через
+			// plugin.test.yaml, а в permissions.secrets ему не место — там
+			// лежат ключи и адреса, которые обязаны приходить из окружения
+			// по воле оператора.
+			add("permissions.secrets[%d] %q: это тестовый переключатель, а не секрет; "+
+				"в обычном запуске ядро подставит его из окружения хоста, и плагин вернёт подделку. "+
+				"Передавайте его через env в plugin.test.yaml", i, secret)
 		}
 		seenSecrets[secret] = true
 	}
