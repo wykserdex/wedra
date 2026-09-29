@@ -71,13 +71,7 @@
 | E_TIMEOUT_LIMIT | `timeout` вне 0..30m | `timeout: "5m"`, ноль = без предела |
 | E_GATE_ACTIONS | `form.actions` пустой или не подмножество `accept`/`reject` | `actions: [accept, reject]` |
 | E_BIND_SOURCE_INVALID | `bind` ссылается не на `input.*`/`steps.*` | `fix.candidates: input.* + steps.*` |
-| E_MANIFEST_* | битый `plugin.yaml` (`VERSION`, `PLATFORM_API`, `RUNTIME`, `ENTRY`, `INPUT_TYPE`, `FORMAT`, `OUTPUT_EMPTY`) | чините манифест |
-
-`E_MANIFEST_*` — глоб семьи, и тут важна честная оговорка: валидатор отдаёт
-эти проблемы **одним** кодом `E_PLUGIN_LOAD`, а не семью отдельными. Подкоды
-объявлены (`internal/pipeline/issue.go`), но не эмитятся, поэтому агент их не
-получит. Семью считаем зарезервированной; то, что приходит на самом деле, —
-`E_PLUGIN_LOAD`.
+| E_PLUGIN_LOAD | плагин не загрузился: битый `plugin.yaml` **любого** поля или несовместимый `platform_api` | проверьте путь и plugin.yaml |
 
 ## Предупреждения (pre-run, не блокируют)
 

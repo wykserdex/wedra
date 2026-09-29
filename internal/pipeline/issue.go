@@ -106,15 +106,21 @@ const (
 	E_OPTIONAL_REQUIRED       = "E_OPTIONAL_REQUIRED"
 	E_PARALLEL_SPLIT          = "E_PARALLEL_SPLIT"
 	E_FILE_REF_NOT_FOUND      = "E_FILE_REF_NOT_FOUND"
-	E_MANIFEST_VERSION        = "E_MANIFEST_VERSION"
-	E_MANIFEST_PLATFORM_API   = "E_MANIFEST_PLATFORM_API"
-	E_MANIFEST_RUNTIME        = "E_MANIFEST_RUNTIME"
-	E_MANIFEST_ENTRY          = "E_MANIFEST_ENTRY"
-	E_MANIFEST_INPUT_TYPE     = "E_MANIFEST_INPUT_TYPE"
-	E_MANIFEST_FORMAT         = "E_MANIFEST_FORMAT"
-	E_MANIFEST_OUTPUT_EMPTY   = "E_MANIFEST_OUTPUT_EMPTY"
-	E_APPROVAL_VALUE          = "E_APPROVAL_VALUE"
-	E_GATES_VALUE             = "E_GATES_VALUE"
+	// E_MANIFEST_* больше не объявляются. Долгое время их обещал глоб в
+	// ERRORS.md, но эмитились они нулём раз: валидатор отдаёт все проблемы
+	// манифеста одним E_PLUGIN_LOAD.
+	//
+	// Реализовывать семь кодов было бы вредно, а не полезно. Единственная
+	// точка эмиссии проблем манифеста — путь валидации ПАЙПЛАЙНА
+	// (validate_issues.go), поэтому код пришёл бы агенту с path вида
+	// pipeline.steps.s.plugin, то есть указал бы на файл, который править не
+	// нужно. И появился бы только для плагинов, уже вставленных в пайплайн,
+	// при том что половина реальных проблем манифеста (id, permissions.*,
+	// sandbox, secrets, network, requires.lock, port.from) в семь кодов всё
+	// равно не попадает. Смесь из семи точных и одного глупого кода на один
+	// класс «битый plugin.yaml» хуже одного честного.
+	E_APPROVAL_VALUE = "E_APPROVAL_VALUE"
+	E_GATES_VALUE    = "E_GATES_VALUE"
 
 	W_FORMAT_VERSION_MISSING = "W_FORMAT_VERSION_MISSING"
 	W_SECRETS_MISSING_ENV    = "W_SECRETS_MISSING_ENV"
