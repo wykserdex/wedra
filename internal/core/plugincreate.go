@@ -20,6 +20,15 @@ type CreateOptions struct {
 	Author      string
 	Description string
 	Example     string // "" | "string" (умолчание) | "array"
+
+	// Template — имя шаблона. "" и "skeleton" ведут в скелет с маркером
+	// «ваша логика здесь». Остальные шаблоны дают рабочий плагин: задаются
+	// ДАННЫЕ, а не код (см. plugincreate_templates.go).
+	Template string
+	// Pattern / Replacement — параметры шаблонов regex-replace и line-filter.
+	// Пусто значит «взять умолчание шаблона».
+	Pattern     string
+	Replacement string
 }
 
 // ParseCreateArgs разбирает аргументы `plugin create`: путь и флаги
@@ -27,13 +36,18 @@ type CreateOptions struct {
 // обрывается на первом позиционном, а тестер №2 интуитивно пишет флаги после пути:
 //
 //	tool plugin create plugins/url_checker --author me --description "Checks URLs"
-func ParseCreateArgs(args []string) (dir string, opts CreateOptions, err error) {
+//
+// listRequested — пользователь попросил перечень шаблонов, а не создание.
+func ParseCreateArgs(args []string) (dir string, opts CreateOptions, listRequested bool, err error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--author" || a == "--description" || a == "--example":
+		case a == "--list-templates":
+			listRequested = true
+		case a == "--author" || a == "--description" || a == "--example" ||
+			a == "--template" || a == "--pattern" || a == "--replacement":
 			if i+1 >= len(args) {
-				return "", opts, fmt.Errorf("флагу %s нужно значение", a)
+				return "", opts, listRequested, fmt.Errorf("флагу %s нужно значение", a)
 			}
 			i++
 			switch a {
@@ -41,6 +55,12 @@ func ParseCreateArgs(args []string) (dir string, opts CreateOptions, err error) 
 				opts.Author = args[i]
 			case "--description":
 				opts.Description = args[i]
+			case "--template":
+				opts.Template = args[i]
+			case "--pattern":
+				opts.Pattern = args[i]
+			case "--replacement":
+				opts.Replacement = args[i]
 			default:
 				opts.Example = args[i]
 			}
@@ -50,19 +70,28 @@ func ParseCreateArgs(args []string) (dir string, opts CreateOptions, err error) 
 			opts.Description = strings.TrimPrefix(a, "--description=")
 		case strings.HasPrefix(a, "--example="):
 			opts.Example = strings.TrimPrefix(a, "--example=")
+		case strings.HasPrefix(a, "--template="):
+			opts.Template = strings.TrimPrefix(a, "--template=")
+		case strings.HasPrefix(a, "--pattern="):
+			opts.Pattern = strings.TrimPrefix(a, "--pattern=")
+		case strings.HasPrefix(a, "--replacement="):
+			opts.Replacement = strings.TrimPrefix(a, "--replacement=")
 		case strings.HasPrefix(a, "-"):
-			return "", opts, fmt.Errorf("неизвестный флаг %q (есть --author/--description/--example)", a)
+			return "", opts, listRequested, fmt.Errorf("неизвестный флаг %q (есть --template/--pattern/--replacement/--author/--description/--example; перечень: --list-templates)", a)
 		default:
 			if dir != "" {
-				return "", opts, fmt.Errorf("лишний позиционный аргумент %q — путь один", a)
+				return "", opts, listRequested, fmt.Errorf("лишний позиционный аргумент %q — путь один", a)
 			}
 			dir = a
 		}
 	}
-	if dir == "" {
-		return "", opts, fmt.Errorf("не указан путь плагина")
+	if listRequested {
+		return dir, opts, true, nil
 	}
-	return dir, opts, nil
+	if dir == "" {
+		return "", opts, listRequested, fmt.Errorf("не указан путь плагина")
+	}
+	return dir, opts, listRequested, nil
 }
 
 var pluginIDRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -80,6 +109,14 @@ func CreatePluginWith(dir string, opts CreateOptions) (string, error) {
 	if opts.Example != "string" && opts.Example != "array" {
 		return "", fmt.Errorf("--example %q не знаю: есть string (умолчание) и array", opts.Example)
 	}
+	tplName := opts.Template
+	if tplName == "" {
+		tplName = "skeleton"
+	}
+	tpl, ok := findTemplate(tplName)
+	if !ok {
+		return "", fmt.Errorf("шаблона %q нет: %s", tplName, templateNames())
+	}
 	id := filepath.Base(filepath.Clean(dir))
 	if !pluginIDRe.MatchString(id) {
 		return "", fmt.Errorf("id плагина %q не подходит: ожидается snake_case ^[a-z][a-z0-9_]*$", id)
@@ -90,26 +127,36 @@ func CreatePluginWith(dir string, opts CreateOptions) (string, error) {
 			return "", fmt.Errorf("папка %s не пуста — не перезаписываю", dir)
 		}
 	}
+	// Файлы собираем ДО создания каталога: ошибка шаблона (плохая регулярка,
+	// невставляемый параметр) не должна оставлять после себя папку с
+	// половиной файлов.
+	files, err := tpl.build(id, opts)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-
-	mainPy, testYaml := mainPyTemplate(id), testsTemplate()
-	if opts.Example == "array" {
-		mainPy, testYaml = mainPyArrayTemplate(id), testsArrayTemplate()
+	out := map[string]string{
+		"plugin.yaml":      files.manifest,
+		"main.py":          files.mainPy,
+		"plugin.test.yaml": files.tests,
+		"README.md":        files.readme,
 	}
-	files := map[string]string{
-		"plugin.yaml":      manifestTemplate(id, opts),
-		"main.py":          mainPy,
-		"plugin.test.yaml": testYaml,
-		"README.md":        pluginReadmeTemplateWithOpts(id, opts),
-	}
-	for name, content := range files {
+	for name, content := range out {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			return "", err
 		}
 	}
 	return id, nil
+}
+
+func templateNames() string {
+	names := make([]string, 0, 4)
+	for _, t := range templateRegistry() {
+		names = append(names, t.name)
+	}
+	return strings.Join(names, ", ")
 }
 
 func yamlQuote(v string) string {

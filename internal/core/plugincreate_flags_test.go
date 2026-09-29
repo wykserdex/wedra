@@ -12,7 +12,7 @@ import (
 
 func TestParseCreateArgs_FlagsAfterPath(t *testing.T) {
 	// ровно командная строка из фидбека тестера №2
-	dir, o, err := ParseCreateArgs([]string{"plugins/url_checker", "--author", "me", "--description", "Checks URLs"})
+	dir, o, _, err := ParseCreateArgs([]string{"plugins/url_checker", "--author", "me", "--description", "Checks URLs"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,19 +22,19 @@ func TestParseCreateArgs_FlagsAfterPath(t *testing.T) {
 }
 
 func TestParseCreateArgs_EqFormAndFlagsFirst(t *testing.T) {
-	dir, o, err := ParseCreateArgs([]string{"--author=me", "plugins/x", "--description=Does x"})
+	dir, o, _, err := ParseCreateArgs([]string{"--author=me", "plugins/x", "--description=Does x"})
 	if err != nil || dir != "plugins/x" || o.Author != "me" || o.Description != "Does x" {
 		t.Fatalf("dir=%q opts=%+v err=%v", dir, o, err)
 	}
-	if _, _, err := ParseCreateArgs([]string{"plugins/x", "--bogus"}); err == nil ||
+	if _, _, _, err := ParseCreateArgs([]string{"plugins/x", "--bogus"}); err == nil ||
 		!strings.Contains(err.Error(), "неизвестный флаг") {
 		t.Fatalf("неизвестный флаг должен ругаться: %v", err)
 	}
-	if _, _, err := ParseCreateArgs([]string{"--author"}); err == nil ||
+	if _, _, _, err := ParseCreateArgs([]string{"--author"}); err == nil ||
 		!strings.Contains(err.Error(), "нужно значение") {
 		t.Fatalf("флаг без значения: %v", err)
 	}
-	if _, _, err := ParseCreateArgs([]string{"a", "b"}); err == nil ||
+	if _, _, _, err := ParseCreateArgs([]string{"a", "b"}); err == nil ||
 		!strings.Contains(err.Error(), "лишний") {
 		t.Fatalf("два пути: %v", err)
 	}

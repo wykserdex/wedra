@@ -252,10 +252,14 @@ func pluginTestCmd(args []string) {
 // pluginCreateCmd создаёт скелет и СРАЗУ доказывает его работоспособность:
 // валидация манифеста + прогон стартовых контракт-тестов.
 func pluginCreateCmd(args []string) {
-	dir, opts, err := core.ParseCreateArgs(args) // флаги --author/--description в любом порядке
+	dir, opts, listRequested, err := core.ParseCreateArgs(args) // флаги в любом порядке
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ошибка:", err)
 		usage()
+	}
+	if listRequested {
+		fmt.Print(core.ListTemplates())
+		return
 	}
 	id, err := core.CreatePluginWith(dir, opts)
 	if err != nil {

@@ -12,11 +12,11 @@ import (
 )
 
 func TestParseCreateArgs_ExampleFlag(t *testing.T) {
-	_, o, err := ParseCreateArgs([]string{"plugins/x", "--example", "array"})
+	_, o, _, err := ParseCreateArgs([]string{"plugins/x", "--example", "array"})
 	if err != nil || o.Example != "array" {
 		t.Fatalf("opts=%+v err=%v", o, err)
 	}
-	_, o, err = ParseCreateArgs([]string{"--example=array", "plugins/x"})
+	_, o, _, err = ParseCreateArgs([]string{"--example=array", "plugins/x"})
 	if err != nil || o.Example != "array" {
 		t.Fatalf("eq-форма: opts=%+v err=%v", o, err)
 	}

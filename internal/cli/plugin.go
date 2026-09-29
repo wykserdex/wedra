@@ -108,17 +108,25 @@ func RunPluginTest(args []string) {
 }
 
 func RunPluginCreate(args []string) {
-	dir, opts, err := core.ParseCreateArgs(args)
+	dir, opts, listRequested, err := core.ParseCreateArgs(args)
 	if err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(2)
+	}
+	if listRequested {
+		fmt.Print(core.ListTemplates())
+		return
 	}
 	id, err := core.CreatePluginWith(dir, opts)
 	if err != nil {
 		fmt.Println("ошибка:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("▶ создан плагин %s → %s\n", id, dir)
+	tplName := opts.Template
+	if tplName == "" {
+		tplName = "skeleton"
+	}
+	fmt.Printf("▶ создан плагин %s → %s (шаблон %s)\n", id, dir, tplName)
 	fmt.Println("  plugin.yaml + main.py + plugin.test.yaml + README.md")
 
 	if errs := core.ValidatePluginDir(dir); len(errs) > 0 {
@@ -139,7 +147,26 @@ func RunPluginCreate(args []string) {
 	} else {
 		fmt.Printf("  ✓ %d стартовых теста зелёные\n", passed)
 	}
-	fmt.Printf("\nДальше: правьте %s/main.py, затем wedra plugin test %s\n", dir, dir)
+	if tplName == "skeleton" {
+		fmt.Printf("\nДальше: правьте %s/main.py, затем wedra plugin test %s\n", dir, dir)
+		return
+	}
+	// Шаблон даёт рабочий плагин, поэтому «дальше» — это уже не написание
+	// кода, а настройка. Формулировка шаблона иначе обещала бы то, чего
+	// от него не ждут.
+	fmt.Printf("\nПлагин рабочий. Дальше: %s\n", templateNextStep(tplName, dir))
+}
+
+func templateNextStep(tplName, dir string) string {
+	switch tplName {
+	case "regex-replace":
+		return "поправьте PATTERN и REPLACEMENT в " + dir + "/main.py, " +
+			"затем подставьте точный результат в plugin.test.yaml и прогоните wedra plugin test " + dir
+	case "line-filter":
+		return "поправьте PATTERN в " + dir + "/main.py, затем прогоните wedra plugin test " + dir
+	default:
+		return "расширяйте вывод в " + dir + "/main.py и в том же порядке в манифесте и plugin.test.yaml"
+	}
 }
 
 func RunPluginInspect(args []string) {
