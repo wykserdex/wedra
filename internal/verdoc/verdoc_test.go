@@ -80,8 +80,29 @@ func newRepo(t *testing.T, version string) *repoFixture {
 		"",
 	}, "\n"))
 	r.write(t, mcpServerFile, mcpSource)
+	// schemas.go тоже часть фикстуры: проверка сверяет объявляемый список с
+	// принимаемым, и без этого файла она честно сказала бы «проверка сломана».
+	// Научить её молча пропускать отсутствующий файл нельзя: пропуск был бы
+	// неотличим от успеха.
+	r.write(t, mcpSchemasFile, mcpSchemasSource)
 	return r
 }
+
+// mcpSchemasSource — объявления инструментов. Список обязан совпадать с
+// dispatch-таблицей mcpSource, иначе фикстура сама нарушает то, что проверка
+// ищет, и тесты перестают что-либо значить.
+const mcpSchemasSource = "package mcp\n\n" +
+	"type Tool struct{ Name, Description string }\n\n" +
+	"func toolDefs() []Tool {\n\treturn []Tool{\n" +
+	"\t\t{Name: \"list_plugins\", Description: \"d\"},\n" +
+	"\t\t{Name: \"describe_plugin\", Description: \"d\"},\n" +
+	"\t\t{Name: \"validate_pipeline\", Description: \"d\"},\n" +
+	"\t\t{Name: \"plan_pipeline\", Description: \"d\"},\n" +
+	"\t\t{Name: \"run_pipeline\", Description: \"d\"},\n" +
+	"\t\t{Name: \"get_run\", Description: \"d\"},\n" +
+	"\t\t{Name: \"cancel_run\", Description: \"d\"},\n" +
+	"\t\t{Name: \"exec_plugin\", Description: \"d\"},\n" +
+	"\t}\n}\n"
 
 // mcpSource — настоящая форма callTool: восемь инструментов, восьмой за
 // opt-in флагом. Ровно та же разметка, что в internal/mcp/server.go.
@@ -164,6 +185,57 @@ func TestCheckRepoPassesOnRealRepository(t *testing.T) {
 	out, err := CheckRepo(repo)
 	if err != nil {
 		t.Fatalf("настоящий репозиторий не прошёл проверку версий: %v\n%s", err, out)
+	}
+}
+
+// Инструмент вызывается, но не объявлен. Именно так был сломан exec_plugin:
+// он вызывался диспетчером, значился в README, и сверка README↔callTool была
+// зелёной — а объявления в tools/list у него не было, то есть агент не мог его
+// открыть через discovery. Проверка обязана ловить это сама.
+func TestCheckRepoFailsOnUnpublishedTool(t *testing.T) {
+	r := newRepo(t, "0.33a")
+	r.patch(t, mcpSchemasFile, "\t\t{Name: \"exec_plugin\", Description: \"d\"},\n", "")
+
+	out, err := CheckRepo(r.dir)
+	if err == nil {
+		t.Fatalf("вызываемый, но не объявленный инструмент должен ронять проверку:\n%s", out)
+	}
+	if !strings.Contains(out, "discovery") {
+		t.Fatalf("ошибка должна называть discovery, а не просто констатировать расхождение:\n%s", out)
+	}
+}
+
+// Обратное расхождение опаснее: tools/list обещает инструмент, которого сервер
+// не принимает. Агент строит план на шаге, которого не существует.
+func TestCheckRepoFailsOnPhantomTool(t *testing.T) {
+	r := newRepo(t, "0.33a")
+	r.patch(t, mcpSchemasFile, "\t\t{Name: \"exec_plugin\", Description: \"d\"},\n",
+		"\t\t{Name: \"exec_plugin\", Description: \"d\"},\n\t\t{Name: \"ghost_tool\", Description: \"d\"},\n")
+
+	out, err := CheckRepo(r.dir)
+	if err == nil {
+		t.Fatalf("объявленный, но не принимаемый инструмент должен ронять проверку:\n%s", out)
+	}
+	if !strings.Contains(out, "ghost_tool") {
+		t.Fatalf("ошибка должна называть инструмент-фантом:\n%s", out)
+	}
+}
+
+// Проверка не должна выродиться в «всё зелёное» на пустом разборе: если
+// разобрать объявления не удалось, это поломка проверки, а не успех.
+func TestCheckRepoFailsWhenToolDefsUnparseable(t *testing.T) {
+	r := newRepo(t, "0.33a")
+	r.write(t, mcpSchemasFile, "package mcp\n\nfunc toolDefs() []Tool { return nil }\n")
+
+	out, err := CheckRepo(r.dir)
+	if err == nil {
+		t.Fatalf("пустой разбор объявлений должен ронять проверку, а не проходить:\n%s", out)
+	}
+	// Сообщение приходит в err, а не в отчёт: этот случай возвращается раньше,
+	// чем набирается сводка, и подменять его расхождением нельзя — иначе
+	// поломка проверки выглядела бы как «нашлось расхождение».
+	if !strings.Contains(err.Error(), "сломана") {
+		t.Fatalf("ошибка должна отличать поломку проверки от расхождения: %v", err)
 	}
 }
 

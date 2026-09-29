@@ -191,4 +191,8 @@ const (
 	E_AGENT_EXEC_BUSY = "E_AGENT_EXEC_BUSY"
 	// MCP exec_plugin: не удалось записать строку аудита.
 	E_AGENT_EXEC_AUDIT = "E_AGENT_EXEC_AUDIT"
+	// MCP exec_plugin: плагин объявил права, а инструмент идёт мимо
+	// human_gate. Такой плагин запускается только через run_pipeline
+	// с core/human_gate перед ним.
+	E_AGENT_EXEC_CAPABILITIES = "E_AGENT_EXEC_CAPABILITIES"
 )
