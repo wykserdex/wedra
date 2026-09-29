@@ -48,6 +48,10 @@ type RunOptions struct {
 	// Они уходят в изолятор (bwrap/sandbox-exec); если изолятора нет,
 	// запуск падает, а не выполняется без песочницы.
 	AllowUntrusted bool
+	// Trusted — allow-list доверенных плагинов оператора. Единственный
+	// источник доверия: пустой/nil означает «не доверен никто», и такой ран
+	// честно падает на первом же внешнем плагине.
+	Trusted *plugin.AllowList
 }
 
 // ErrCancelled — ран отменён через RunOptions.Ctx. errors.Is(err, ErrCancelled).
@@ -356,12 +360,13 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	if opts.Ctx == nil {
 		opts.Ctx = stdctx.Background()
 	}
-	// Политика доверия к коду плагинов задаётся ядром (--deny-untrusted-plugins
-	// / --allow-untrusted-plugins) и наследуется всеми шагами через ctx;
-	// плагин не может её ослабить.
+	// Политика доверия к коду плагинов задаётся ядром (allow-list оператора +
+	// --deny-untrusted-plugins / --allow-untrusted-plugins) и наследуется всеми
+	// шагами через ctx; плагин не может её ослабить.
 	opts.Ctx = plugin.WithTrustPolicy(opts.Ctx, plugin.TrustPolicy{
 		DenyUntrusted:  opts.DenyUntrusted,
 		AllowUntrusted: opts.AllowUntrusted,
+		Trusted:        opts.Trusted,
 	})
 	if pf.Pipeline.Network != "" && pf.Pipeline.Network != "allow" && pf.Pipeline.Network != "deny" {
 		return stats, runErr("network_policy", "pipeline network=%q: допускаются allow или deny", pf.Pipeline.Network)

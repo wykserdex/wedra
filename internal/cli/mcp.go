@@ -35,6 +35,7 @@ func RunMCP(args []string) {
 	// --allow-agent-exec инструмент exec_plugin отказывает, без
 	// --allow-untrusted-plugins не запускается внешний код.
 	allowAgentExec, allowUntrusted, denyUntrusted := false, false, false
+	trustCfg := ""
 	// docs/mcp.md и конфиги клиентов пишут "--plugins /abs" (через пробел):
 	// нормализуем в "--plugins=/abs" до разбора.
 	args = joinFlagValues(args, "--plugins", "--plugin", "--workdir", "--runs-dir", "--gui-listen")
@@ -62,6 +63,8 @@ func RunMCP(args []string) {
 			allowUntrusted = true
 		case a == "--deny-untrusted-plugins":
 			denyUntrusted = true
+		case strings.HasPrefix(a, "--trust-config="):
+			trustCfg = strings.TrimPrefix(a, "--trust-config=")
 		case a == "--help" || a == "-h":
 			fmt.Fprintln(os.Stderr, "wedra mcp --plugins=<dir> [--plugins=<dir>...] [--workdir=<dir>] [--runs-dir=<dir>]")
 			fmt.Fprintln(os.Stderr, "          [--gui-listen=127.0.0.1:0] [--no-gui] [--no-open] [--print-link]")
@@ -91,6 +94,15 @@ func RunMCP(args []string) {
 	proto := os.Stdout
 	os.Stdout = os.Stderr
 
+	// Доверие: встроенный allow-list (пины реестра) + конфиг оператора. Без
+	// него exec_plugin уводил бы в песочницу даже официальные плагины, а на
+	// хостах без изолятора отказывал бы вовсе.
+	trusted, err := plugin.EffectiveAllowList(trustConfigPath(trustCfg))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mcp: ошибка конфига доверия:", err)
+		os.Exit(2)
+	}
+
 	opts := mcp.Options{
 		PluginsDirs: plugins,
 		WorkDir:     absWork,
@@ -99,6 +111,7 @@ func RunMCP(args []string) {
 			AgentCanExec:         allowAgentExec,
 			AllowUntrusted:       allowUntrusted,
 			DenyUntrusted:        denyUntrusted,
+			Trusted:              trusted,
 			AgentCanWritePlugins: false, // запись плагинов агентом не реализована
 		},
 	}

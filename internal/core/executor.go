@@ -53,15 +53,18 @@ func fromPluginRes(pr *plugin.ExecResult) *ExecResult {
 	return res
 }
 
-func execPlugin(m *Manifest, input []byte, timeout time.Duration) *ExecResult {
-	pr := plugin.Exec(m, input, timeout)
-	return fromPluginRes(pr)
-}
-
-func execPluginEnv(m *Manifest, input []byte, timeout time.Duration, extraEnv []string) *ExecResult {
-	pr := plugin.ExecWithEnv(m, input, timeout, extraEnv)
-	return fromPluginRes(pr)
-}
+// execPlugin / execPluginEnv — тонкие обёртки над запуском плагина.
+//
+// Ими пользуются только тесты: раннер вызывает plugin.ExecWithEnvCtx напрямую,
+// потому что у него есть ctx с политикой доверия. Здесь ctx нет, и после
+// инверсии доверия (H1) это означало бы «никто не доверен» — то есть отказ по
+// политике вместо проверки поведения. Поэтому доверие фикстурам выдаётся явно
+// и по хэшу содержимого (см. helpers_test.go).
+// Запуск плагина в раннере идёт напрямую через plugin.ExecWithEnvCtx: у
+// раннера есть ctx с политикой доверия, и подменять его контекстом без
+// политики нельзя (после инверсии доверия H1 такой вызов означал бы «никто не
+// доверен»). Обёртки execPlugin/execPluginEnv живут в helpers_test.go — ими
+// пользуются только тесты, и там доверие фикстурам выдаётся явно.
 
 func EnforceOutput(m *Manifest, out map[string]interface{}) (map[string]interface{}, []string, error) {
 	return plugin.EnforceOutput(m, out)

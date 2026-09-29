@@ -11,6 +11,7 @@ import (
 
 	"wedra/internal/core"
 	"wedra/internal/execution"
+	"wedra/internal/plugin"
 )
 
 func runIDFromDir(runDir string) string {
@@ -18,6 +19,18 @@ func runIDFromDir(runDir string) string {
 		return ""
 	}
 	return filepath.Base(filepath.Clean(runDir))
+}
+
+// trustConfigPath — где искать конфиг доверия оператора.
+//
+// Путь можно переопределить флагом --trust-config (удобно в CI и в тестах),
+// иначе берётся обычный для проекта файл wedra-trust.yaml в рабочем каталоге —
+// рядом с registry.yaml.
+func trustConfigPath(override string) string {
+	if override != "" {
+		return override
+	}
+	return plugin.TrustConfigFile
 }
 
 func RunPipelineRun(args []string) {
@@ -30,6 +43,7 @@ func RunPipelineRun(args []string) {
 	noAuto := false
 	denyUntrusted := false
 	allowUntrusted := false
+	trustCfg := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -41,6 +55,15 @@ func RunPipelineRun(args []string) {
 			denyUntrusted = true
 		case a == "--allow-untrusted-plugins":
 			allowUntrusted = true
+		case strings.HasPrefix(a, "--trust-config="):
+			trustCfg = strings.TrimPrefix(a, "--trust-config=")
+		case a == "--trust-config":
+			if i+1 >= len(args) {
+				fmt.Println("флагу --trust-config нужно значение")
+				os.Exit(2)
+			}
+			i++
+			trustCfg = args[i]
 		case strings.HasPrefix(a, "--runs-dir="):
 			runsDir = strings.TrimPrefix(a, "--runs-dir=")
 		case a == "--runs-dir":
@@ -104,6 +127,11 @@ func RunPipelineRun(args []string) {
 		fmt.Println("ошибка загрузки пайплайна:", err)
 		os.Exit(2)
 	}
+	trusted, err := plugin.EffectiveAllowList(trustConfigPath(trustCfg))
+	if err != nil {
+		fmt.Println("ошибка конфига доверия:", err)
+		os.Exit(2)
+	}
 	errs, warns := core.Validate(pf, eng)
 	for _, w := range warns {
 		fmt.Println("  · предупреждение:", w)
@@ -127,7 +155,7 @@ func RunPipelineRun(args []string) {
 		<-sig
 		os.Exit(130)
 	}()
-	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath, Ctx: runCtx, NoAutoApprove: noAuto, DenyUntrusted: denyUntrusted, AllowUntrusted: allowUntrusted})
+	stats, err := core.Run(pf, eng, core.RunOptions{Yes: yes, RunsDir: runsDir, Resume: resume, Store: store, DBPath: dbPath, Ctx: runCtx, NoAutoApprove: noAuto, DenyUntrusted: denyUntrusted, AllowUntrusted: allowUntrusted, Trusted: trusted})
 	if err != nil {
 		if errors.Is(err, execution.ErrCancelled) {
 			fmt.Println("ран отменён; продолжить: wedra runs resume", runIDFromDir(stats.RunDir))

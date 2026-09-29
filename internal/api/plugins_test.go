@@ -37,13 +37,18 @@ func writePluginDir(t *testing.T, root, name string) string {
 	return dir
 }
 
-func pluginsAPI(t *testing.T, pluginsDir string) []map[string]interface{} {
+// pluginsAPI — список плагинов от сервера. allowDirs (если заданы) получают
+// явное доверие: см. trustfixture_test.go.
+func pluginsAPI(t *testing.T, pluginsDir string, allowDirs ...string) []map[string]interface{} {
 	t.Helper()
 	// Ходим через настоящий httptest-сервер, а не через вызов хендлера
 	// напрямую: так проверяется и код роута, и код ответа, как их увидит
 	// браузер редактора.
 	dir := t.TempDir()
 	srv := NewServer(pluginsDir, filepath.Join(dir, "pipelines"), filepath.Join(dir, "runs"))
+	for _, d := range allowDirs {
+		trustManifestIn(t, srv, loadPluginForTrust(t, srv, d))
+	}
 	ts := httptest.NewServer(srv.Routes())
 	defer ts.Close()
 
@@ -165,38 +170,37 @@ func TestAPIPluginsMissingRootIsNotFatal(t *testing.T) {
 	}
 }
 
-// Каталоги агентских плагинов в списке НЕТ. Это текущее поведение, и оно
-// зафиксировано здесь намеренно: AgentCanWritePlugins=false, писать
-// плагины агент не может, а пока не может — незачем показывать пустую
-// категорию в палитре.
+// Плагин, которому ядро доверяет, не должен получать ни бейджа, ни причины:
+// причина должна значить «что-то не так», а не «все плагины подозрительны».
 //
-// Если флаг включат, этот тест упадёт — и это правильный сигнал: значит
-// список и документацию надо привести в соответствие.
-// Тест раньше закреплял ОТСУТСТВИЕ agent-plugins в списке. Это было не
-// свойство, а дефект: плагин резолвился по ссылке и был виден агенту через
-// exec_plugin, но не виден ни человеку, ни самому агенту в list_plugins.
-// Поэтому список молчал о коде, к которому агент всё равно мог прийти.
+// Тест переписан после инверсии доверия (H1). Раньше «обычным» считался любой
+// плагин без строки `sandbox` в манифесте, и проверка «у него нет причины» была
+// проверкой ровно того дырявого поведения, которое убрали. Теперь обычность —
+// это не отсутствие признаков, а запись в allow-list по хэшу содержимого, и
+// тест выдаёт её явно.
 func TestAPIPluginsShowsAgentPluginsDirWithReason(t *testing.T) {
 	root := t.TempDir()
-	writePluginDir(t, root, "regular")
+	regular := writePluginDir(t, root, "regular")
 	writePluginDir(t, filepath.Join(root, plugin.AgentPluginDir), "mailer")
 
 	byID := map[string]map[string]interface{}{}
-	for _, item := range pluginsAPI(t, root) {
+	for _, item := range pluginsAPI(t, root, trustPluginsDir(regular)) {
 		id, _ := item["id"].(string)
 		byID[id] = item
 	}
 
-	if _, ok := byID["regular"]; !ok {
+	trusted, ok := byID["regular"]
+	if !ok {
 		t.Fatal("обычный плагин должен быть в списке")
 	}
-	// У обычного плагина ни бейджа, ни причины: причина должна значить
-	// «что-то не так», а не «все плагины подозрительны».
-	if v, ok := byID["regular"]["agent_written"]; ok {
+	if v, ok := trusted["agent_written"]; ok {
 		t.Errorf("обычный плагин не должен помечаться как написанный агентом: %v", v)
 	}
-	if v, ok := byID["regular"]["blocked_reason"]; ok {
-		t.Errorf("у обычного плагина не должно быть причины отказа: %v", v)
+	if v, ok := trusted["blocked_reason"]; ok {
+		t.Errorf("у доверенного плагина не должно быть причины отказа: %v", v)
+	}
+	if trusted["trusted"] != true {
+		t.Errorf("доверенный плагин должен быть помечен trusted=true: %v", trusted)
 	}
 
 	mailer, ok := byID["mailer"]
@@ -215,5 +219,44 @@ func TestAPIPluginsShowsAgentPluginsDirWithReason(t *testing.T) {
 	// Формулировка зависит от наличия изолятора, но суть одна: нужен изолятор.
 	if !strings.Contains(reason, "изолятор") && !strings.Contains(reason, "изоляц") {
 		t.Errorf("причина должна называть изолятор, а не быть общей фразой: %q", reason)
+	}
+	// Текст обязан оставаться правдой: он начинается с вердикта ядра, а не с
+	// «плагин написан агентом» — после инверсии это лишь один из случаев.
+	if !strings.Contains(reason, "агентом") {
+		t.Errorf("причина должна называть вердикт ядра (плагин написан агентом): %q", reason)
+	}
+}
+
+// Плагин, КОТОРОГО НЕТ в allow-list, обязан быть помечен как недоверенный и
+// получить причину — даже если он не написан агентом и молчит в манифесте.
+//
+// Это ровно тот случай, который после инверсии стал главным: обычный
+// community-плагин без строки `sandbox` раньше получал права пользователя
+// целиком. Молчать о нём значит подсунуть кнопку, которая всегда откажет.
+func TestAPIPluginsMarksUnlistedPluginWithReason(t *testing.T) {
+	root := t.TempDir()
+	writePluginDir(t, root, "unlisted")
+
+	byID := map[string]map[string]interface{}{}
+	for _, item := range pluginsAPI(t, root) {
+		id, _ := item["id"].(string)
+		byID[id] = item
+	}
+	got, ok := byID["unlisted"]
+	if !ok {
+		t.Fatalf("плагин должен быть в списке: %v", byID)
+	}
+	if got["trusted"] != false {
+		t.Errorf("плагин без записи в allow-list обязан быть trusted=false: %v", got)
+	}
+	reason, _ := got["blocked_reason"].(string)
+	if reason == "" {
+		t.Fatal("недоверенный плагин обязан нести причину отказа")
+	}
+	if !strings.Contains(reason, "allow-list") {
+		t.Errorf("причина должна называть allow-list: %q", reason)
+	}
+	if _, ok := got["content_sha256"]; !ok {
+		t.Error("список должен показывать хэш содержимого — иначе оператору нечего вносить в allow-list")
 	}
 }

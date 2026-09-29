@@ -161,9 +161,16 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	}
 	// Fail-closed: внешний код не запускается без изоляции (process.go —
 	// единственная точка создания plugin-процесса, включая MCP/transport).
-	if denied := enforceTrust(m, TrustPolicyFrom(parent)); denied != nil {
+	trustPolicy := TrustPolicyFrom(parent)
+	if denied := enforceTrust(m, trustPolicy); denied != nil {
 		return denied
 	}
+	// Решение о доверии выносится ДО сборки команды и используется дальше для
+	// выбора способа запуска. Два независимых вызова DecideTrust разошлись бы
+	// только при гонке с подменой файла между ними, а расхождение «проверили как
+	// доверенный, запустили в песочнице» (или наоборот) — это ровно тот класс
+	// ошибок, который здесь и ловится.
+	trusted := IsTrusted(m, trustPolicy)
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
@@ -203,7 +210,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	var cmd *exec.Cmd
 	var netSetup sandboxNetwork
 	scratch := ""
-	if m.Untrusted() {
+	if !trusted {
 		var cleanup func()
 		var err error
 		scratch, cleanup, err = newSandboxScratch()
@@ -226,7 +233,7 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	cmd.Dir = m.Dir
 	cmd.Stdin = bytes.NewReader(input)
 	baseEnv := pluginBaseEnv(m)
-	if m.Untrusted() {
+	if !trusted {
 		// В песочнице плагину не нужны профиль пользователя и его каталоги:
 		// HOME/USERPROFILE/APPDATA вырезаются, секреты не передаются вовсе.
 		// HOME/TMPDIR указывают на приватный scratch этого запуска.

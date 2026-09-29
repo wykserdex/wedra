@@ -10,7 +10,7 @@
     "platform_api": {"type": "string", "minLength": 1},
     "description": {"type": "string"},
     "author": {"type": "string"},
-    "sandbox": {"type": "string", "enum": ["trusted", "untrusted"]},
+    "sandbox": {"type": "string", "enum": ["trusted", "untrusted"], "description": "Может только ПОНИЗИТЬ доверие. untrusted делает плагин внешним кодом даже при совпавшем хэше в allow-list; trusted не даёт доверия — его выдаёт ядро по хэшу содержимого (см. internal/plugin/trust.go)"},
     "runtime": {
       "type": "object",
       "required": ["type", "entry"],

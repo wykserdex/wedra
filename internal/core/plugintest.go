@@ -8,6 +8,7 @@ package core
 
 import (
 	"bytes"
+	stdctx "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"wedra/internal/plugin"
 )
 
 // ── Схема plugin.test.yaml ──────────────────────────────────────────────
@@ -162,7 +164,7 @@ func mergeEnv(base, extra []string) []string {
 	return out
 }
 
-func runCase(m *Manifest, tc PluginTestCase) CaseResult {
+func runCase(ctx stdctx.Context, m *Manifest, tc PluginTestCase) CaseResult {
 	cr := CaseResult{Name: tc.Name, Pass: true}
 	fail := func(format string, a ...interface{}) {
 		cr.Pass = false
@@ -190,7 +192,7 @@ func runCase(m *Manifest, tc PluginTestCase) CaseResult {
 	}
 
 	start := time.Now()
-	res := execPluginEnv(m, stdin, timeout, mapToEnv(tc.Env))
+	res := plugin.ExecWithEnvCtx(ctx, m, stdin, timeout, mapToEnv(tc.Env))
 	cr.Ms = time.Since(start).Milliseconds()
 
 	exp := tc.Expect
@@ -290,6 +292,19 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 	if err != nil {
 		return 0, 0, err
 	}
+	// Доверие каталогу, который назвал оператор: `wedra plugin test <dir>` —
+	// это просьба человека прогнать ИМЕННО ЭТОТ код. Основание то же, что у
+	// `AllowListFromDirs`: решение принял человек, а не плагин. Без этого
+	// разработка плагина была бы невозможна (а на Windows/macOS ещё и не
+	// работала бы: изолятора там нет, и внешний код не запускается вовсе).
+	//
+	// Это НЕ обход доверия в раннере: ран пайплайна сюда не ходит, у него
+	// свой путь — ядро и allow-list оператора.
+	allow, allowErr := plugin.AllowListFromDirs(dir)
+	if allowErr != nil {
+		return 0, 0, allowErr
+	}
+	ctx := plugin.WithTrustPolicy(stdctx.Background(), plugin.TrustPolicy{Trusted: allow})
 	if specPath == "" {
 		specPath = filepath.Join(dir, "plugin.test.yaml")
 	}
@@ -329,7 +344,7 @@ func RunPluginTests(dir, specPath string, quiet bool) (passed, failed int, err e
 		if name == "" {
 			name = "(без имени)"
 		}
-		res := runCase(m, PluginTestCase{Timeout: tc.Timeout, Env: tc.Env, Input: tc.Input, InputRaw: tc.InputRaw, Expect: tc.Expect, Name: name})
+		res := runCase(ctx, m, PluginTestCase{Timeout: tc.Timeout, Env: tc.Env, Input: tc.Input, InputRaw: tc.InputRaw, Expect: tc.Expect, Name: name})
 		printCase(res, quiet)
 		if res.Pass {
 			passed++

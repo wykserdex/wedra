@@ -68,6 +68,16 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	fixturesDir = defaultConformanceFixturesDir(fixturesDir)
 	var checks []ConformanceCheck
 
+	// Доверие фикстурам: конформность гоняет плагины ИЗ КАТАЛОГА, который
+	// оператор назвал (или который сама функция выбрала из каталога ядра). Это
+	// прямое указание человека, а не самообъявление плагина, — по сути тем же
+	// основанием, что и `wedra plugin test <dir>`. Без этого батарея падала бы
+	// на отказе по политике и не проверяла бы ничего.
+	fixtureCtx := context.Background()
+	if list, err := plugin.AllowListFromDirs(fixturesDir); err == nil {
+		fixtureCtx = plugin.WithTrustPolicy(fixtureCtx, plugin.TrustPolicy{Trusted: list})
+	}
+
 	load := func(name string) *Manifest {
 		eng := NewEngine()
 		m, err := eng.LoadManifest(filepath.Join(fixturesDir, name))
@@ -109,7 +119,7 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	if m := load("echo_ok"); m == nil {
 		checks = append(checks, confFail("handshake", "echo_ok не загрузился"))
 	} else {
-		res := plugin.Exec(m, []byte("{}"), 10*time.Second)
+		res := plugin.ExecWithEnvCtx(fixtureCtx, m, []byte("{}"), 10*time.Second, nil)
 		if res.OK() {
 			checks = append(checks, confPass("handshake"))
 		} else {
@@ -121,7 +131,7 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	if m := load("chatter"); m == nil {
 		checks = append(checks, confFail("big_stdout", "chatter не загрузился"))
 	} else {
-		res := plugin.Exec(m, []byte("{}"), 30*time.Second)
+		res := plugin.ExecWithEnvCtx(fixtureCtx, m, []byte("{}"), 30*time.Second, nil)
 		if res.Platform && res.ErrCode == "protocol_violation" {
 			checks = append(checks, confPass("big_stdout"))
 		} else {
@@ -133,7 +143,7 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	if m := load("big_stderr"); m == nil {
 		checks = append(checks, confFail("big_stderr", "big_stderr не загрузился"))
 	} else {
-		res := plugin.Exec(m, []byte("{}"), 30*time.Second)
+		res := plugin.ExecWithEnvCtx(fixtureCtx, m, []byte("{}"), 30*time.Second, nil)
 		if res.OK() {
 			checks = append(checks, confPass("big_stderr"))
 		} else {
@@ -145,7 +155,9 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	if m := load("sleeper"); m == nil {
 		checks = append(checks, confFail("cancel", "sleeper не загрузился"))
 	} else {
-		ctx, cancel := context.WithCancel(context.Background())
+		// Отмена наследует политику доверия фикстур: context.WithCancel поверх
+		// context.Background() её бы потерял, и плагин ушёл бы в песочницу.
+		ctx, cancel := context.WithCancel(fixtureCtx)
 		done := make(chan *plugin.ExecResult, 1)
 		go func() { done <- plugin.ExecWithEnvCtx(ctx, m, []byte("{}"), 30*time.Second, nil) }()
 		time.Sleep(300 * time.Millisecond)

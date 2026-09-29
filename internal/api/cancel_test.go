@@ -66,6 +66,9 @@ pipeline:
 		t.Fatal(err)
 	}
 	srv := NewServer(plugins, pipelines, runs)
+	// Фикстурный плагин в tempdir — внешний код по построению; доверие выдаём
+	// явно, иначе ран падал бы на отказе по политике и отменять было бы нечего.
+	trustDirIn(t, srv, plugins)
 	ts := newTestServer(t, srv)
 
 	code, start := postJSON(t, ts.URL+"/api/run", map[string]interface{}{"file": "sleep.yaml", "yes": true})

@@ -19,6 +19,18 @@ const fxPlugins = "testdata/plugins/"
 func sec(n int) Duration  { return Duration{Duration: time.Duration(n) * time.Second} }
 func msec(n int) Duration { return Duration{Duration: time.Duration(n) * time.Millisecond} }
 
+// counterPathFor — где хранит счётчик попыток плагин retry_flaky.
+//
+// Путь задаётся через RETRY_COUNTER и лежит ВНЕ каталога плагина: доверенность
+// определяется хэшем содержимого каталога, и запись _counter рядом с main.py
+// меняла бы хэш и отзывала доверие у плагина, который только что отработал.
+func counterPathFor(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "retry_counter")
+	t.Setenv("RETRY_COUNTER", p)
+	return p
+}
+
 func resetCounter(t *testing.T, plugin string) {
 	t.Helper()
 	p := filepath.Join(fxPlugins, plugin, "_counter")
@@ -154,6 +166,7 @@ func TestRunSkipPolicy(t *testing.T) {
 
 func TestRunRetrySucceeds(t *testing.T) {
 	requirePython(t)
+	counterPathFor(t)
 	resetCounter(t, "retry_flaky")
 	pf := &PipelineFile{
 		FormatVersion: PlatformAPI,
@@ -186,6 +199,7 @@ func TestRunRetrySucceeds(t *testing.T) {
 
 func TestRunRetryExhaustedIsStop(t *testing.T) {
 	requirePython(t)
+	counterPathFor(t)
 	resetCounter(t, "retry_flaky")
 	pf := &PipelineFile{
 		FormatVersion: PlatformAPI,
