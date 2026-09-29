@@ -167,6 +167,10 @@ const (
 	E_FILE_REF_UNCHECKED = "E_FILE_REF_UNCHECKED"
 	// MCP: в пайплайне гейт, а консоли человека нет — отказ до старта.
 	E_NO_HUMAN_CHANNEL = "E_NO_HUMAN_CHANNEL"
+	// MCP run_pipeline: первый опасный шаг (сеть/диск/секреты по capabilities
+	// плагина) идёт без human_gate перед собой — отказ до старта. Раньше кода
+	// не было: гейт был необязателен, и пайплайн без него исполнялся целиком.
+	E_GATE_REQUIRED = "E_GATE_REQUIRED"
 	// Рантайм: гейт в режиме без UI.
 	E_NO_GATE_UI = "E_NO_GATE_UI"
 	// Уже идёт ран (один за раз), MCP и HTTP 409.

@@ -64,6 +64,8 @@ type Server struct {
 	// Инициализируется в NewServer; nil означает «слоты не настроены», и
 	// exec_plugin тогда отказывает, а не выполняется без предела.
 	execSem chan struct{}
+	// allowUngatedRuns — обход требования одобрения (см. Options).
+	allowUngatedRuns bool
 
 	mu           sync.Mutex
 	running      bool
@@ -99,6 +101,12 @@ type Options struct {
 	// context.Background(), то есть с нулевой политикой. Политика приходит
 	// из флагов командной строки (cli.RunMCP).
 	Trust plugin.TrustPolicy
+	// AllowUngatedRuns — операторский обход требования одобрения: ран с
+	// опасным шагом и без human_gate разрешается. Обход НЕ молчаливый: каждый
+	// такой запуск пишется в <runs-dir>/gate-bypass.jsonl, а неудачная запись
+	// означает отказ (неоплаченный запуск недопустим). Локальное доверенное
+	// использование, а не режим по умолчанию.
+	AllowUngatedRuns bool
 }
 
 // HumanChannel — куда MCP-сервер отдаёт гейты ранов. Реализация (cli/mcp.go)
@@ -153,16 +161,17 @@ func NewServer(opts Options) (*Server, error) {
 	eng.PluginsDir = absPlugins[0]
 	multi := &multiEngine{dirs: absPlugins, workDir: absWork}
 	return &Server{
-		pluginsDirs: absPlugins,
-		workDir:     absWork,
-		runsDir:     runsDir,
-		engine:      eng,
-		multi:       multi,
-		runs:        map[string]*runState{},
-		cancels:     map[string]context.CancelFunc{},
-		human:       opts.Human,
-		trust:       opts.Trust,
-		execSem:     make(chan struct{}, MaxConcurrentAgentExec),
+		pluginsDirs:      absPlugins,
+		workDir:          absWork,
+		runsDir:          runsDir,
+		engine:           eng,
+		multi:            multi,
+		runs:             map[string]*runState{},
+		cancels:          map[string]context.CancelFunc{},
+		human:            opts.Human,
+		trust:            opts.Trust,
+		execSem:          make(chan struct{}, MaxConcurrentAgentExec),
+		allowUngatedRuns: opts.AllowUngatedRuns,
 	}, nil
 }
 
@@ -880,9 +889,32 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	if len(missing) > 0 {
 		return "", false, rpcErr("secrets_missing", "secrets: нет env "+strings.Join(missing, ", ")+" (значения в YAML не живут)")
 	}
+	// H2: опасный шаг без гейта перед ним. Проверяются capabilities шага
+	// (permissions плагина), а не «есть ли гейт вообще»: гейт ПОСЛЕ
+	// опасного шага не защищает — человек увидит результат, а не намерение.
+	//
+	// Обход требования (--allow-unapproved-runs) не тихий: след пишется в
+	// отдельный append-only журнал, и если след не записался — отказ.
+	if req := pipeline.EvaluateGateApproval(pf, s.multi); req.Required {
+		refusal := gateRefusal(req)
+		if !s.allowUngatedRuns {
+			return "", false, refusal
+		}
+		if err := s.auditGateBypass(pf.Pipeline.Name, req); err != nil {
+			return "", false, &RPCError{Code: -32000,
+				Message: refusal.Message + "; операторский обход не записан в аудит (" + err.Error() +
+					"): неоплаченный запуск недопустим, отказ до старта",
+				Data: map[string]string{"code": pipeline.E_GATE_REQUIRED, "step": req.Step}}
+		}
+		s.logf("! обход требования гейта (--allow-unapproved-runs): шаг %s (%s) с правами «%s» пойдёт без одобрения человека; след в %s",
+			req.Step, req.Plugin, req.Why, filepath.Join(s.runsDir, gateBypassAuditFile))
+	}
+	// IsHumanGate, а не IsBuiltin: core/text_stats — встроенный модуль, но не
+	// гейт. Раньше он считался гейтом, и пайплайн только с ним отклонялся по
+	// E_NO_HUMAN_CHANNEL, хотя одобрять в нём нечего.
 	hasGate := false
-	for _, st := range pf.Pipeline.Steps {
-		if pipeline.IsBuiltin(st.Plugin) {
+	for i := range pf.Pipeline.Steps {
+		if pipeline.IsHumanGate(pf.Pipeline.Steps[i].Plugin) {
 			hasGate = true
 			break
 		}
@@ -1002,6 +1034,48 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 // ни один шаг, "done" не бывает: агент обязан это увидеть в статусе.
 func runSucceeded(aborted, ok int, foreach string) bool {
 	return !(aborted > 0 && foreach == "")
+}
+
+// gateRefusal — отказ E_GATE_REQUIRED. Текст отвечает на два вопроса агента:
+// ЧТО опасно (шаг, плагин, конкретные права) и КАК починить (поставить
+// core/human_gate перед этим шагом). Гейт после опасного шага называется
+// отдельно: он выглядит как решение, но ничего не одобряет.
+func gateRefusal(req pipeline.GateRequirement) *RPCError {
+	msg := "шаг " + req.Step + " (плагин " + req.Plugin + ") объявил права: " + req.Why +
+		" — такое требует одобрения человека, а human_gate перед ним нет"
+	if req.GateAfter {
+		msg += "; гейт " + req.GateID + " стоит ПОСЛЕ этого шага и одобрения не даёт"
+	}
+	msg += ". Добавьте шаг core/human_gate (actions: [accept, reject]) перед опасным шагом" +
+		" — для локального доверенного использования оператор может запустить сервер с --allow-unapproved-runs"
+	return &RPCError{Code: -32000, Message: msg,
+		Data: map[string]string{"code": pipeline.E_GATE_REQUIRED, "step": req.Step, "plugin": req.Plugin}}
+}
+
+// gateBypassAuditFile — append-only журнал обходов требования одобрения.
+// Отдельный от agent-exec.jsonl: там решения о запуске КОДА плагином, здесь —
+// решение о запуске РАНА без человека. Оба журнала append-only и оба fsync-ятся
+// до того, как действие состоялось.
+const gateBypassAuditFile = "gate-bypass.jsonl"
+
+// Событие журнала обходов: один на каждый обойдённый ран.
+const gateBypassEvent = "agent_run_gate_bypassed"
+
+// auditGateBypass — зафиксировать операторский обход. Ошибка означает отказ:
+// обход без следа — это ровно тот тихий режим, ради которого проверка и
+// добавлена. Права опасного шага пишутся списком, а не флагом, чтобы читатель
+// журнала видел, ЧТО именно пошло без одобрения.
+func (s *Server) auditGateBypass(pipelineName string, req pipeline.GateRequirement) error {
+	return s.writeAuditFile(gateBypassAuditFile, map[string]interface{}{
+		"event":        gateBypassEvent,
+		"source":       "operator_flag",
+		"flag":         "--allow-unapproved-runs",
+		"pipeline":     pipelineName,
+		"step":         req.Step,
+		"plugin":       req.Plugin,
+		"capabilities": req.Why,
+		"gate_after":   req.GateAfter,
+	})
 }
 
 func (s *Server) pruneRunsLocked() {
@@ -1366,9 +1440,17 @@ func newExecID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// writeAuditRecord дописывает одну строку в журнал. Общий низ для обеих
-// записей: иначе «не записалось» и «не сериализовалось» разъезжаются.
+// writeAuditRecord дописывает одну строку в журнал запусков плагинов агентом.
+// Общий низ для обеих записей: иначе «не записалось» и «не сериализовалось»
+// разъезжаются.
 func (s *Server) writeAuditRecord(record map[string]interface{}) error {
+	return s.writeAuditFile(agentExecAuditFile, record)
+}
+
+// writeAuditFile — дописать запись в указанный append-only журнал каталога ранов.
+// Общий низ для журналов безопасности: fsync обязателен в обоих, потому что
+// запись должна пережить падение процесса сразу после действия.
+func (s *Server) writeAuditFile(name string, record map[string]interface{}) error {
 	if s.runsDir == "" {
 		return fmt.Errorf("не задан каталог ранов, запись о запуске агентом невозможна")
 	}
@@ -1377,7 +1459,7 @@ func (s *Server) writeAuditRecord(record map[string]interface{}) error {
 	if err != nil {
 		return fmt.Errorf("не сериализовать запись аудита: %w", err)
 	}
-	path := filepath.Join(s.runsDir, agentExecAuditFile)
+	path := filepath.Join(s.runsDir, name)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("открыть журнал запусков агента (%s): %w", path, err)
@@ -1393,6 +1475,13 @@ func (s *Server) writeAuditRecord(record map[string]interface{}) error {
 		return fmt.Errorf("сбросить журнал запусков агента на диск (%s): %w", path, err)
 	}
 	return nil
+}
+
+// logf — единственный канал сообщений сервера в лог. В MCP-процессе stdout
+// принадлежит протоколу (cli/mcp.go перенаправляет os.Stdout в stderr), поэтому
+// лог всегда в stderr и никогда не попадает в JSON-RPC.
+func (s *Server) logf(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "wedra mcp: "+format+"\n", args...)
 }
 
 // auditAgentExecIntent фиксирует НАМЕРЕНИЕ запустить плагин и возвращает id

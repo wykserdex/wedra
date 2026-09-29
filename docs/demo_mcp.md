@@ -39,6 +39,8 @@ curl -X POST http://127.0.0.1:<порт из hint>/api/runs/<id>/gate -d '{"acti
 
 - у агента нет инструмента одобрения (MCP: только `get_run` с hint
   «попросите пользователя одобрить шаг X в окне wedra»)
+- и агент не может выкинуть гейт: пайплайн без `core/human_gate`, где есть шаг
+  с capabilities «сеть/диск/секреты», отклоняется с `E_GATE_REQUIRED` до старта
 - `--yes` при `approval: human` / `pipeline.gates: human_only` тоже ждёт человека
 - в журнале `gate_decision`: `source: gui` (терминал: `terminal`, CI: `auto_yes`)
 
