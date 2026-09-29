@@ -198,6 +198,61 @@ func TestCodeInsideStringCounts(t *testing.T) {
 	}
 }
 
+// ОПЕЧАТКА В ЛИТРАЛЕ. Код, которого нет ни среди констант, ни среди строк
+// контракта, — это опечатка: агент получит код, не находящийся ни в одном
+// документе. Проверено на живом репозитории отдельно (внедрение E_RUN_BSY
+// роняет шаг), здесь то же на фикстуре.
+func TestUnknownLiteralIsReportedAsTypo(t *testing.T) {
+	f := newFixture(t)
+	f.writeIssue("\tE_ALPHA = \"E_ALPHA\"\n")
+	f.writeDoc("| E_ALPHA | пример |")
+	f.emit("a.go", "package api\n\nvar raw = `{\"code\":\"E_ALPGA\"}`\n")
+	out, err := CheckRepo(f.dir)
+	if err == nil {
+		t.Fatal("литерал с опечаткой должен ронять проверку")
+	}
+	if !strings.Contains(out, "E_ALPGA") {
+		t.Errorf("в отчёте нет ошибочного кода:\n%s", out)
+	}
+	if !strings.Contains(out, "опечатка") {
+		t.Errorf("отчёт должен называть причину, а не просто перечислять:\n%s", out)
+	}
+}
+
+// Код, который в контракте есть, но объявлен строкой, — не поломка: работает.
+// Иначе сверка требовала бы миграции 43 мест эмиссии до того, как вообще
+// заработала бы.
+func TestKnownLiteralIsNotAFailure(t *testing.T) {
+	f := newFixture(t)
+	f.writeIssue("\tE_ALPHA = \"E_ALPHA\"\n")
+	f.writeDoc("| E_ALPHA | пример |\n| E_BUSY | тоже только строкой |")
+	f.emit("a.go", "package api\n\nvar one = E_ALPHA\n\nvar raw = `{\"code\":\"E_BUSY\"}`\n")
+	out, err := CheckRepo(f.dir)
+	if err != nil {
+		t.Fatalf("известный код строкой — не поломка:\n%s", out)
+	}
+	if !strings.Contains(out, "E_BUSY") {
+		t.Errorf("известный литерал без константы должен быть показан как требующий константы:\n%s", out)
+	}
+}
+
+// ФИКСТУРЫ ЭТОЙ САМОЙ ПРОВЕРКИ содержат вымышленные коды. Если бы сканер
+// заходил в _test.go, они считались бы эмиссией и опекойка прошла бы незамеченной.
+func TestOwnTestFixturesAreNotTreatedAsEmission(t *testing.T) {
+	f := newFixture(t)
+	f.writeIssue("\tE_ALPHA = \"E_ALPHA\"\n")
+	f.writeDoc("| E_ALPHA | пример |")
+	// Код есть только в тесте — эмиссией считаться не должен.
+	f.emit("a_test.go", "package api\n\nvar raw = `{\"code\":\"E_MADE_UP\"}`\n")
+	out, err := CheckRepo(f.dir)
+	if err != nil {
+		t.Fatalf("фикстуры в _test.go не должны ломать проверку:\n%s", out)
+	}
+	if strings.Contains(out, "E_MADE_UP") {
+		t.Errorf("код из _test.go попал в отчёт как эмиссия:\n%s", out)
+	}
+}
+
 // Настоящий репозиторий должен сходиться. Если этот тест падает, значит либо
 // появилось расхождение (и это правда), либо сломалась проверка (и это тоже
 // правда, но чинить надо её).

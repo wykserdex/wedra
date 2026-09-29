@@ -791,8 +791,10 @@ func (s *Server) toolDescribePlugin(args map[string]interface{}) (string, bool, 
 var policyIssueCodes = map[string]string{
 	"E_NETWORK_DENIED":        "network_denied",
 	"E_PLUGIN_OUTSIDE_ROOT":   "plugin_outside_root",
-	"E_UNSUPPORTED_PROTOCOL":  "unsupported_protocol",
 	"E_FILE_REF_OUTSIDE_ROOT": "file_ref_outside_root",
+	// E_UNSUPPORTED_PROTOCOL был здесь ключом, но нигде в проекте не
+	// эмитился: мёртвая запись обещала код, которого агент никогда не видел.
+	// Убрана; вернётся вместе с реальной проверкой версии протокола.
 }
 
 // policyIssue — превратить отказ политики в Issue. Исходный код политики

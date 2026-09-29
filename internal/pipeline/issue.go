@@ -142,3 +142,39 @@ const (
 	W_PARALLEL_SINGLE       = "W_PARALLEL_SINGLE"
 	W_FILE_REF_ROOT         = "W_FILE_REF_ROOT"
 )
+
+// Коды рантайма и API. Не Issue — они не попадают в issues[] валидации,
+// но принадлежат тому же публичному контракту, поэтому объявлены здесь, а не
+// строкой в месте использования.
+//
+// Раньше каждый из них был строковым литералом. Это значило две вещи: опечатку
+// не ловил ничто, и шаг `wedra check --only=errcodes` их не видел — сверка
+// смотрела только на константы. Проверка codesUnknownLiteral в internal/errdoc
+// теперь требует, чтобы литерал совпадал с объявленной константой либо с
+// кодом из контракта, так что опечатка падает в CI.
+const (
+	// MCP: ссылка на плагин вне корней --plugins/--workdir.
+	E_PLUGIN_OUTSIDE_ROOT = "E_PLUGIN_OUTSIDE_ROOT"
+	// MCP: file_ref вне --workdir.
+	E_FILE_REF_OUTSIDE_ROOT = "E_FILE_REF_OUTSIDE_ROOT"
+	// MCP: file_ref не удалось проверить, шаг не исполняется.
+	E_FILE_REF_UNCHECKED = "E_FILE_REF_UNCHECKED"
+	// MCP: в пайплайне гейт, а консоли человека нет — отказ до старта.
+	E_NO_HUMAN_CHANNEL = "E_NO_HUMAN_CHANNEL"
+	// Рантайм: гейт в режиме без UI.
+	E_NO_GATE_UI = "E_NO_GATE_UI"
+	// Уже идёт ран (один за раз), MCP и HTTP 409.
+	E_RUN_BUSY = "E_RUN_BUSY"
+	// Отмена уже завершённого рана.
+	E_RUN_DONE = "E_RUN_DONE"
+	// HTTP 401: мутация без cookie сессии человека.
+	E_SESSION_REQUIRED = "E_SESSION_REQUIRED"
+	// MCP exec_plugin: запуск без --allow-agent-exec.
+	E_AGENT_EXEC_DENIED = "E_AGENT_EXEC_DENIED"
+	// MCP exec_plugin: плагин агента при политике trusted.
+	E_AGENT_PLUGIN_UNTRUSTED = "E_AGENT_PLUGIN_UNTRUSTED"
+	// MCP exec_plugin: одновременных запусков уже 4.
+	E_AGENT_EXEC_BUSY = "E_AGENT_EXEC_BUSY"
+	// MCP exec_plugin: не удалось записать строку аудита.
+	E_AGENT_EXEC_AUDIT = "E_AGENT_EXEC_AUDIT"
+)

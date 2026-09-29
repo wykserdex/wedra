@@ -61,8 +61,9 @@ type inventory struct {
 	documented map[string]string
 	// usages: код → вхождения
 	usages map[string][]usage
-	// literalOnly: коды, встречающиеся строковым литералом вне issue.go
-	literalOnly map[string]bool
+	// literalOnly: коды, встречающиеся строковым литералом вне issue.go,
+	// значение — где встретились (для отчёта об опечатке).
+	literalOnly map[string]string
 }
 
 // CheckRepo сверяет коды с контрактом. Отчёт возвращается строкой, а решение —
@@ -83,6 +84,7 @@ func CheckRepo(repo string) (string, error) {
 	}
 
 	var missingDoc, missingCode, dead, reserved, literal []string
+	var unknownLiteral, needsConst []string
 	for code, at := range inv.declared {
 		_, documented := inv.documented[code]
 		used := len(inv.usages[code]) > 0
@@ -101,25 +103,42 @@ func CheckRepo(repo string) (string, error) {
 		if _, ok := inv.declared[code]; ok {
 			continue
 		}
-		if inv.literalOnly[code] {
+		if _, emitted := inv.literalOnly[code]; emitted {
 			continue
 		}
 		missingCode = append(missingCode, fmt.Sprintf("    %-28s описан %s, но нигде не объявлен и не выдаётся", code, at))
 	}
-	for code := range inv.literalOnly {
-		if _, ok := inv.declared[code]; !ok {
-			literal = append(literal, code)
+	for code, at := range inv.literalOnly {
+		if _, ok := inv.declared[code]; ok {
+			continue
 		}
+		// ЛИТЕРАЛ БЕЗ ОПРЕДЕЛЕНИЯ. Код, которого нет ни среди констант, ни
+		// среди строк контракта, — это почти всегда опечатка: агент получит
+		// код, которого нет ни в одном документе, и найти его не сможет. Именно
+		// этот случай раньше ловился ничем, потому что литерал не сверялся ни
+		// с чем.
+		if _, known := inv.documented[code]; !known {
+			unknownLiteral = append(unknownLiteral,
+				fmt.Sprintf("    %-28s встречается как строка (%s), но нет ни константы, ни строки в %s",
+					code, at, errorsDoc))
+			continue
+		}
+		// Известный код, но всё ещё строкой. Не поломка: работает и описан.
+		// Но опечатку в соседнем литерале такой код уже не защитит, поэтому
+		// показываем как «требует константы».
+		needsConst = append(needsConst, code)
 	}
 	sort.Strings(missingDoc)
 	sort.Strings(missingCode)
 	sort.Strings(dead)
 	sort.Strings(reserved)
 	sort.Strings(literal)
+	sort.Strings(unknownLiteral)
+	sort.Strings(needsConst)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "коды ошибок: в коде %d, в контракте %d; не описаны %d, без кода %d, мёртвых %d, зарезервировано %d, литералом %d",
-		len(inv.declared), len(inv.documented), len(missingDoc), len(missingCode), len(dead), len(reserved), len(literal))
+	fmt.Fprintf(&b, "коды ошибок: в коде %d, в контракте %d; не описаны %d, без кода %d, мёртвых %d, зарезервировано %d, литералом %d, неизвестных литералов %d",
+		len(inv.declared), len(inv.documented), len(missingDoc), len(missingCode), len(dead), len(reserved), len(literal), len(unknownLiteral))
 
 	section := func(title string, lines []string) {
 		if len(lines) == 0 {
@@ -134,14 +153,14 @@ func CheckRepo(repo string) (string, error) {
 	section(fmt.Sprintf("(в) описан в %s, но не объявлен и не выдаётся:", errorsDoc), missingCode)
 	section("(г) мёртвые константы — объявлены, не описаны, не используются:", dead)
 	section("(р) зарезервировано — описано, но не эмитится (это не поломка):", reserved)
-	section("(л) выдаётся строковым литералом, а не константой — опечатку в нём"+
-		" не ловит ничто, и в сверку констант он не попадает:", literal)
+	section("(х) строковый литерал без определения — почти наверняка опечатка:", unknownLiteral)
+	section("(л) известный код, но пока строкой, а не константой — работает, опечатку рядом не защитит:", needsConst)
 
-	if len(missingDoc) == 0 && len(missingCode) == 0 && len(dead) == 0 {
+	if len(missingDoc) == 0 && len(missingCode) == 0 && len(dead) == 0 && len(unknownLiteral) == 0 {
 		return b.String(), nil
 	}
-	return b.String(), fmt.Errorf("коды расходятся: не описаны %d, без кода %d, мёртвых %d",
-		len(missingDoc), len(missingCode), len(dead))
+	return b.String(), fmt.Errorf("коды расходятся: не описаны %d, без кода %d, мёртвых %d, неизвестных литералов %d",
+		len(missingDoc), len(missingCode), len(dead), len(unknownLiteral))
 }
 
 func firstProd(us []usage) string {
@@ -161,7 +180,7 @@ func scan(repo string) (*inventory, error) {
 		declared:    map[string]string{},
 		documented:  map[string]string{},
 		usages:      map[string][]usage{},
-		literalOnly: map[string]bool{},
+		literalOnly: map[string]string{},
 	}
 	if err := inv.parseIssueFile(repo); err != nil {
 		return nil, err
@@ -272,6 +291,12 @@ func (inv *inventory) scanGo(repo string) error {
 			if !strings.HasSuffix(path, ".go") {
 				return nil
 			}
+			// Тесты пропускаем: фикстуры этой же проверки содержат вымышленные
+			// коды, и их нельзя считать эмиссией. Побочно это правильно и для
+			// проверки мёртвых: константа, которую видит только тест, мертва.
+			if strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
 			return inv.scanFile(repo, path)
 		})
 		if err != nil {
@@ -338,7 +363,9 @@ func (inv *inventory) scanFile(repo, path string) error {
 				for _, code := range codeInsideRe.FindAllString(s, -1) {
 					inv.usages[code] = append(inv.usages[code], usage{Where: at, Prod: prod})
 					if !isDeclFile {
-						inv.literalOnly[code] = true
+						if _, seen := inv.literalOnly[code]; !seen {
+							inv.literalOnly[code] = at
+						}
 					}
 				}
 				return true
@@ -351,7 +378,9 @@ func (inv *inventory) scanFile(repo, path string) error {
 				return true
 			}
 			inv.usages[s] = append(inv.usages[s], usage{Where: at, Prod: prod})
-			inv.literalOnly[s] = true
+			if _, seen := inv.literalOnly[s]; !seen {
+				inv.literalOnly[s] = at
+			}
 		}
 		return true
 	})
