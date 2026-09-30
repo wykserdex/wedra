@@ -136,6 +136,11 @@ type GateRequirement struct {
 	GateID string
 	// GateAfter — GateID стоит после опасного шага (а не до и не вовсе).
 	GateAfter bool
+	// GateIneffective — причина, по которой гейт ПЕРЕД опасным шагом не
+	// считается одобрением (GateID — этот гейт). Пусто, если такого гейта нет.
+	// Гейт, который может не выполниться или чей отказ не останавливает ран,
+	// одобрения человека не гарантирует.
+	GateIneffective string
 }
 
 // IsHumanGate — встроенный модуль ИМЕННО гейт человека.
@@ -148,27 +153,62 @@ func IsHumanGate(ref string) bool {
 	return ok && canonical == common.HumanGatePluginRef
 }
 
-// EvaluateGateApproval — нужен ли гейт перед первым опасным шагом пайплайна.
+// whenSet — у шага задано условие when.
+func whenSet(w When) bool {
+	return w.Path != "" || w.Op != "" || w.Value != nil
+}
+
+// GateIneffectiveReason — почему гейт g НЕ гарантирует одобрение человека для
+// шага guarded. Пустая строка — гейт действует.
 //
-// Решение принимает ПЕРВЫЙ опасный шаг: гейт после него ничего не решает.
-// Если опасных шагов нет, одобрение не требуется — иначе правило было бы
-// слишком широким (агент не смог бы запустить, например, подсчёт слов).
+// Позиция гейта в списке необходима, но недостаточна. Гейт стоит перед опасным
+// шагом и при этом одобрения не даёт, если:
+//
+//   - у него задан when: условие может оказаться ложным, гейт будет пропущен
+//     (step_skipped), а опасный шаг выполнится без человека. Статически это
+//     неизвестно, поэтому гейт с when не засчитывается;
+//   - on_error: skip — ошибка гейта (например, закрытие канала) его пропускает;
+//   - on_reject: continue — человек нажал reject, а ран идёт дальше: отказ
+//     превращается в формальность;
+//   - after_foreach при foreach-пайплайне, когда охраняемый шаг идёт по
+//     элементам: шаги по элементам выполняются до шагов after_foreach,
+//     то есть гейт отработает ПОСЛЕ опасного шага.
+//
+// Направление ошибки то же, что у всего правила: лишний отказ стоит агенту
+// одной правки YAML, пропущенный гейт — исполнения без человека.
+func GateIneffectiveReason(pf *PipelineFile, g, guarded *Step) string {
+	if g == nil {
+		return "гейт не найден"
+	}
+	if whenSet(g.When) {
+		return "у гейта задано when: он может быть пропущен, а опасный шаг выполнится без человека"
+	}
+	if g.OnError == "skip" {
+		return "у гейта on_error: skip: ошибка гейта пропускает его"
+	}
+	if g.OnReject == "continue" {
+		return "у гейта on_reject: continue: отказ человека не останавливает ран (нужен stop или значение по умолчанию)"
+	}
+	if pf != nil && guarded != nil && pf.Pipeline.Foreach != "" && g.AfterForeach && !guarded.AfterForeach {
+		return "гейт с after_foreach выполняется после шагов по элементам, то есть после опасного шага"
+	}
+	return ""
+}
+
+// EvaluateGateApproval — нужен ли гейт перед опасными шагами пайплайна.
+//
+// Каждый опасный шаг проверяется отдельно: перед ним должен стоять хотя бы
+// один ДЕЙСТВУЮЩИЙ гейт (GateIneffectiveReason == ""). Вердикт возвращается по
+// первому шагу, не прошедшему проверку. Если опасных шагов нет, одобрение не
+// требуется — иначе правило было бы слишком широким (агент не смог бы
+// запустить, например, подсчёт слов).
 func EvaluateGateApproval(pf *PipelineFile, eng Engine) GateRequirement {
 	if pf == nil {
 		return GateRequirement{}
 	}
-	// Гейт ищется по всему списку, а не «до первого опасного»: гейт ПОСЛЕ
-	// опасного шага ничего не одобряет, и агенту полезно сказать об этом
-	// прямо («переставь гейт выше»), а не просто «гейта нет».
-	firstGate := -1
-	for i := range pf.Pipeline.Steps {
-		if IsHumanGate(pf.Pipeline.Steps[i].Plugin) {
-			firstGate = i
-			break
-		}
-	}
-	for i := range pf.Pipeline.Steps {
-		st := &pf.Pipeline.Steps[i]
+	steps := pf.Pipeline.Steps
+	for i := range steps {
+		st := &steps[i]
 		if IsHumanGate(st.Plugin) {
 			continue
 		}
@@ -176,14 +216,38 @@ func EvaluateGateApproval(pf *PipelineFile, eng Engine) GateRequirement {
 		if !caps.Dangerous() {
 			continue
 		}
-		// Гейт выше по списку отработал бы до этого шага — одобрение получено.
-		if firstGate >= 0 && firstGate < i {
-			return GateRequirement{}
+		var badGate *Step
+		badWhy := ""
+		approved := false
+		for j := 0; j < i; j++ {
+			g := &steps[j]
+			if !IsHumanGate(g.Plugin) {
+				continue
+			}
+			why := GateIneffectiveReason(pf, g, st)
+			if why == "" {
+				approved = true
+				break
+			}
+			if badGate == nil {
+				badGate, badWhy = g, why
+			}
+		}
+		if approved {
+			continue
 		}
 		req := GateRequirement{Required: true, Step: st.ID, Plugin: st.Plugin, Why: caps.Why()}
-		if firstGate > i {
-			req.GateID = pf.Pipeline.Steps[firstGate].ID
-			req.GateAfter = true
+		switch {
+		case badGate != nil:
+			req.GateID, req.GateIneffective = badGate.ID, badWhy
+		default:
+			// Гейта выше нет. Если он есть ниже, скажем об этом прямо.
+			for j := i + 1; j < len(steps); j++ {
+				if IsHumanGate(steps[j].Plugin) {
+					req.GateID, req.GateAfter = steps[j].ID, true
+					break
+				}
+			}
 		}
 		return req
 	}
