@@ -435,3 +435,31 @@ func TestGatePolicyAndServerShareCapabilities(t *testing.T) {
 		t.Error("Why() обязан быть непустым")
 	}
 }
+
+// Гейт, который может не выполниться или чей отказ не останавливает ран, не
+// считается одобрением: MCP отказывает до старта, как и без гейта вовсе.
+func TestRunPipelineRefusesIneffectiveGate(t *testing.T) {
+	cases := map[string]string{
+		"when":      "      when: {path: input.t, op: eq, value: never}\n",
+		"on_reject": "      on_reject: continue\n",
+		"on_error":  "      on_error: skip\n",
+	}
+	for name, extra := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, pluginDir := gateServer(t, gateServerOpts{human: &fakeHuman{accept: true}, dangerous: true})
+			yaml := "format_version: \"0.2\"\npipeline:\n  name: ineffective_" + name + "\n  input: {t: a}\n  steps:\n" +
+				"    - id: review\n      plugin: core/human_gate\n      form: []\n      actions: [accept, reject]\n" + extra +
+				"    - id: step\n      plugin: " + pluginDir + "\n"
+			runID, _, rpcErr := startRun(t, srv, yaml)
+			if rpcErr == nil {
+				t.Fatalf("гейт с %s не гарантирует одобрение, а ран стартовал (run_id=%q)", name, runID)
+			}
+			if code := rpcCodeOf(rpcErr); code != "E_GATE_REQUIRED" {
+				t.Fatalf("code = %q, ждали E_GATE_REQUIRED (%s)", code, rpcErr.Message)
+			}
+			if !strings.Contains(rpcErr.Message, "review") || !strings.Contains(rpcErr.Message, "не гарантирует") {
+				t.Errorf("отказ должен называть гейт и причину: %s", rpcErr.Message)
+			}
+		})
+	}
+}
