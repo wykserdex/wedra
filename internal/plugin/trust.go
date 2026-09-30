@@ -162,6 +162,11 @@ func DecideTrust(m *pipeline.Manifest, policy TrustPolicy) TrustDecision {
 	if m.Sandbox == pipeline.SandboxUntrusted {
 		return TrustDecision{Reason: "манифест объявил себя внешним кодом (sandbox: untrusted)"}
 	}
+	// Точка входа обязана лежать внутри хэшируемого содержимого: иначе плагин
+	// исполнял бы файл, которого хэш не видит.
+	if !entryIsHashed(m.Dir, m.Runtime.Entry) {
+		return TrustDecision{Reason: "runtime.entry " + m.Runtime.Entry + " вне хэшируемого содержимого плагина"}
+	}
 	digest, err := ContentDigest(m.Dir)
 	if err != nil {
 		return TrustDecision{Reason: "содержимое плагина не проверяется: " + err.Error()}
@@ -169,11 +174,13 @@ func DecideTrust(m *pipeline.Manifest, policy TrustPolicy) TrustDecision {
 	if policy.Trusted.Allows(m.ID, digest) {
 		return TrustDecision{Trusted: true, Digest: digest}
 	}
-	return TrustDecision{
-		Digest: digest,
-		Reason: "плагин " + m.ID + " не в allow-list доверия ядра (ожидалась запись " +
-			m.ID + "@" + digest + ")",
+	reason := "плагин " + m.ID + " не в allow-list доверия ядра (ожидалась запись " +
+		m.ID + "@" + digest + ")"
+	if hasBytecode(m.Dir) {
+		reason += "; в каталоге плагина есть байткод Python (__pycache__/*.pyc) — он входит в хэш, " +
+			"удалите его, если плагин не менялся"
 	}
+	return TrustDecision{Digest: digest, Reason: reason}
 }
 
 // IsTrusted — короткая форма DecideTrust для мест, где нужно только «да/нет».

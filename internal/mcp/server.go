@@ -1052,6 +1052,9 @@ func gateRefusal(req pipeline.GateRequirement) *RPCError {
 	if req.GateAfter {
 		msg += "; гейт " + req.GateID + " стоит ПОСЛЕ этого шага и одобрения не даёт"
 	}
+	if req.GateIneffective != "" {
+		msg += "; гейт " + req.GateID + " перед ним одобрения не гарантирует: " + req.GateIneffective
+	}
 	msg += ". Добавьте шаг core/human_gate (actions: [accept, reject]) перед опасным шагом" +
 		" — для локального доверенного использования оператор может запустить сервер с --allow-unapproved-runs"
 	return &RPCError{Code: -32000, Message: msg,
@@ -1073,14 +1076,15 @@ const gateBypassEvent = "agent_run_gate_bypassed"
 // журнала видел, ЧТО именно пошло без одобрения.
 func (s *Server) auditGateBypass(pipelineName string, req pipeline.GateRequirement) error {
 	return s.writeAuditFile(gateBypassAuditFile, map[string]interface{}{
-		"event":        gateBypassEvent,
-		"source":       "operator_flag",
-		"flag":         "--allow-unapproved-runs",
-		"pipeline":     pipelineName,
-		"step":         req.Step,
-		"plugin":       req.Plugin,
-		"capabilities": req.Why,
-		"gate_after":   req.GateAfter,
+		"event":            gateBypassEvent,
+		"source":           "operator_flag",
+		"flag":             "--allow-unapproved-runs",
+		"pipeline":         pipelineName,
+		"step":             req.Step,
+		"plugin":           req.Plugin,
+		"capabilities":     req.Why,
+		"gate_after":       req.GateAfter,
+		"gate_ineffective": req.GateIneffective,
 	})
 }
 
