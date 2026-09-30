@@ -36,40 +36,72 @@ import (
 // Fail-closed: плагин без проверяемого хэша доверия не получает.
 var ErrDigestUnavailable = errors.New("не удалось вычислить хэш содержимого плагина")
 
-// digestIgnoredNames — файлы, которые НЕ являются содержимым плагина.
+// digestLockName — lock-файл установки. Единственное, что не входит в хэш.
 //
-// Каждый здесь отвечает на конкретную причину, иначе официальный плагин
-// перестал бы быть доверенным после первого же запуска:
+// `.wedra` пишется в каталог плагина ПОСЛЕ копирования и содержит installed_at
+// (время установки). Включённый в хэш, он сделал бы доверие невоспроизводимым:
+// одна и та же установка давала бы разный хэш.
 //
-//   - .wedra — lock-файл установки, пишется в каталог плагина ПОСЛЕ копирования
-//     и содержит installed_at (время установки). Включённый в хэш, он сделал бы
-//     доверие невоспроизводимым: одна и та же установка давала бы разный хэш.
-//   - __pycache__ — порождение Python при ИМПОРТЕ локального модуля (main.py
-//     запускается как скрипт и кэша не создаёт, а плагин с локальным импортом —
-//     создаёт). Хэш менялся бы между первым и вторым запуском, и доверенный
-//     плагин становился бы недоверенным сам у себя.
-//   - .git — служебное клона; в установленный каталог не попадает (CopyDir его
-//     пропускает), но в дереве репозитория может встретиться.
-var digestIgnoredNames = map[string]bool{
-	".wedra":      true,
-	".git":        true,
-	"__pycache__": true,
-}
+// Исключается только файл верхнего уровня, а не «любое имя на любой глубине», и
+// только пока он не является исполняемым: см. entryIsHashed.
+//
+// ЧЕГО ЗДЕСЬ БОЛЬШЕ НЕТ (аудит N1). Раньше из хэша исключались ещё `.git`,
+// `__pycache__` и любые `*.pyc`/`*.pyo` на любой глубине. Это был обход
+// доверия: интерпретатор Python кладёт каталог скрипта первым в sys.path, и
+// рядом с main.py достаточно положить `json.pyc` (sourceless-байткод), чтобы
+// `import json` выполнил чужой код — при неизменном хэше. Аналогично
+// `__pycache__/x.cpython-XY.pyc` с «unchecked hash» подменяет модуль x.py без
+// проверки исходника. Всё, что может исполниться, обязано входить в хэш.
+// Побочный кэш Python не должен появляться вовсе: плагины запускаются с
+// PYTHONDONTWRITEBYTECODE=1 (process.go), поэтому официальный плагин не меняет
+// собственный хэш между запусками.
+const digestLockName = ".wedra"
 
-// digestIgnoredExt — расширения вне хэша (тот же __pycache__ сбоку).
-var digestIgnoredExt = map[string]bool{
-	".pyc": true,
-	".pyo": true,
-}
-
-// ignoredByName — игнорируется ли файл по имени/расширению. Проверяется базовое
-// имя, а не полный путь: lock-файл и кэш Python не зависят от глубины.
+// ignoredByName — не входит ли файл в хэш. rel — путь от корня плагина с
+// прямыми слэшами.
 func ignoredByName(rel string) bool {
-	base := filepath.Base(rel)
-	if digestIgnoredNames[base] {
-		return true
+	return rel == digestLockName
+}
+
+// hasBytecode — есть ли в каталоге плагина байткод Python. Нужен только для
+// диагностики: по такому каталогу хэш изменился, и оператору надо сказать, что
+// именно удалить, а не оставить его наедине с «не в allow-list».
+func hasBytecode(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() && d.Name() == "__pycache__" {
+			found = true
+			return fs.SkipAll
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if !d.IsDir() && (ext == ".pyc" || ext == ".pyo") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// entryIsHashed — точка входа плагина входит в хэш содержимого.
+//
+// Иначе manifest с `runtime.entry: .wedra` исполнял бы файл, исключённый из
+// хэша. Путь, выходящий за каталог плагина, тоже не «содержимое» этого
+// каталога. Проверка дублирует валидатор манифеста намеренно: решение о
+// доверии не должно зависеть от того, что валидатор был вызван раньше.
+func entryIsHashed(dir, entry string) bool {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return true // нет точки входа — нечего исполнять вне хэша
 	}
-	return digestIgnoredExt[strings.ToLower(filepath.Ext(base))]
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(entry)))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || filepath.IsAbs(entry) || strings.HasPrefix(clean, "/") {
+		return false
+	}
+	return !ignoredByName(clean)
 }
 
 // digestItem — файл, попавший в хэш.
@@ -350,6 +382,12 @@ type trustConfig struct {
 // пустой allow-list и nil-ошибку; нечитаемый/неверный — ошибку.
 func LoadTrustConfig(path string) (*AllowList, error) {
 	list := NewAllowList()
+	if err := checkTrustConfigFile(path); err != nil {
+		if os.IsNotExist(err) {
+			return list, nil
+		}
+		return nil, fmt.Errorf("конфиг доверия %s небезопасен: %w", path, err)
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

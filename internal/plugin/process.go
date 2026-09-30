@@ -260,7 +260,10 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		}
 	}
 	if m.Runtime.Type == "python" {
-		baseEnv = append(baseEnv, "PYTHONUTF8=1")
+		// PYTHONDONTWRITEBYTECODE: интерпретатор не создаёт __pycache__ внутри
+		// каталога плагина. Байткод входит в хэш содержимого (trustlist.go), и
+		// созданный при запуске кэш менял бы хэш доверенного плагина.
+		baseEnv = append(baseEnv, "PYTHONUTF8=1", "PYTHONDONTWRITEBYTECODE=1")
 	}
 	cmd.Env = mergeEnv(baseEnv, extraEnv)
 	// v0.23: свой process group — таймаут убивает группу, а не только прямой
