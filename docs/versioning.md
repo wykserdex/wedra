@@ -4,12 +4,12 @@
 
 | Ось | Источник | Текущее значение | Правило |
 |---|---|---|---|
-| Product / application | `VERSION` | `0.33b` | буквенные инкременты внутри `X.Y`: `0.32a`, `0.32b`, … ; тег `v0.32a` |
+| Product / application | `VERSION` | `0.33c` | буквенные инкременты внутри `X.Y`: `0.32a`, `0.32b`, … ; тег `v0.32a` |
 | Pipeline и plugin protocol | `protocol/VERSION` | `0.2` | меняется только при изменении контракта |
 | Registry schema | `registry.yaml` | `0.1` | формат записи реестра |
 | Plugin component | `plugin.yaml:version` | semver плагина | версия конкретного компонента |
 | Plugin compatibility | `plugin.yaml:platform_api` | `^0.1` | совместимость с protocol API |
-| MCP wire protocol | MCP server | `2024-11-05` | внешний JSON-RPC контракт |
+| MCP wire protocol | MCP server | `2025-06-18` (также `2024-11-05`) | внешний JSON-RPC контракт; ревизия выбирается при `initialize` |
 | Registry source pin | `version` + `commit` | entry-specific | tag источника и immutable SHA |
 
 `format_version` в pipeline — это версия protocol, а не версия WEDRA.

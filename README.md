@@ -104,7 +104,7 @@ pipeline:
 | Повторы | `retry` и доказуемый `resume` прерванного рана |
 | Проверки | `validate`/`lint` с кодами ошибок и machine-readable `--json` |
 | Плагины | отдельный процесс, JSON по stdin/stdout, `plugin create/test/install` |
-| Агенты (MCP) | 8 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` (выключен по умолчанию) |
+| Агенты (MCP) | 8 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` (выключен по умолчанию); ревизия 2025-06-18: `structuredContent`, прогресс, гейт в диалоге клиента (`--gate-elicitation`) |
 | Контроль | GUI локально, HTTP API, журнал `journal.jsonl`, снапшоты контекста |
 
 Примеры под разные вкусы: `examples/text_stats.yaml` (старт),
@@ -336,7 +336,7 @@ var/runs/             runtime output; ignored by git
 Стабильные сборки — в [GitHub Releases](https://github.com/wykserdex/wedra/releases):
 `wedra-{linux,darwin,windows}-{amd64,arm64}`, legacy `tool-*`, `wedragui-windows-*.exe`,
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
-Тег релиза совпадает с [`VERSION`](VERSION) — сейчас `0.33b`;
+Тег релиза совпадает с [`VERSION`](VERSION) — сейчас `0.33c`;
 protocol version — [`protocol/VERSION`](protocol/VERSION) (`0.2`), версии независимы.
 
 ## Документация
