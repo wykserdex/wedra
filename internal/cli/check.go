@@ -120,6 +120,34 @@ func checkSteps() []checkStep {
 				return runCapture(o.repo, "go", "test", "./internal/core/",
 					"-run", "TestPluginTest|TestExec", "-count=1", "-timeout", strconv.Itoa(o.testTimeout)+"s")
 			}},
+		{name: "mcp", desc: "контракт MCP: транспорт, аннотации, схемы, elicitation", fast: false,
+			run: func(o checkOpts) (string, error) {
+				// Отдельный шаг, а не просто «входит в test»: контракт MCP —
+				// внешний интерфейс, и его поломка (ревизия, форма ответа,
+				// аннотации, отмена) должна называться по имени, а не тонуть
+				// в общем прогоне. Тесты помечены TestProtocol||Spec: по этому
+				// фильтру видно, что именно проверено.
+				// Cancelled-тесты живут с реальными таймерами, поэтому шаг
+				// ограничен своим бюджетом, а не общим.
+				out, err := runCapture(o.repo, "go", "test", "./internal/mcp/", "-count=1", "-v",
+					"-timeout", strconv.Itoa(o.testTimeout)+"s", "-run", "TestConformance")
+				if err != nil {
+					return out, err
+				}
+				passed, failed := 0, 0
+				for _, line := range strings.Split(out, "\n") {
+					switch {
+					case strings.HasPrefix(line, "--- PASS"):
+						passed++
+					case strings.HasPrefix(line, "--- FAIL"):
+						failed++
+					}
+				}
+				// Сводка идёт первой строкой: check печатает начало вывода,
+				// а хвост прогона тонет в «ещё N строк».
+				return fmt.Sprintf("контракт MCP (ревизия 2025-06-18): пройдено %d, провалено %d\n%s",
+					passed, failed, out), nil
+			}},
 		{name: "pipelines", desc: "validate + lint + plan для каждого examples/*.yaml", fast: false,
 			run: func(o checkOpts) (string, error) { return checkPipelines(o) }},
 		{name: "plugins", desc: "validate + test для каждого плагина", fast: false,
