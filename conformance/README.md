@@ -15,15 +15,28 @@
 - `retry_flaky` — retryable
 - `chatter` — oversized stdout
 - `big_stderr` — большой stderr без нарушения протокола
+- `num_only` — число на входе и выходе
+- `consumer_opt` — optional-вход отсутствует
+- `net_probe` — доходит ли `WEDRA_NETWORK=deny`
+- `net_demo` — объявляет сеть host:port (проверяется политикой, не исполняется)
 
 Проверки:
-- загрузка и строгая проверка manifest каждой фикстуры
+- загрузка и строгая проверка manifest каждой фикстуры (`fixture_manifests_loaded_N`)
 - корректный handshake (stdin JSON → stdout JSON)
+- аварийное завершение (exit >=2) → platform:* (`crash_exit2`)
+- мусор в stdout → protocol_violation (`bad_proto`)
+- незадекларированное поле отбрасывается (`undeclared_output`)
+- дрейф типа и отсутствие обязательного поля (`type_drift`, `required_output`)
+- number round-trip, optional-вход, `WEDRA_NETWORK`, file_ref warning
+- доменная ошибка не выглядит как авария; `retryable: true` доезжает до ядра
 - timeout и отмена
-- аварийное завершение (exit >=2) → platform:<code>
-- мусор в stdout → protocol_violation
-- лимит stdout иstderr
+- лимит stdout и stderr
 - golden issue codes
+
+Про покрытие: чек `fixture_coverage` перечисляет, сколько фикстур исполнено
+и какие пропущены осознанно (с причиной). Фикстура, добавленная в каталог и
+не исполненная батареей, роняет этот чек — иначе отчёт снова будет считать
+неисполненное покрытым.
 
 Запуск: `go test ./internal/core/ -run 'TestPluginTest|TestExec' -v -count=1`
 или батарея CLI: `wedra plugin test --conformance --json`
