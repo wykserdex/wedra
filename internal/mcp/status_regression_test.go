@@ -21,6 +21,7 @@ func TestRunSucceededMatchesCLISemantics(t *testing.T) {
 		{"всё прошло", 0, 3, "", true},
 		{"ошибка шага без foreach", 2, 0, "", false},
 		{"частичный провал", 1, 4, "", false},
+		{"ничего не выполнено без foreach", 0, 0, "", false},
 		{"foreach отфильтровал", 3, 2, "input.paths", true},
 		{"ничего не выполнено", 1, 0, "input.paths", true}, // как в CLI: abort в foreach не провал
 	}

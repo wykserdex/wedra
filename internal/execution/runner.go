@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"wedra/internal/common"
@@ -52,6 +53,51 @@ type RunOptions struct {
 	// источник доверия: пустой/nil означает «не доверен никто», и такой ран
 	// честно падает на первом же внешнем плагине.
 	Trusted *plugin.AllowList
+	// loopBudget — общий счётчик итераций loop на весь ран. Заполняется в
+	// runWithStore; nil обрабатывается как «бюджет не заведён» (см.
+	// RunOptions.consumeLoopIteration), чтобы внешние вызовы Run с нулевой
+	// структурой не падали.
+	//
+	// Нужен именно ран, а не шаг: MaxTotalLoopBudget проверялся счётчиком,
+	// который обнулялся на каждый вызов runStepLoop, то есть десять loop-шагов
+	// по 1000 итераций давали 10 000 запусков плагина, хотя имя константы
+	// обещало «глобальный».
+	loopBudget *loopBudgetCounter
+}
+
+// loopBudgetCounter — счётчик итераций loop на ран. Указатель в RunOptions:
+// опции копируются по значению на каждом шаге, и счётчик обязан быть обным.
+//
+// limit — потолок для тестов. Ноль означает боевой MaxTotalLoopBudget;
+// подставлять маленький лимит в проде нечем, поле непубличное.
+type loopBudgetCounter struct {
+	total int64
+	limit int
+}
+
+func (c *loopBudgetCounter) effectiveLimit() int {
+	if c.limit <= 0 {
+		return pipeline.MaxTotalLoopBudget
+	}
+	return c.limit
+}
+
+// consumeLoopIteration — записать одну итерацию. false = бюджет исчерпан,
+// и ран обязан упасть с resource_limit, а не продолжить.
+func (o *RunOptions) consumeLoopIteration() bool {
+	if o.loopBudget == nil {
+		return true
+	}
+	limit := o.loopBudget.effectiveLimit()
+	return atomic.AddInt64(&o.loopBudget.total, 1) <= int64(limit)
+}
+
+// loopIterations — сколько итераций loop исполнено за ран (для отчёта).
+func (o *RunOptions) loopIterations() int {
+	if o.loopBudget == nil {
+		return 0
+	}
+	return int(atomic.LoadInt64(&o.loopBudget.total))
 }
 
 // ErrCancelled — ран отменён через RunOptions.Ctx. errors.Is(err, ErrCancelled).
@@ -359,6 +405,12 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	var stats RunStats
 	if opts.Ctx == nil {
 		opts.Ctx = stdctx.Background()
+	}
+	// Бюджет итераций loop на весь ран. Ставится здесь, а не в Run, чтобы
+	// resume тоже начинался с нуля: budget прошлого рана — его история, а
+	// лимит текущего рана — нет.
+	if opts.loopBudget == nil {
+		opts.loopBudget = &loopBudgetCounter{}
 	}
 	// Политика доверия к коду плагинов задаётся ядром (allow-list оператора +
 	// --deny-untrusted-plugins / --allow-untrusted-plugins) и наследуется всеми
@@ -996,11 +1048,17 @@ func runStepLoop(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *
 	if condition == "" {
 		condition = "steps." + st.ID + ".continue"
 	}
-	totalIters := 0
+	// Бюджет общий на ран, а не на шаг: иначе N loop-шагов давали N*1000
+	// запусков плагина, а имя константы обещало «глобальный».
 	for i := 0; i < maxIter; i++ {
-		if totalIters >= pipeline.MaxTotalLoopBudget {
-			j.Event("loop_budget_exhausted", map[string]interface{}{"step": st.ID, "total_iterations": totalIters})
-			return "", runErr("resource_limit", "loop шаг %s: исчерпан глобальный бюджет итераций (%d)", st.ID, pipeline.MaxTotalLoopBudget)
+		if !opts.consumeLoopIteration() {
+			spent := opts.loopIterations()
+			limit := pipeline.MaxTotalLoopBudget
+			if opts.loopBudget != nil {
+				limit = opts.loopBudget.effectiveLimit()
+			}
+			j.Event("loop_budget_exhausted", map[string]interface{}{"step": st.ID, "total_iterations": spent, "limit": limit})
+			return "", runErr("resource_limit", "loop: исчерпан бюджет итераций на ран (%d), шаг %s", limit, st.ID)
 		}
 		if j.WriteErrors() > pipeline.MaxLoopJournalEvents {
 			j.Event("loop_journal_limit", map[string]interface{}{"step": st.ID, "write_errors": j.WriteErrors()})
@@ -1016,7 +1074,6 @@ func runStepLoop(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *
 			j.Event("loop_iteration_failed", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "on_error=stop"})
 			return "", fmt.Errorf("loop шаг %s: итерация %d/%d упал (on_error=stop) — ран остановлен", st.ID, i+1, maxIter)
 		}
-		totalIters++
 		v, ok := ctx.Get(condition)
 		if !ok {
 			j.Event("loop_iteration_end", map[string]interface{}{"step": st.ID, "iteration": i, "reason": "condition_not_found"})
