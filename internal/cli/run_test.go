@@ -32,6 +32,7 @@ func TestRunExitCode(t *testing.T) {
 	}{
 		{"одиночный ран успешен", "", execution.RunStats{OK: 1}, 0},
 		{"одиночный ран упал (stop/reject)", "", execution.RunStats{Aborted: 1}, 1},
+		{"одиночный ран без выполненных шагов", "", execution.RunStats{}, 1},
 		{"батч дошёл до конца с частичными abort", "input.values", execution.RunStats{OK: 2, Aborted: 1}, 0},
 		{"батч целиком из битых элементов", "input.values", execution.RunStats{Aborted: 3}, 0},
 	}

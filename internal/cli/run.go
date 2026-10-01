@@ -23,14 +23,85 @@ func runIDFromDir(runDir string) string {
 
 // trustConfigPath — где искать конфиг доверия оператора.
 //
-// Путь можно переопределить флагом --trust-config (удобно в CI и в тестах),
-// иначе берётся обычный для проекта файл wedra-trust.yaml в рабочем каталоге —
-// рядом с registry.yaml.
+// Конфиг доверия решает, чей код получит права пользователя, поэтому искать
+// его в рабочем каталоге нельзя: этот каталог задаёт не оператор, а тот, кто
+// положил сюда пайплайн. Клон репозитория с приложенным wedra-trust.yaml
+// проходил все проверки N3 (файл принадлежит пользователю, права 0644) и молча
+// расширял allow-list — при том, что доверие оператора выдавалось командой,
+// запущенной внутри чужого дерева.
+//
+// Порядок поиска, от сильного к слабому:
+//
+//  1. --trust-config=<путь> — оператор назвал файл сам;
+//  2. $WEDRA_TRUST_CONFIG — то же для CI и скриптов, где флаг не передать;
+//  3. каталог бинаря: %ProgramFiles%\wedra\wedra-trust.yaml и т.п. Лежит там,
+//     куда писать может только установщик, а не код из клона.
+//
+// Рабочий каталог в списке нет намеренно. Если файл там лежит, но не был
+// выбран, печатается явное предупреждение с готовой командой: молча игнорировать
+// конфиг нельзя (оператор решит, что доверяет, а на деле — нет), и молча
+// читать его тоже нельзя (это и есть дыра).
+//
+// Отсутствие конфига — не ошибка: возвращается пустой путь, LoadTrustConfig
+// трактует его как «оператор ничего не добавил» и берёт встроенный allow-list.
 func trustConfigPath(override string) string {
 	if override != "" {
 		return override
 	}
-	return plugin.TrustConfigFile
+	if env := strings.TrimSpace(os.Getenv("WEDRA_TRUST_CONFIG")); env != "" {
+		return env
+	}
+	candidate, ok := executableTrustConfigPath()
+	if ok {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	warnIgnoredWorkingDirTrustConfig()
+	if !ok {
+		// Каталог бинаря определить нечем. Возвращать относительный путь нельзя:
+		// это снова конфиг из чужого рабочего каталога. Пустой путь читается
+		// как «конфига нет» и даёт встроенный allow-list — то есть fail-closed.
+		return ""
+	}
+	return candidate
+}
+
+// executableTrustConfigPath — конфиг рядом с бинарём.
+func executableTrustConfigPath() (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(exe), plugin.TrustConfigFile), true
+}
+
+// warnIgnoredWorkingDirTrustConfig — файл доверия в рабочем каталоге не
+// используется, и об этом нужно сказать явно.
+//
+// Молчать нельзя с двух сторон: проигнорированный конфиг выглядит как
+// «оператор доверяет», а это неправда; и без предупреждения миграция на новый
+// путь выглядит как поломка без причины.
+func warnIgnoredWorkingDirTrustConfig() {
+	abs, err := filepath.Abs(plugin.TrustConfigFile)
+	if err != nil {
+		return
+	}
+	if exePath, ok := executableTrustConfigPath(); ok {
+		if exeAbs, err := filepath.Abs(exePath); err == nil && exeAbs == abs {
+			return // тот же файл, что и каталог бинаря — предупреждать не о чем
+		}
+	}
+	if _, err := os.Stat(plugin.TrustConfigFile); err != nil {
+		return // файла нет — предупреждать не о чем
+	}
+	fmt.Fprintf(os.Stderr,
+		"ВНИМАНИЕ: %s в рабочем каталоге НЕ используется как конфиг доверия.\n"+
+			"  Рабочий каталог может принадлежать не вам (клон репозитория, распакованный архив),\n"+
+			"  а конфиг доверия решает, чей код получит ваши права.\n"+
+			"  Подключить его явно: --trust-config=%s\n"+
+			"  Постоянно: задайте WEDRA_TRUST_CONFIG=%s\n",
+		plugin.TrustConfigFile, abs, abs)
 }
 
 func RunPipelineRun(args []string) {
@@ -176,6 +247,9 @@ func RunPipelineRun(args []string) {
 // (`item_aborted` в журнале), а не рановая неудача: список из 10 000 строк,
 // где три битые, дошёл до конца, и CI не должен видеть по нему отказ.
 func runExitCode(foreach string, stats execution.RunStats) int {
+	if foreach == "" && stats.OK == 0 {
+		return 1
+	}
 	if stats.Aborted > 0 && foreach == "" {
 		return 1
 	}
