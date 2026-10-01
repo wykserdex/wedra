@@ -227,6 +227,62 @@ func TestAPIPluginsShowsAgentPluginsDirWithReason(t *testing.T) {
 	}
 }
 
+// pluginDetail — детальный вид одного плагина через настоящий httptest-сервер.
+func pluginDetail(t *testing.T, pluginsDir, id string, allowDirs ...string) (map[string]interface{}, int) {
+	t.Helper()
+	dir := t.TempDir()
+	srv := NewServer(pluginsDir, filepath.Join(dir, "pipelines"), filepath.Join(dir, "runs"))
+	for _, d := range allowDirs {
+		trustManifestIn(t, srv, loadPluginForTrust(t, srv, d))
+	}
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/plugins/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]interface{}
+	if resp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("детали плагина не разбираются как JSON: %v", err)
+		}
+	}
+	return out, resp.StatusCode
+}
+
+// Детальный вид обязан говорить то же, что список: иначе оператор видит
+// причину блокировки в одном месте и не видит в другом.
+func TestAPIPluginDetailCarriesTrustFields(t *testing.T) {
+	root := t.TempDir()
+	regular := writePluginDir(t, root, "regular")
+	writePluginDir(t, filepath.Join(root, plugin.AgentPluginDir), "mailer")
+
+	got, code := pluginDetail(t, root, "regular", trustPluginsDir(regular))
+	if code != http.StatusOK {
+		t.Fatalf("детали обычного плагина: code=%d (want 200)", code)
+	}
+	if got["trusted"] != true {
+		t.Errorf("детали должны помечать доверенный плагин trusted=true: %v", got)
+	}
+	if _, ok := got["blocked_reason"]; ok {
+		t.Errorf("у доверенного плагина не должно быть причины отказа: %v", got)
+	}
+
+	mailer, code := pluginDetail(t, root, "mailer", trustPluginsDir(regular))
+	if code != http.StatusOK {
+		t.Fatalf("детали плагина агента: code=%d (want 200)", code)
+	}
+	if mailer["agent_written"] != true {
+		t.Errorf("детали должны нести бейдж agent_written: %v", mailer)
+	}
+	reason, _ := mailer["blocked_reason"].(string)
+	if reason == "" {
+		t.Fatal("детали недоверенного плагина обязаны нести причину отказа")
+	}
+}
+
 // Плагин, КОТОРОГО НЕТ в allow-list, обязан быть помечен как недоверенный и
 // получить причину — даже если он не написан агентом и молчит в манифесте.
 //

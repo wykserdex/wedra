@@ -77,8 +77,15 @@ user, with no isolation — only when the kernel has confirmed it. Confirmation
 requires **both** the plugin `id` and the **sha256 of the plugin directory's
 contents** to appear in the allow-list:
 
-- the operator's own `wedra-trust.yaml` in the working directory
-  (`--trust-config=<file>` overrides the path);
+- the operator's own `wedra-trust.yaml`, looked up in this order:
+  `--trust-config=<file>`, then `$WEDRA_TRUST_CONFIG`, then the directory of the
+  binary (`%ProgramFiles%\wedra\wedra-trust.yaml`). The working directory is
+  deliberately **not** searched: it is chosen by whoever invoked the command, not
+  by the operator. A repository clone carrying its own `wedra-trust.yaml` passes
+  every ownership and permission check (the file belongs to the invoking user,
+  mode 0644) and would silently widen the allow-list. If such a file exists in
+  the working directory but was not selected, the core prints a warning with the
+  exact flag to use and proceeds without it;
 - the built-in allow-list, generated from the commit pins in `registry.yaml`
   (`internal/plugin/trustseed_gen.go`, regenerate with
   `go run ./internal/plugin/cmd/genseed`).

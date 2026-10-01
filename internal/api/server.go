@@ -480,7 +480,7 @@ func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", 400)
 		return
 	}
-	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community")} {
+	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community"), filepath.Join(s.PluginsDir, plugin.AgentPluginDir)} {
 		entries, _ := os.ReadDir(base)
 		for _, e := range entries {
 			dir := filepath.Join(base, e.Name())
@@ -489,11 +489,26 @@ func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if m.ID == id || e.Name() == id {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				// Те же поля доверия, что в списке: детальный вид обязан
+				// говорить то же, что список, иначе оператор видит причину
+				// блокировки в одном месте и не видит в другом.
+				item := map[string]interface{}{
 					"id": m.ID, "version": m.Version, "description": m.Description, "author": m.Author,
 					"dir": dir, "runtime": m.Runtime, "input": m.Input, "output": m.Output, "permissions": m.Permissions,
-				})
+				}
+				decision := plugin.DecideTrust(m, plugin.TrustPolicy{Trusted: s.Trusted})
+				item["trusted"] = decision.Trusted
+				if decision.Digest != "" {
+					item["content_sha256"] = decision.Digest
+				}
+				if plugin.IsAgentWrittenPlugin(m) {
+					item["agent_written"] = true
+				}
+				if !decision.Trusted {
+					item["blocked_reason"] = blockedReason(decision.Reason)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(item)
 				return
 			}
 		}

@@ -106,19 +106,30 @@ type sessionEntry struct {
 func (s *Server) EnableSession(code string) {
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
-	s.PairingCode = normalizePairingCode(code)
+	s.setPairingCodeLocked(code)
 	s.sessions = map[string]sessionEntry{}
-	s.pairingUsed = false
-	s.pairingExpires = time.Now().Add(pairingCodeTTL)
-	s.pairingFailures = 0
-	s.pairingBlockedUntil = time.Time{}
 }
 
 // RotatePairingCode — выдать новый одноразовый код (код одноразовый: после
 // обмена он мёртв, а человеку может понадобиться второй браузер или вторая
 // вкладка). Старые сессии при этом живут — смена кода их не выкидывает.
 func (s *Server) RotatePairingCode(code string) {
-	s.EnableSession(code)
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.setPairingCodeLocked(code)
+}
+
+// setPairingCodeLocked — сбросить состояние обмена кода. Живые сессии не
+// трогает: их инвалидирует только EnableSession (полный перезапуск входа) или
+// истечение TTL. Разделение намеренное — раньше Rotate вызывал EnableSession
+// и вопреки комментарию выкидывал все сессии, включая ту, с которой человек
+// ждал гейт.
+func (s *Server) setPairingCodeLocked(code string) {
+	s.PairingCode = normalizePairingCode(code)
+	s.pairingUsed = false
+	s.pairingExpires = time.Now().Add(pairingCodeTTL)
+	s.pairingFailures = 0
+	s.pairingBlockedUntil = time.Time{}
 }
 
 // sessionRequired — сессия включена? Пустой PairingCode = режим без защиты.

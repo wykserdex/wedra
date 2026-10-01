@@ -279,6 +279,30 @@ func TestSessionCodeIsSingleUse(t *testing.T) {
 	}
 }
 
+// TestSessionRotateKeepsLiveSessions — ротация кода не выкидывает живые сессии.
+//
+// Раньше RotatePairingCode вызывал EnableSession, который очищал карту сессий:
+// вход второго браузера убивал первый, причём ровно в момент, когда человеку
+// нужно было одобрить гейт (mcp выдаёт свежий код на каждое ожидание).
+func TestSessionRotateKeepsLiveSessions(t *testing.T) {
+	srv, _ := h4Server(t, ListenOptions{Addr: testAddr}, "AAAA-BBBB-CCCC")
+	first := login(t, srv, "AAAA-BBBB-CCCC")
+
+	srv.RotatePairingCode("ZZZZ-ZZZZ-ZZZZ")
+
+	rec := h4Request(t, srv, "GET", "/api/runs", nil, func(r *http.Request) { r.AddCookie(first) })
+	if rec.Code != 200 {
+		t.Fatalf("старая сессия после ротации кода: code=%d (want 200), body=%s", rec.Code, rec.Body.String())
+	}
+	if login(t, srv, "ZZZZ-ZZZZ-ZZZZ") == nil {
+		t.Fatal("новый код не сработал")
+	}
+	rec = h4Request(t, srv, "POST", "/api/session", strings.NewReader(`{"code":"AAAA-BBBB-CCCC"}`), nil)
+	if rec.Code != 401 {
+		t.Fatalf("старый код после ротации: code=%d (want 401), body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestTwoPortsDoNotClobberSession — имя cookie включает порт, и токены двух
 // инстансов независимы. Живой вариант (с настоящими слушателями и одним
 // cookie jar) — TestTwoLiveInstancesBelow.

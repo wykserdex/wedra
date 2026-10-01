@@ -382,6 +382,12 @@ type trustConfig struct {
 // пустой allow-list и nil-ошибку; нечитаемый/неверный — ошибку.
 func LoadTrustConfig(path string) (*AllowList, error) {
 	list := NewAllowList()
+	if strings.TrimSpace(path) == "" {
+		// Путь пуст не из-за ошибки чтения, а потому что оператор ничего не
+		// настраивал: искать негде. Отличать это от «файла нет» не нужно —
+		// результат тот же, пустой allow-list.
+		return list, nil
+	}
 	if err := checkTrustConfigFile(path); err != nil {
 		if os.IsNotExist(err) {
 			return list, nil
