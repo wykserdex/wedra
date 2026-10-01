@@ -56,6 +56,11 @@ const (
 	SourceGUI       = "gui"
 	SourceAutoYes   = "auto_yes"
 	SourceAgentAuto = "agent_auto"
+	// SourceElicitation — решение получено через elicitation/create: диалог
+	// показал хост MCP-клиента, а не консоль wedra и не терминал. Отдельный
+	// источник нужен, чтобы в журнале было видно, какой интерфейс решил гейт:
+	// «человек в GUI» и «человек в диалоге клиента» — разные каналы доверия.
+	SourceElicitation = "mcp_elicitation"
 )
 
 // autoApproveAllowed — --yes срабатывает, только если политика разрешает и

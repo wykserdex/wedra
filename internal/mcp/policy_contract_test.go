@@ -17,13 +17,13 @@ func TestValidateReportsPolicyRefusalAsIssue(t *testing.T) {
 	pluginDir := writePolicyPlugin(t, srv.pluginsDirs[0], "network-plugin",
 		[]map[string]interface{}{{"any_host": true, "port": 443}}, map[string]interface{}{})
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: net\n  input: {}\n  steps:\n    - id: net\n      plugin: " + pluginDir + "\n"
-	assertPolicyRefusal(t, srv, yamlStr, "network_denied", "E_NETWORK_DENIED")
+	assertPolicyRefusal(t, srv, yamlStr, "E_NETWORK_DENIED", "E_NETWORK_DENIED")
 }
 
 func TestValidateReportsOutsideRootAsIssue(t *testing.T) {
 	srv := testServer(t)
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: evil\n  input: {}\n  steps:\n    - id: s\n      plugin: /tmp/evil/x\n"
-	assertPolicyRefusal(t, srv, yamlStr, "plugin_outside_root", "E_PLUGIN_OUTSIDE_ROOT")
+	assertPolicyRefusal(t, srv, yamlStr, "E_PLUGIN_OUTSIDE_ROOT", "E_PLUGIN_OUTSIDE_ROOT")
 }
 
 type validateIssue struct {
@@ -40,7 +40,7 @@ type validateResult struct {
 func assertPolicyRefusal(t *testing.T, srv *Server, yamlStr, wantCode, wantPolicyPrefix string) {
 	t.Helper()
 
-	out, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	out, _, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil {
 		t.Fatalf("validate_pipeline вернул RPC-ошибку %v, ожидался ok:false с issue", rpcErr)
 	}
@@ -65,7 +65,7 @@ func assertPolicyRefusal(t *testing.T, srv *Server, yamlStr, wantCode, wantPolic
 		t.Fatalf("в issues нет кода %q: %s", wantCode, out)
 	}
 
-	if _, _, runErr := srv.callTool("run_pipeline",
+	if _, _, runErr := srv.callTool(nil, "run_pipeline",
 		map[string]interface{}{"yaml": yamlStr, "wait_seconds": 1}); runErr == nil {
 		t.Fatal("run_pipeline выполнил запрещённый пайплайн — fail-closed нарушен")
 	} else if got := rpcCodeOf(runErr); got != wantPolicyPrefix {

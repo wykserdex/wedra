@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +33,16 @@ import (
 var Version = "dev"
 
 const (
-	defaultProtocolVersion = "2024-11-05"
+	// defaultProtocolVersion — ревизия, которую сервер выбирает, когда клиент
+	// не назвал свою. 2025-06-18, а не 2024-11-05: с неё annotations
+	// (readOnlyHint/destructiveHint) входят в контракт, и хост по ним решает,
+	// показывать ли человеку подтверждение перед запуском инструмента.
+	//
+	// Ревизии 2026-07-28 (текущей на 2026-10-01) здесь нет сознательно: она
+	// убрала хендшейк initialize в пользу server/discover и _meta на каждом
+	// запросе. Объявить поддержку ревизии, обязательный путь которой не
+	// реализован, — хуже, чем честно назвать ту, что реализована.
+	defaultProtocolVersion = "2025-06-18"
 	maxWaitSeconds         = 300
 	maxRetainedRuns        = 128
 
@@ -43,7 +53,13 @@ const (
 	maxRunJournalBytes  = 4 << 20
 )
 
-var supportedProtocolVersions = []string{defaultProtocolVersion}
+// supportedProtocolVersions — ревизии, которые сервер готов вести.
+//
+// Порядок важен: на версию, которой нет в списке, сервер отвечает ПЕРВОЙ
+// поддерживаемой (negotiateProtocol), то есть самой новой из своих. Раньше в
+// списке была одна старая ревизия, и клиент, просивший 2025-06-18 или
+// 2026-07-28, молча получал 2024-11-05 — без признака того, что его понизили.
+var supportedProtocolVersions = []string{defaultProtocolVersion, "2024-11-05"}
 
 // Server — MCP-сервер: JSON-RPC stdio + 8 инструментов поверх core/pipeline/execution.
 // Решения гейтов через MCP невозможны никогда; get_run в waiting_human
@@ -72,6 +88,48 @@ type Server struct {
 	currentRunID string
 	runs         map[string]*runState
 	cancels      map[string]context.CancelFunc
+	// inflight — вызовы инструментов в работе, по id запроса: адресат
+	// нотификации notifications/cancelled. По JSON-RPC отмена приходит на
+	// конкретный запрос, а не на ран, поэтому связь «запрос → ран» хранит
+	// сервер, а не клиент.
+	inflight map[string]*inflightCall
+	// transport — сессия stdio. Нужен не только для ответов: с элиситацией
+	// сервер впервые сам отправляет запросы клиенту, а не только отвечает.
+	transport   *Transport
+	pending     map[string]chan *clientResponse
+	outboundSeq int64
+	// clientElicitation — клиент объявил поддержку elicitation в initialize.
+	clientElicitation bool
+	// gateElicitation — оператор разрешил вести гейты через клиента
+	// (--gate-elicitation). Отдельно от поддержки клиента: видеть поддержку и
+	// доверять ей — разные решения.
+	gateElicitation bool
+	// runRequests — id запроса → ран, живущий ДОЛЬШЕ своего запроса. Ран не
+	// заканчивается вместе с ответом run_pipeline: он уходит в waiting_human
+	// или продолжается в фоне, и связь нужна, пока он жив. Иначе отмена,
+	// пришедшая после ответа (человек нажал Esc в консоли клиента, хост
+	// оборвал сессию), не находила бы ран и оставляла занятым единственный
+	// слот — тот самый E_RUN_BUSY.
+	runRequests map[string]string
+}
+
+// inflightCall — вызов инструмента, который может быть отменён нотификацией.
+//
+// Поля заполняются по мере того, как инструмент доходит до своей длинной
+// части: у run_pipeline это старт рана, у exec_plugin — запуск процесса.
+// Нотификация может прийти раньше (клиент не обязан ждать) — тогда
+// cancelled=true, и bind* отменяет работу сразу после её появления.
+type inflightCall struct {
+	// key — id запроса, которым вызов пришёл: по нему ран связывается с
+	// запросом, даже когда сам вызов уже завершился.
+	key    string
+	runID  string
+	writer *Transport
+	// progressToken — _meta.progressToken из запроса: без него спека
+	// запрещает слать notifications/progress (клиент не сможет сопоставить).
+	progressToken json.RawMessage
+	cancelExec    context.CancelFunc
+	cancelled     bool
 }
 
 type runState struct {
@@ -83,6 +141,11 @@ type runState struct {
 	code    string
 	okItems int
 	aborted int
+	// cancelRequested — отмена пришла до того, как ран зарегистрировал свой
+	// cancel. Без этого флага нотификация, обогнавшая старт рана, терялась
+	// бы: cancel() в s.cancels появляется на горутине рана, а не в момент
+	// создания состояния.
+	cancelRequested bool
 }
 
 // Options — флаги wedra mcp --plugins ... --workdir ...
@@ -101,6 +164,11 @@ type Options struct {
 	// context.Background(), то есть с нулевой политикой. Политика приходит
 	// из флагов командной строки (cli.RunMCP).
 	Trust plugin.TrustPolicy
+	// GateElicitation — вести гейты через elicitation/create, если клиент
+	// объявил эту возможность (ревизия 2025-06-18). По умолчанию выключено:
+	// wedra не может проверить, что за клиентом сидит человек, а назвать
+	// решение автономного хоста решением человека — соврать в журнале.
+	GateElicitation bool
 	// AllowUngatedRuns — операторский обход требования одобрения: ран с
 	// опасным шагом и без human_gate разрешается. Обход НЕ молчаливый: каждый
 	// такой запуск пишется в <runs-dir>/gate-bypass.jsonl, а неудачная запись
@@ -172,6 +240,8 @@ func NewServer(opts Options) (*Server, error) {
 		trust:            opts.Trust,
 		execSem:          make(chan struct{}, MaxConcurrentAgentExec),
 		allowUngatedRuns: opts.AllowUngatedRuns,
+		gateElicitation:  opts.GateElicitation,
+		pending:          map[string]chan *clientResponse{},
 	}, nil
 }
 
@@ -577,11 +647,18 @@ func (s *Server) validateArgs(args map[string]interface{}) (*pipeline.PipelineFi
 }
 
 // Serve — главный цикл stdio.
+//
+// Разбор сообщения больше не может завершить сессию: битая строка и батч-массив
+// получают ответ (-32700 / -32600), а цикл продолжается. Раньше обе ситуации
+// возвращались как ошибка чтения, и сервер умирал, отдав клиенту код выхода 0.
 func (s *Server) Serve(t *Transport) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 1)
+	s.mu.Lock()
+	s.transport = t
+	s.mu.Unlock()
 	for {
-		req, err := t.Read()
+		frame, err := t.ReadFrame()
 		if err != nil {
 			wg.Wait()
 			select {
@@ -591,16 +668,69 @@ func (s *Server) Serve(t *Transport) error {
 				return err
 			}
 		}
-		if req.Method == "notifications/initialized" || req.Method == "notifications/cancelled" {
+		if frame.Batch {
+			// Порядок ответов батча обязан совпадать с порядком запросов
+			// (JSON-RPC 2.0), поэтому батч идёт последовательно: параллелизм
+			// внутри одного кадра не даёт ничего, кроме гонки за порядок.
+			responses := make([]*Response, 0, len(frame.Items))
+			for _, item := range frame.Items {
+				if item.Err != nil {
+					responses = append(responses, item.Err.response())
+					continue
+				}
+				if item.Resp != nil {
+					s.deliverClientResponse(item.Resp)
+					continue
+				}
+				req := item.Request
+				if isNotification(req) {
+					s.handleNotification(req)
+					continue
+				}
+				if len(req.ID) == 0 {
+					continue
+				}
+				call := s.beginCall(t, req)
+				res := s.handleCall(call, req)
+				s.endCall(req)
+				res.ID = req.ID
+				responses = append(responses, res)
+			}
+			if len(responses) == 0 {
+				continue // батч из одних нотификаций: отвечать нечем
+			}
+			if err := t.WriteBatch(responses); err != nil {
+				return err
+			}
+			continue
+		}
+		item := frame.Items[0]
+		if item.Err != nil {
+			if err := t.Write(item.Err.response()); err != nil {
+				return err
+			}
+			continue
+		}
+		if item.Resp != nil {
+			// Ответ клиента на серверный запрос (elicitation): адресат ждёт его
+			// на канале, ответа клиенту не требуется.
+			s.deliverClientResponse(item.Resp)
+			continue
+		}
+		req := item.Request
+		if isNotification(req) {
+			s.handleNotification(req)
 			continue
 		}
 		if len(req.ID) == 0 {
 			continue
 		}
+		call := s.beginCall(t, req)
 		wg.Add(1)
-		go func(req *Request) {
+		go func(req *Request, call *inflightCall) {
 			defer wg.Done()
-			res := s.handle(req)
+			defer s.endCall(req)
+			res := s.handleCall(call, req)
 			res.ID = req.ID
 			if err := t.Write(res); err != nil {
 				select {
@@ -608,8 +738,184 @@ func (s *Server) Serve(t *Transport) error {
 				default:
 				}
 			}
-		}(req)
+		}(req, call)
 	}
+}
+
+// requestKey — ключ сопоставления запроса и нотификации об отмене. JSON-RPC
+// разрешает id и числом, и строкой; клиент возвращает ровно то значение,
+// которое отправил, поэтому ключом служат сырые байты, а не разобранное число.
+func requestKey(id json.RawMessage) string {
+	return strings.TrimSpace(string(id))
+}
+
+// beginCall — зарегистрировать вызов до его исполнения. Регистрация нужна
+// именно в этот момент, а не при старте рана: нотификация об отмене может
+// прийти, пока инструмент ещё валидирует пайплайн, и это не ошибка клиента.
+func (s *Server) beginCall(t *Transport, req *Request) *inflightCall {
+	key := requestKey(req.ID)
+	call := &inflightCall{key: key, writer: t}
+	if key == "" {
+		return call
+	}
+	s.mu.Lock()
+	if s.inflight == nil {
+		s.inflight = map[string]*inflightCall{}
+	}
+	s.inflight[key] = call
+	s.mu.Unlock()
+	return call
+}
+
+func (s *Server) endCall(req *Request) {
+	key := requestKey(req.ID)
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	delete(s.inflight, key)
+	s.mu.Unlock()
+}
+
+// bindRun — привязать к вызову запущенный им ран. Связь живёт, пока жив ран
+// (s.runRequests), а не пока жив запрос: у MCP-клиента запрос заканчивается
+// раньше рана.
+func (s *Server) bindRun(call *inflightCall, runID string) {
+	if call == nil || runID == "" {
+		return
+	}
+	s.mu.Lock()
+	call.runID = runID
+	if call.key != "" {
+		if s.runRequests == nil {
+			s.runRequests = map[string]string{}
+		}
+		s.runRequests[call.key] = runID
+	}
+	late := call.cancelled
+	if late {
+		if st, ok := s.runs[runID]; ok {
+			st.cancelRequested = true
+		}
+	}
+	s.mu.Unlock()
+	if late {
+		// Отмена пришла раньше старта рана: без этой ветки нотификация
+		// терялась бы, и ран доезжал бы до конца, а клиент — до таймаута.
+		if rpcErr := s.cancelRun(runID); rpcErr != nil {
+			s.logf("notifications/cancelled: ран %s отменить не удалось: %s", runID, rpcErr.Message)
+		}
+	}
+}
+
+// bindExec — привязать к вызову процесс exec_plugin.
+func (s *Server) bindExec(call *inflightCall, cancel context.CancelFunc) {
+	if call == nil || cancel == nil {
+		return
+	}
+	s.mu.Lock()
+	call.cancelExec = cancel
+	late := call.cancelled
+	s.mu.Unlock()
+	if late {
+		cancel()
+	}
+}
+
+// handleNotification — нотификации жизненного цикла. Ответа не требуют
+// (isNotification), но не все безопасны к игнорированию:
+// notifications/cancelled означает «отмени работу запроса <id>». Раньше метод
+// просто пропускался, и отменённый клиентом запрос продолжал держать
+// единственный слот рана — агент до таймаута получал E_RUN_BUSY и не мог
+// запустить ничего нового.
+func (s *Server) handleNotification(req *Request) {
+	if req.Method != "notifications/cancelled" {
+		return
+	}
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+		Reason    string          `json:"reason"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return
+	}
+	key := requestKey(p.RequestID)
+	if key == "" {
+		return
+	}
+	s.cancelInflight(key, p.Reason)
+}
+
+// cancelInflight — отмена по нотификации клиента.
+//
+// Ищутся два адресата, и порядок важен. Сначала живой вызов: его ран, если он
+// есть, и запущенный процесс exec_plugin. Потом — ран, который пережил свой
+// запрос (waiting_human или фоновый): буква спеки советует игнорировать
+// нотификацию к завершённому запросу, но у нас «завершённый запрос» и
+// «законченный ран» — разные вещи, и именно этот случай оставлял слот занятым
+// до таймаута.
+func (s *Server) cancelInflight(key, reason string) {
+	s.mu.Lock()
+	call := s.inflight[key]
+	var runID string
+	var cancelExec context.CancelFunc
+	if call != nil {
+		call.cancelled = true
+		runID = call.runID
+		cancelExec = call.cancelExec
+	}
+	if runID == "" {
+		runID = s.runRequests[key]
+	}
+	if call == nil && runID == "" {
+		s.mu.Unlock()
+		s.logf("notifications/cancelled: запрос %s завершён и рана за ним нет — отменять нечего", key)
+		return
+	}
+	s.mu.Unlock()
+	if cancelExec != nil {
+		cancelExec()
+	}
+	if runID == "" {
+		// Инструмент ещё не дошёл до старта рана: отменять нечего, а признак
+		// на вызове остался — bindRun отменит ран сразу после его появления.
+		s.logf("notifications/cancelled: запрос %s отменён до старта рана (%s)", key, reason)
+		return
+	}
+	if rpcErr := s.cancelRun(runID); rpcErr != nil {
+		s.logf("notifications/cancelled: ран %s отменить не удалось: %s", runID, rpcErr.Message)
+		return
+	}
+	s.logf("notifications/cancelled: ран %s отменён по запросу клиента (%s)", runID, reason)
+}
+
+// cancelRun — общая точка отмены: cancel_run и notifications/cancelled приходят
+// сюда, чтобы «отменено» означало одно и то же независимо от того, кто просил.
+func (s *Server) cancelRun(runID string) *RPCError {
+	s.mu.Lock()
+	st, known := s.runs[runID]
+	cancel, hasCancel := s.cancels[runID]
+	if !known {
+		s.mu.Unlock()
+		return rpcErr("", "ран не найден: "+runID)
+	}
+	if cancel == nil || !hasCancel {
+		select {
+		case <-st.done:
+			s.mu.Unlock()
+			return &RPCError{Code: -32000, Message: "ран уже завершён", Data: map[string]string{"code": "E_RUN_DONE"}}
+		default:
+			// cancel() регистрируется на горутине рана, то есть может ещё не
+			// существовать. Запоминаем намерение: ран отменит себя сам, как
+			// только зарегистрирует cancel.
+			st.cancelRequested = true
+			s.mu.Unlock()
+			return nil
+		}
+	}
+	s.mu.Unlock()
+	cancel()
+	return nil
 }
 
 func negotiateProtocol(params json.RawMessage) (string, error) {
@@ -633,13 +939,18 @@ func negotiateProtocol(params json.RawMessage) (string, error) {
 	return supportedProtocolVersions[0], nil
 }
 
-func (s *Server) handle(req *Request) *Response {
+// handle — точка входа для тестов и внутренних вызовов: без привязки к id
+// запроса, поэтому такой вызов нельзя отменить нотификацией.
+func (s *Server) handle(req *Request) *Response { return s.handleCall(nil, req) }
+
+func (s *Server) handleCall(call *inflightCall, req *Request) *Response {
 	switch req.Method {
 	case "initialize":
 		version, err := negotiateProtocol(req.Params)
 		if err != nil {
 			return &Response{Error: &RPCError{Code: -32602, Message: "invalid initialize params: " + err.Error()}}
 		}
+		s.setClientCapabilities(req.Params)
 		return &Response{Result: map[string]interface{}{
 			"protocolVersion": version,
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
@@ -653,17 +964,106 @@ func (s *Server) handle(req *Request) *Response {
 		var p struct {
 			Name      string                 `json:"name"`
 			Arguments map[string]interface{} `json:"arguments"`
+			Meta      struct {
+				ProgressToken json.RawMessage `json:"progressToken"`
+			} `json:"_meta"`
 		}
 		if req.Params != nil {
 			_ = json.Unmarshal(req.Params, &p)
 		}
-		result, isErr, rpcErr := s.callTool(p.Name, p.Arguments)
+		if call != nil && len(p.Meta.ProgressToken) > 0 {
+			call.progressToken = p.Meta.ProgressToken
+		}
+		result, isErr, rpcErr := s.callTool(call, p.Name, p.Arguments)
 		if rpcErr != nil {
 			return &Response{Error: rpcErr}
 		}
-		return &Response{Result: map[string]interface{}{"content": []map[string]interface{}{{"type": "text", "text": result}}, "isError": isErr}}
+		out := map[string]interface{}{
+			"content": []map[string]interface{}{{"type": "text", "text": result}},
+			"isError": isErr,
+		}
+		// structuredContent (2025-06-18): тот же ответ объектом, а не только
+		// строкой. Клиент получает типизированные данные без разбора текста, а
+		// текстовый блок остаётся для совместимости (спека этого и требует).
+		if structured := structuredContentOf(result, isErr); structured != nil {
+			out["structuredContent"] = structured
+		}
+		return &Response{Result: out}
 	default:
 		return &Response{Error: &RPCError{Code: -32601, Message: "unknown method: " + req.Method}}
+	}
+}
+
+// issuesForJSON — замечания всегда массив.
+//
+// nil-срез Go сериализует как `null`, а outputSchema обещает `array`:
+// structuredContent с null нарушал бы контракт, который сервер же и объявил.
+// Пустой список и «нет замечаний» — одно и то же, и `[]` это показывает.
+func issuesForJSON(issues []pipeline.Issue) []pipeline.Issue {
+	if issues == nil {
+		return []pipeline.Issue{}
+	}
+	return issues
+}
+
+// structuredContentOf — объектный вид результата инструмента.
+//
+// nil там, где объекта нет или где это ошибка исполнения: спека требует, чтобы
+// structuredContent соответствовал объявленной outputSchema, а isError-результат
+// описывается другой схемой (и её у инструмента нет). Молча отдать туда
+// строку сообщения об ошибке значило бы нарушить контракт.
+func structuredContentOf(result string, isErr bool) map[string]interface{} {
+	if isErr {
+		return nil
+	}
+	trimmed := strings.TrimSpace(result)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil
+	}
+	var obj map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+		return nil
+	}
+	return obj
+}
+
+// rawMessage — вставка уже готового JSON (progressToken приходит от клиента).
+type rawMessage json.RawMessage
+
+func (r rawMessage) MarshalJSON() ([]byte, error) {
+	if len(r) == 0 {
+		return []byte("null"), nil
+	}
+	return []byte(r), nil
+}
+
+// notifyProgress — notifications/progress (2024-11-05 и новее).
+//
+// Спека разрешает серверу слать прогресс, только если клиент дал
+// progressToken в _meta запроса: без токена клиент не сопоставит нотификацию с
+// вызовом. Нет токена — молчим, а не выдумываем свой.
+//
+// Зачем это вообще: run_pipeline умеет ждать до 300 секунд, и клиенты с
+// таймаутом на tool-call обрывали вызов раньше, чем ран доходил до гейта.
+// Прогресс говорит «работа идёт» и у большинства клиентов сбрасывает таймер.
+func (s *Server) notifyProgress(call *inflightCall, progress float64, total float64, message string) {
+	if call == nil || call.writer == nil || len(call.progressToken) == 0 {
+		return
+	}
+	params := map[string]interface{}{
+		"progressToken": rawMessage(call.progressToken),
+		"progress":      progress,
+	}
+	if total > 0 {
+		params["total"] = total
+	}
+	if message != "" {
+		params["message"] = message
+	}
+	if err := call.writer.WriteNotification("notifications/progress", params); err != nil {
+		// Прогресс — не часть контракта вызова: его потеря не должна ронять
+		// инструмент, но и молчать о ней нельзя.
+		s.logf("notifications/progress не отправлена: %v", err)
 	}
 }
 
@@ -682,7 +1082,10 @@ func rpcErr(code, msg string) *RPCError {
 	return &RPCError{Code: -32602, Message: msg}
 }
 
-func (s *Server) callTool(name string, args map[string]interface{}) (string, bool, *RPCError) {
+// callTool — диспетчер инструментов. call связывает вызов с id запроса, чтобы
+// notifications/cancelled могла его найти; nil означает «вызов без адреса»
+// (тесты, внутренние вызовы) — такой вызов отменить нотификацией нельзя.
+func (s *Server) callTool(call *inflightCall, name string, args map[string]interface{}) (string, bool, *RPCError) {
 	if args == nil {
 		args = map[string]interface{}{}
 	}
@@ -696,15 +1099,18 @@ func (s *Server) callTool(name string, args map[string]interface{}) (string, boo
 	case "plan_pipeline":
 		return s.toolPlan(args)
 	case "run_pipeline":
-		return s.toolRun(args)
+		return s.toolRun(call, args)
 	case "get_run":
 		return s.toolGetRun(args)
 	case "cancel_run":
 		return s.toolCancel(args)
 	case "exec_plugin":
-		return s.toolExecPlugin(args)
+		return s.toolExecPlugin(call, args)
 	default:
-		return "", false, &RPCError{Code: -32601, Message: "unknown tool: " + name}
+		// Спека MCP называет этот случай протокольной ошибкой с кодом
+		// -32602 («Unknown tool: X»). -32601 означает «нет такого JSON-RPC
+		// метода» и сбивает клиента с толку: метод tools/call существует.
+		return "", false, &RPCError{Code: -32602, Message: "unknown tool: " + name}
 	}
 }
 
@@ -798,10 +1204,15 @@ func (s *Server) toolDescribePlugin(args map[string]interface{}) (string, bool, 
 // нормальным результатом проверки, а не поломкой вызова. Раньше они приходили
 // JSON-RPC ошибкой, хотя контракт инструмента прямо обещает «ok:false —
 // нормальный результат», и агент получал исключение вместо разбора issues[].
+//
+// Код в issues[] — тот же E_-код, что в protocol/v0.2/ERRORS.md и у
+// ValidateIssues: одна причина — один код, независимо от пути. Раньше здесь
+// лежали строчные network_denied/..., и агент, читавший issues[].code по
+// контракту, получал код вне контракта.
 var policyIssueCodes = map[string]string{
-	"E_NETWORK_DENIED":        "network_denied",
-	"E_PLUGIN_OUTSIDE_ROOT":   "plugin_outside_root",
-	"E_FILE_REF_OUTSIDE_ROOT": "file_ref_outside_root",
+	"E_NETWORK_DENIED":        "E_NETWORK_DENIED",
+	"E_PLUGIN_OUTSIDE_ROOT":   "E_PLUGIN_OUTSIDE_ROOT",
+	"E_FILE_REF_OUTSIDE_ROOT": "E_FILE_REF_OUTSIDE_ROOT",
 	// E_UNSUPPORTED_PROTOCOL был здесь ключом, но нигде в проекте не
 	// эмитился: мёртвая запись обещала код, которого агент никогда не видел.
 	// Убрана; вернётся вместе с реальной проверкой версии протокола.
@@ -831,13 +1242,13 @@ func (s *Server) toolValidate(args map[string]interface{}) (string, bool, *RPCEr
 		if issue, ok := policyIssue(err); ok {
 			return toJSON(map[string]interface{}{
 				"ok":     false,
-				"issues": append(issues, issue),
+				"issues": issuesForJSON(append(issues, issue)),
 			}), false, nil
 		}
 		return "", false, rpcErr("", err.Error())
 	}
 	errs, _ := pipeline.SplitIssues(issues)
-	return toJSON(map[string]interface{}{"ok": len(errs) == 0, "issues": issues}), false, nil
+	return toJSON(map[string]interface{}{"ok": len(errs) == 0, "issues": issuesForJSON(issues)}), false, nil
 }
 
 func (s *Server) toolPlan(args map[string]interface{}) (string, bool, *RPCError) {
@@ -854,13 +1265,13 @@ func (s *Server) toolPlan(args map[string]interface{}) (string, bool, *RPCError)
 	}
 	errs, _ := pipeline.SplitIssues(issues)
 	return toJSON(map[string]interface{}{
-		"ok": len(errs) == 0, "issues": issues,
+		"ok": len(errs) == 0, "issues": issuesForJSON(issues),
 		"pipeline": pf.Pipeline.Name, "foreach": pf.Pipeline.Foreach,
 		"dag": plan.DAG,
 	}), false, nil
 }
 
-func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) {
+func (s *Server) toolRun(call *inflightCall, args map[string]interface{}) (string, bool, *RPCError) {
 	pf, issues, err := s.validateArgs(args)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "E_PLUGIN_OUTSIDE_ROOT") {
@@ -870,12 +1281,15 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	}
 	errs, _ := pipeline.SplitIssues(issues)
 	if len(errs) > 0 {
-		return toJSON(map[string]interface{}{"ok": false, "issues": issues}), false, nil
+		return toJSON(map[string]interface{}{"ok": false, "issues": issuesForJSON(issues)}), false, nil
 	}
 	waitSec := 0.0
 	if w, ok := args["wait_seconds"].(float64); ok {
+		// Ноль означает «не ждать» и потому разрешён, а timeout_seconds
+		// (см. ниже) нужен строго положительным: там ноль — вырожденный
+		// мгновенный таймаут. Формулировки различаются намеренно.
 		if math.IsNaN(w) || math.IsInf(w, 0) || w < 0 || w > maxWaitSeconds {
-			return "", false, rpcErr("", "wait_seconds должен быть от 0 до 300")
+			return "", false, rpcErr("", fmt.Sprintf("wait_seconds должен быть от 0 до %d включительно", maxWaitSeconds))
 		}
 		waitSec = w
 	}
@@ -919,10 +1333,12 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			break
 		}
 	}
-	if hasGate && s.human == nil {
+	if hasGate && s.human == nil && !s.elicitGateAvailable() {
 		return "", false, &RPCError{Code: -32000,
-			Message: "в пайплайне есть human_gate, а канала к человеку нет (wedra mcp запущен с --no-gui): одобрить гейт некому",
-			Data:    map[string]string{"code": "E_NO_HUMAN_CHANNEL"}}
+			Message: "в пайплайне есть human_gate, а канала к человеку нет: нет консоли гейтов " +
+				"(wedra mcp запущен с --no-gui) и нет elicitation (нужны --gate-elicitation и клиент, " +
+				"который объявил поддержку elicitation) — одобрить гейт некому",
+			Data: map[string]string{"code": "E_NO_HUMAN_CHANNEL"}}
 	}
 	runID, err := execution.NewRunID(pf.Pipeline.Name)
 	if err != nil {
@@ -941,6 +1357,11 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	s.runs[runID] = st
 	s.mu.Unlock()
 
+	// Ран привязан к запросу: notifications/cancelled с этим id отменит
+	// именно его, а не «какой-нибудь ран».
+	s.bindRun(call, runID)
+	s.notifyProgress(call, 0, waitSec, "ран "+runID+" запущен")
+
 	go func() {
 		defer close(st.done)
 		defer func() {
@@ -948,6 +1369,14 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			s.running = false
 			s.currentRunID = ""
 			delete(s.cancels, runID)
+			// Связь «запрос → ран» живёт ровно столько, сколько жив ран:
+			// после его конца отменять нечего, и мусор в карте копился бы до
+			// перезапуска сервера.
+			for key, id := range s.runRequests {
+				if id == runID {
+					delete(s.runRequests, key)
+				}
+			}
 			s.mu.Unlock()
 		}()
 		// Фаза 4.2: Quiet + ChannelUI (StdinUI в MCP запрещён), NoAutoApprove всегда.
@@ -955,6 +1384,12 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		runCtx, cancel := context.WithCancel(context.Background())
 		s.mu.Lock()
 		s.cancels[runID] = cancel
+		// Отмена могла прийти до этой строки: cancel() рождается на горутине
+		// рана, а нотификация клиента приходит в любой момент. Намерение
+		// записано в st.cancelRequested — исполняем его здесь.
+		if st.cancelRequested {
+			cancel()
+		}
 		s.mu.Unlock()
 		defer cancel()
 		ui := gate.NewChannelUI()
@@ -970,6 +1405,9 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			defer s.human.DetachRun(runID)
 		}
 		gateShown := false
+		// elicit — общий на ран: если elicitation не сработал на одном шаге,
+		// дальше гейты идут в консоль, а не мигают двумя интерфейсами.
+		elicit := &elicitRunner{}
 		opts := execution.RunOptions{
 			Yes: false, Quiet: true, RunsDir: s.runsDir, RunID: runID,
 			NoAutoApprove: true, MCPMode: true, Ctx: runCtx,
@@ -980,8 +1418,18 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 			// (строка с WithTrustPolicy ниже), обязано быть и у раннера.
 			Trusted: s.trust.Trusted,
 		}
-		if s.human != nil {
-			opts.GateUI = func(*pipeline.Step) gate.GateUI {
+		if s.human != nil || s.elicitGateAvailable() {
+			opts.GateUI = func(st *pipeline.Step) gate.GateUI {
+				if s.elicitGateAvailable() {
+					if s.human != nil {
+						// Консоль остаётся фолбэком, и ран в ней уже
+						// зарегистрирован (AttachRun выше) — вместе с
+						// возможностью отменить ран из браузера.
+						elicit.fallback = ui
+					}
+					return &elicitGateUI{srv: s, call: call, runID: runID, step: st,
+						runCtx: runCtx, runner: elicit}
+				}
 				s.human.AttachRun(runID, ui, nil)
 				if !gateShown {
 					gateShown = true
@@ -1019,10 +1467,18 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 	// wait_seconds: подождать завершения/гейта
 	status := "running"
 	if waitSec > 0 {
-		deadline := time.Now().Add(time.Duration(waitSec * float64(time.Second)))
+		start := time.Now()
+		deadline := start.Add(time.Duration(waitSec * float64(time.Second)))
+		lastTick := time.Now()
 		for time.Now().Before(deadline) {
 			time.Sleep(200 * time.Millisecond)
 			status = s.runStatus(runID)
+			// Прогресс раз в секунду, а не каждые 200 мс: клиенты сбрасывают
+			// таймер по факту нотификации, но спамить ими незачем.
+			if time.Since(lastTick) >= time.Second {
+				lastTick = time.Now()
+				s.notifyProgress(call, time.Since(start).Seconds(), waitSec, "статус: "+status)
+			}
 			if status == "done" || status == "failed" || status == "cancelled" || status == "waiting_human" {
 				break
 			}
@@ -1031,6 +1487,7 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 		time.Sleep(300 * time.Millisecond)
 		status = s.runStatus(runID)
 	}
+	s.notifyProgress(call, waitSec, waitSec, "статус: "+status)
 	return toJSON(map[string]interface{}{"run_id": runID, "status": status}), false, nil
 }
 
@@ -1038,7 +1495,14 @@ func (s *Server) toolRun(args map[string]interface{}) (string, bool, *RPCError) 
 // (runExitCode): прерванные шаги делают ран неуспешным, кроме foreach-пайплайнов,
 // где abort — штатный способ отфильтровать элементы. Ран, в котором не отработал
 // ни один шаг, "done" не бывает: агент обязан это увидеть в статусе.
+//
+// Уточнение про foreach: пустой батч (ни одного элемента) остаётся done —
+// «нечего обрабатывать» не ошибка, как и батч целиком из битых элементов
+// (per-item итоги в журнале). Требование ok>0 действует только вне foreach.
 func runSucceeded(aborted, ok int, foreach string) bool {
+	if foreach == "" && ok == 0 {
+		return false
+	}
 	return !(aborted > 0 && foreach == "")
 }
 
@@ -1291,17 +1755,12 @@ func (s *Server) toolCancel(args map[string]interface{}) (string, bool, *RPCErro
 	if _, err := journal.SafeRunDir(s.runsDir, runID); err != nil {
 		return "", false, rpcErr("", "небезопасный run_id")
 	}
-	s.mu.Lock()
-	cancel, ok := s.cancels[runID]
-	_, known := s.runs[runID]
-	s.mu.Unlock()
-	if !known {
-		return "", false, rpcErr("", "ран не найден: "+runID)
+	// Отмена одна на два входа: cancel_run (инструмент) и
+	// notifications/cancelled (нотификация клиента). Разные реализации
+	// разошлись бы на первой же правке гонки с регистрацией cancel().
+	if rpcErr := s.cancelRun(runID); rpcErr != nil {
+		return "", false, rpcErr
 	}
-	if !ok || cancel == nil {
-		return "", false, &RPCError{Code: -32000, Message: "ран уже завершён", Data: map[string]string{"code": "E_RUN_DONE"}}
-	}
-	cancel()
 	return toJSON(map[string]interface{}{"run_id": runID, "status": "cancelling"}), false, nil
 }
 
@@ -1341,7 +1800,7 @@ func (s *Server) releaseExecSlot() {
 	}
 }
 
-func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPCError) {
+func (s *Server) toolExecPlugin(call *inflightCall, args map[string]interface{}) (string, bool, *RPCError) {
 	// Проверка разрешения ПЕРВОЙ, до разбора аргументов и до загрузки
 	// манифеста: без явного согласия ядра агент не запускает код вообще.
 	// Раньше этой проверки не было, и exec_plugin был доступен всегда.
@@ -1408,7 +1867,14 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 		}
 	}
 	timeout := 60.0
-	if t, ok := args["timeout_seconds"].(float64); ok && t > 0 && t <= maxAgentExecTimeout {
+	if raw, present := args["timeout_seconds"]; present {
+		t, ok := raw.(float64)
+		// Как wait_seconds выше: неверное значение — явная ошибка, а не тихое
+		// значение по умолчанию. Раньше timeout_seconds=1000, 0, -5, строка или
+		// NaN молча превращались в 60, и агент думал, что получил запрошенное.
+		if !ok || math.IsNaN(t) || math.IsInf(t, 0) || t <= 0 || t > maxAgentExecTimeout {
+			return "", false, rpcErr("", fmt.Sprintf("timeout_seconds должен быть больше 0 и не больше %d секунд", maxAgentExecTimeout))
+		}
 		timeout = t
 	}
 	extraEnv := []string{"WEDRA_NETWORK=deny"}
@@ -1416,7 +1882,12 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 	// enforceTrust. ExecWithEnv подставляет context.Background(), то есть
 	// нулевую политику, и флаги --allow/--deny-untrusted-plugins не влияли
 	// на запуск из MCP.
-	ctx := plugin.WithTrustPolicy(context.Background(), s.trust)
+	// exec_plugin синхронный и может держать процесс до 300 секунд, поэтому
+	// вызов отменяем: notifications/cancelled обрывает запуск, как и ран.
+	execCtx, cancelExec := context.WithCancel(plugin.WithTrustPolicy(context.Background(), s.trust))
+	defer cancelExec()
+	s.bindExec(call, cancelExec)
+	ctx := execCtx
 	// Намерение пишется ДО запуска. Решение агента о запуске кода — событие
 	// доверия, и оно обязано быть в журнале даже тогда, когда процесс
 	// умирает на середине: иначе выполнение внешнего кода остаётся вообще
@@ -1427,7 +1898,12 @@ func (s *Server) toolExecPlugin(args map[string]interface{}) (string, bool, *RPC
 		return "", false, rpcErr("E_AGENT_EXEC_AUDIT", auditErr.Error())
 	}
 	started := time.Now()
-	res := plugin.ExecWithEnvCtx(ctx, m, inputJSON, time.Duration(timeout)*time.Second, extraEnv)
+	// Прогресс до запуска: единственная точка, где мы ещё можем что-то
+	// сказать — сам ExecWithEnvCtx блокирует вызов до конца процесса.
+	s.notifyProgress(call, 0, timeout, "плагин "+pluginRef+" запущен (таймаут "+strconv.FormatFloat(timeout, 'f', 0, 64)+" с)")
+	// Дробные секунды — точно, а не усечением: time.Duration(timeout) отрезал
+	// бы 1.5с до 1с, а 0.5с — до нуля, то есть до мгновенного таймаута.
+	res := plugin.ExecWithEnvCtx(ctx, m, inputJSON, time.Duration(timeout*float64(time.Second)), extraEnv)
 	// Исход дописывается после. Его потеря не отменяет уже состоявшееся
 	// исполнение, поэтому здесь только отказ вернуть результат: в журнале
 	// всё равно остаётся намерение с тем же exec_id.

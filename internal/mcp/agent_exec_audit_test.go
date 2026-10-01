@@ -392,7 +392,7 @@ func TestAgentExecAuditFailurePreventsExecution(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	out, _, rpcErr := srv.toolExecPlugin(map[string]interface{}{
+	out, _, rpcErr := srv.toolExecPlugin(nil, map[string]interface{}{
 		"plugin": "sleeper",
 		"input":  map[string]interface{}{"text": "x"},
 	})
@@ -422,7 +422,7 @@ func TestAgentExecAuditRecordsBothAroundRealExecution(t *testing.T) {
 	}
 	srv, runs := sleeperServer(t, 1.2)
 
-	if _, _, rpcErr := srv.toolExecPlugin(map[string]interface{}{
+	if _, _, rpcErr := srv.toolExecPlugin(nil, map[string]interface{}{
 		"plugin": "sleeper",
 		"input":  map[string]interface{}{"text": "x"},
 	}); rpcErr != nil {

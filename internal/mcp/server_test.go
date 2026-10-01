@@ -137,11 +137,31 @@ func TestMCPInitializeNegotiatesAndExposesPermissions(t *testing.T) {
 	if err := json.Unmarshal(result, &init); err != nil {
 		t.Fatal(err)
 	}
-	if init.ProtocolVersion != "2024-11-05" {
+	// Клиент просил 2026-07-28, которой сервер не реализует (ревизия убрала
+	// хендшейк initialize). Раньше в ответ уходила САМАЯ СТАРАЯ поддерживаемая
+	// ревизия, и клиент не мог отличить понижение от согласия. Теперь — самая
+	// новая из поддерживаемых.
+	if init.ProtocolVersion != "2025-06-18" {
 		t.Fatalf("unexpected protocol version: %q", init.ProtocolVersion)
 	}
+	// А ревизия, которую сервер поддерживает, обязана возвращаться как есть:
+	// клиент на 2024-11-05 не должен получить чужую версию.
+	resp2024 := srv.handle(&Request{
+		JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "initialize",
+		Params: json.RawMessage(`{"protocolVersion":"2024-11-05"}`),
+	})
+	raw2024, _ := json.Marshal(resp2024.Result)
+	var init2024 struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if err := json.Unmarshal(raw2024, &init2024); err != nil {
+		t.Fatal(err)
+	}
+	if init2024.ProtocolVersion != "2024-11-05" {
+		t.Fatalf("поддерживаемая версия не подтверждена эхом: %q", init2024.ProtocolVersion)
+	}
 
-	listed, _, rpcErr := srv.callTool("list_plugins", map[string]interface{}{})
+	listed, _, rpcErr := srv.callTool(nil, "list_plugins", map[string]interface{}{})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -177,7 +197,7 @@ func TestMCPTransportPreservesStringID(t *testing.T) {
 func TestMCPValidatePortSource(t *testing.T) {
 	srv := testServer(t)
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: bad\n  input:\n    email: \"a@b.c\"\n  steps:\n    - id: s\n      plugin: " + srv.pluginsDirs[0] + "/echoer\n      bind:\n        text: input.nope\n"
-	res, isErr, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	res, isErr, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil {
 		t.Fatalf("rpc: %v", rpcErr)
 	}
@@ -208,7 +228,7 @@ func TestMCPValidatePortSource(t *testing.T) {
 
 func TestMCPToolsListAndRun(t *testing.T) {
 	srv := testServer(t)
-	res, _, rpcErr := srv.callTool("list_plugins", map[string]interface{}{})
+	res, _, rpcErr := srv.callTool(nil, "list_plugins", map[string]interface{}{})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
@@ -216,7 +236,7 @@ func TestMCPToolsListAndRun(t *testing.T) {
 		t.Fatalf("list_plugins без echoer: %s", res)
 	}
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: simple\n  input:\n    text: \"hello\"\n  steps:\n    - id: s\n      plugin: " + srv.pluginsDirs[0] + "/echoer\n      bind:\n        text: input.text\n"
-	res, _, rpcErr = srv.callTool("run_pipeline", map[string]interface{}{"yaml": yamlStr, "wait_seconds": 15.0})
+	res, _, rpcErr = srv.callTool(nil, "run_pipeline", map[string]interface{}{"yaml": yamlStr, "wait_seconds": 15.0})
 	if rpcErr != nil {
 		t.Fatalf("run: %v", rpcErr)
 	}
@@ -231,7 +251,7 @@ func TestMCPToolsListAndRun(t *testing.T) {
 	// дождаться done через get_run
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		res2, _, rpcErr := srv.callTool("get_run", map[string]interface{}{"run_id": runOut.RunID})
+		res2, _, rpcErr := srv.callTool(nil, "get_run", map[string]interface{}{"run_id": runOut.RunID})
 		if rpcErr != nil {
 			t.Fatal(rpcErr)
 		}
@@ -274,7 +294,7 @@ func TestMCPGetRunRejectsUnsafeRunID(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, rpcErr := srv.callTool("get_run", map[string]interface{}{"run_id": tc.runID})
+			result, _, rpcErr := srv.callTool(nil, "get_run", map[string]interface{}{"run_id": tc.runID})
 			if rpcErr == nil {
 				t.Fatalf("get_run accepted unsafe run_id %q: %s", tc.runID, result)
 			}
@@ -291,7 +311,7 @@ func TestMCPGetRunRejectsUnsafeRunID(t *testing.T) {
 func TestMCPRejectsUnboundedWait(t *testing.T) {
 	srv := testServer(t)
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: bounded_wait\n  input:\n    text: hello\n  steps:\n    - id: s\n      plugin: " + srv.pluginsDirs[0] + "/echoer\n      bind:\n        text: input.text\n"
-	_, _, rpcErr := srv.callTool("run_pipeline", map[string]interface{}{"yaml": yamlStr, "wait_seconds": float64(maxWaitSeconds) + 1})
+	_, _, rpcErr := srv.callTool(nil, "run_pipeline", map[string]interface{}{"yaml": yamlStr, "wait_seconds": float64(maxWaitSeconds) + 1})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "wait_seconds") {
 		t.Fatalf("unbounded wait accepted: %v", rpcErr)
 	}
@@ -325,7 +345,7 @@ func TestMCPResolvesRelativePluginFromWorkDir(t *testing.T) {
 	defer os.Chdir(oldCWD)
 
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: relative_plugin\n  input:\n    text: \"hello\"\n  steps:\n    - id: s\n      plugin: plugins/echoer\n      bind:\n        text: input.text\n"
-	res, isErr, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	res, isErr, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil || isErr {
 		t.Fatalf("relative plugin failed: rpc=%v isErr=%v result=%s", rpcErr, isErr, res)
 	}
@@ -352,7 +372,7 @@ func TestMCPRejectsFileRefOutsideWorkdir(t *testing.T) {
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + outside + "\n  steps:\n    - id: read\n      plugin: " + filepath.Join(srv.pluginsDirs[0], "filereader") + "\n      bind:\n        path: input.path\n"
 	// Отказ политики — результат проверки (ok:false + issue), а не RPC-ошибка;
 	// run_pipeline при этом всё равно отказывает.
-	assertPolicyRefusal(t, srv, yamlStr, "file_ref_outside_root", "E_FILE_REF_OUTSIDE_ROOT")
+	assertPolicyRefusal(t, srv, yamlStr, "E_FILE_REF_OUTSIDE_ROOT", "E_FILE_REF_OUTSIDE_ROOT")
 }
 
 func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
@@ -365,7 +385,7 @@ func TestMCPAllowsFileRefInsideWorkdir(t *testing.T) {
 		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
 	})
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: file_read\n  input:\n    path: " + inside + "\n  steps:\n    - id: read\n      plugin: " + pluginDir + "\n      bind:\n        path: input.path\n"
-	res, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	res, _, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil {
 		t.Fatalf("inside file_ref rejected: %v", rpcErr)
 	}
@@ -387,7 +407,7 @@ func TestMCPRejectsDynamicForeachFileRef(t *testing.T) {
 		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
 	})
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: dynamic_file_read\n  input:\n    paths:\n      - " + strconv.Quote(inside) + "\n  foreach: input.paths\n  foreach_item: path\n  steps:\n    - id: read\n      plugin: " + strconv.Quote(pluginDir) + "\n      bind:\n        path: input.path\n"
-	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	_, _, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_UNCHECKED") {
 		t.Fatalf("dynamic file_ref was accepted: %v", rpcErr)
 	}
@@ -404,7 +424,7 @@ func TestMCPRejectsForeachItemLeakIntoFileRef(t *testing.T) {
 		"path": map[string]interface{}{"from": "input.path", "type": "string", "format": "file_ref"},
 	})
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: foreach_leak\n  input:\n    path: " + strconv.Quote(inside) + "\n    paths:\n      - " + strconv.Quote(outside) + "\n  steps:\n    - id: iterate\n      plugin: " + strconv.Quote(filepath.Join(srv.pluginsDirs[0], "echoer")) + "\n      foreach: input.paths\n      foreach_item: path\n      bind:\n        text: input.path\n    - id: read\n      plugin: " + strconv.Quote(pluginDir) + "\n      bind:\n        path: input.path\n"
-	_, _, rpcErr := srv.callTool("validate_pipeline", map[string]interface{}{"yaml": yamlStr})
+	_, _, rpcErr := srv.callTool(nil, "validate_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "E_FILE_REF_UNCHECKED") {
 		t.Fatalf("leaked foreach file_ref was accepted: %v", rpcErr)
 	}
@@ -431,7 +451,7 @@ func TestMCPRejectsPluginSymlinkEscape(t *testing.T) {
 	}
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: symlink_escape\n  input:\n    text: hello\n  steps:\n    - id: s\n      plugin: " + strconv.Quote(filepath.Join("plugins", "escape")) + "\n      bind:\n        text: input.text\n"
 	// Symlink-обход — тот же отказ политики: ok:false + issue, run отказывает.
-	assertPolicyRefusal(t, srv, yamlStr, "plugin_outside_root", "E_PLUGIN_OUTSIDE_ROOT")
+	assertPolicyRefusal(t, srv, yamlStr, "E_PLUGIN_OUTSIDE_ROOT", "E_PLUGIN_OUTSIDE_ROOT")
 }
 
 func TestMCPCancelRun(t *testing.T) {
@@ -457,7 +477,7 @@ func TestMCPCancelRun(t *testing.T) {
 	// отменять было бы нечего.
 	srv.trust.Trusted = trustDirsIn(t, srv.pluginsDirs[0])
 	yamlStr := "format_version: \"0.2\"\npipeline:\n  name: sleep_demo\n  input: {}\n  steps:\n    - id: sleep\n      plugin: " + sleeperSrc + "\n      timeout: 30s\n"
-	res, _, rpcErr := srv.callTool("run_pipeline", map[string]interface{}{"yaml": yamlStr})
+	res, _, rpcErr := srv.callTool(nil, "run_pipeline", map[string]interface{}{"yaml": yamlStr})
 	if rpcErr != nil {
 		t.Fatalf("run: %v", rpcErr)
 	}
@@ -466,13 +486,13 @@ func TestMCPCancelRun(t *testing.T) {
 	}
 	_ = json.Unmarshal([]byte(res), &runOut)
 	time.Sleep(500 * time.Millisecond)
-	res, _, rpcErr = srv.callTool("cancel_run", map[string]interface{}{"run_id": runOut.RunID})
+	res, _, rpcErr = srv.callTool(nil, "cancel_run", map[string]interface{}{"run_id": runOut.RunID})
 	if rpcErr != nil {
 		t.Fatalf("cancel: %v", rpcErr)
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		res2, _, _ := srv.callTool("get_run", map[string]interface{}{"run_id": runOut.RunID})
+		res2, _, _ := srv.callTool(nil, "get_run", map[string]interface{}{"run_id": runOut.RunID})
 		var g struct {
 			Status string `json:"status"`
 		}
