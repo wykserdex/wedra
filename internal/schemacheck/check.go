@@ -158,48 +158,57 @@ func CheckRepo(repo string) (string, error) {
 	b.WriteString(fmt.Sprintf("схемы: %d разобраны, конструкций вне подмножества нет", len(names)))
 
 	// 2. Пайплайны из examples/ против pipeline-схемы.
-	n, bad, err := checkDocs(repo, "pipeline.v0.2.schema.json",
+	pb, err := checkDocs(repo, "pipeline.v0.2.schema.json",
 		filepath.Join(repo, "examples", "*.yaml"), true)
 	if err != nil {
 		return b.String(), err
 	}
-	b.WriteString(fmt.Sprintf("\nпайплайны: %d/%d соответствуют pipeline.v0.2.schema.json", n-bad, n))
-	if bad > 0 {
-		return b.String(), fmt.Errorf("%d пайплайнов не соответствуют схеме", bad)
+	allProblems := append([]string{}, pb.problems...)
+	allUnver := append([]string{}, pb.unver...)
+	b.WriteString(fmt.Sprintf("\nпайплайны: %d/%d соответствуют pipeline.v0.2.schema.json", pb.total-pb.bad, pb.total))
+	if pb.bad > 0 {
+		for _, p := range pb.problems {
+			b.WriteString("\n    " + p)
+		}
+		return b.String(), fmt.Errorf("%d пайплайнов не соответствуют схеме", pb.bad)
 	}
 
-	// 3. Манифесты плагинов. Отдельно от пайплайнов: у них другой контракт, и
-	//    негативные фикстуры конформности (chatter, spawner) сознательно ему
-	//    не соответствуют — они проверяют отказ по stdout и по фоновому
-	//    процессу. Их исключаем списком, а не «пропускаем всё подряд».
-	mn, mbad, err := checkDocs(repo, "manifest.schema.json",
+	// 3. Манифесты плагинов. Отдельно от пайплайнов: у них другой контракт.
+	//
+	// Здесь проверяются только манифесты из plugins/. Негативные фикстуры
+	// конформности (chatter, spawner) в этот шаг не входят вовсе: они обязаны
+	// НЕ соответствовать схеме, а проверяют отказ ядра, поэтому их гоняет шаг
+	// conformance, а не этот. Раньше в коде был фильтр isNegativeFixture,
+	// который искал их в отчёте, — но паттерны Glob сюда их никогда не
+	// приводили, так что фильтр был мёртвым и лишь выглядел обработкой.
+	mn, err := checkDocs(repo, "manifest.schema.json",
 		filepath.Join(repo, "plugins", "*", "plugin.yaml"), false)
 	if err != nil {
 		return b.String(), err
 	}
-	mn2, mbad2, err := checkDocs(repo, "manifest.schema.json",
+	allProblems = append(allProblems, mn.problems...)
+	allUnver = append(allUnver, mn.unver...)
+	mn2, err := checkDocs(repo, "manifest.schema.json",
 		filepath.Join(repo, "plugins", "*", "*", "plugin.yaml"), false)
 	if err != nil {
 		return b.String(), err
 	}
-	mn += mn2
-	mbad += mbad2
-	b.WriteString(fmt.Sprintf("\nманифесты: %d/%d соответствуют manifest.schema.json", mn-mbad, mn))
-	for _, p := range problems {
-		if isNegativeFixture(p) {
-			b.WriteString("\n    (ожидаемо) " + p)
-			continue
-		}
+	allProblems = append(allProblems, mn2.problems...)
+	allUnver = append(allUnver, mn2.unver...)
+	mn.total += mn2.total
+	mbad := mn.bad + mn2.bad
+	b.WriteString(fmt.Sprintf("\nманифесты: %d/%d соответствуют manifest.schema.json", mn.total-mbad, mn.total))
+	for _, p := range allProblems {
 		b.WriteString("\n    " + p)
 	}
 	if mbad > 0 {
 		return b.String(), fmt.Errorf("%d манифестов не соответствуют схеме", mbad)
 	}
-	if len(unverifiable) > 0 {
+	if len(allUnver) > 0 {
 		// Сообщение одно и то же на каждый файл, а правило — свойство схемы.
 		// Без дедупликации отчёт в 37 строк говорил бы одно и то же 37 раз.
 		uniq := map[string]bool{}
-		for _, u := range unverifiable {
+		for _, u := range allUnver {
 			uniq[u] = true
 		}
 		list := make([]string, 0, len(uniq))
@@ -216,48 +225,50 @@ func CheckRepo(repo string) (string, error) {
 	return b.String(), nil
 }
 
-// unverifiable копит правила, которые валидатор не смог применить. Молчать о
-// них нельзя: иначе отчёт выглядит как «всё проверено».
-var unverifiable []string
-
-// isNegativeFixture отделяет фикстуры, которые обязаны не соответствовать
-// схеме. chatter и spawner проверяют отказ по oversized stdout и по фоновому
-// процессу, и объявление портов у них нет по существу, а не по недосмотру.
-func isNegativeFixture(problem string) bool {
-	return strings.Contains(problem, "conformance/fixtures/v0.2/chatter") ||
-		strings.Contains(problem, "conformance/fixtures/v0.2/spawner")
+// docBatch — итог одного прогона checkDocs. Возвращается значением, а не
+// копится в глобалах: раньше problems и unverifiable были package-level и
+// каждый вызов checkDocs их обнулял, поэтому CheckRepo видел детали только
+// последней пачки, хотя счётчики вёл по всем. Отчёт при этом выглядел полным.
+//
+// Негативные фикстуры конформности (chatter, spawner) здесь не обрабатываются:
+// они вообще не входят в паттерны этого шага, их гоняет шаг conformance.
+// Мёртвый фильтр по подстроке удалён — он выглядел обработкой, но ничего не
+// обрабатывал.
+type docBatch struct {
+	total, bad int
+	problems   []string
+	unver      []string
 }
 
 // checkDocs прогоняет файлы против схемы. isPipeline различает YAML-пайплайны
 // (top-level object) и манифесты плагинов.
-func checkDocs(repo, schemaName, pattern string, required bool) (total, bad int, err error) {
+func checkDocs(repo, schemaName, pattern string, required bool) (docBatch, error) {
+	var out docBatch
 	raw, err := os.ReadFile(filepath.Join(repo, "schemas", schemaName))
 	if err != nil {
-		return 0, 0, fmt.Errorf("прочитать схему %s: %w", schemaName, err)
+		return out, fmt.Errorf("прочитать схему %s: %w", schemaName, err)
 	}
 	var sch interface{}
 	if err := json.Unmarshal(raw, &sch); err != nil {
-		return 0, 0, fmt.Errorf("%s: %w", schemaName, err)
+		return out, fmt.Errorf("%s: %w", schemaName, err)
 	}
 	files, err := filepath.Glob(pattern)
 	if err != nil {
-		return 0, 0, err
+		return out, err
 	}
 	if len(files) == 0 {
 		if required {
-			return 0, 0, fmt.Errorf("не нашлось файлов под %s — проверка сломана, а не прошла", pattern)
+			return out, fmt.Errorf("не нашлось файлов под %s — проверка сломана, а не прошла", pattern)
 		}
 		// Необязательный набор: каталога может просто не быть.
-		return 0, 0, nil
+		return out, nil
 	}
-	problems = nil
-	unverifiable = nil
 	for _, f := range files {
-		total++
+		out.total++
 		data, err := readYAML(f)
 		if err != nil {
-			bad++
-			problems = append(problems, fmt.Sprintf("%s: %v", rel(repo, f), err))
+			out.bad++
+			out.problems = append(out.problems, fmt.Sprintf("%s: %v", rel(repo, f), err))
 			continue
 		}
 		// seen — множество правил, которые валидатор не смог применить. Идёт
@@ -265,21 +276,17 @@ func checkDocs(repo, schemaName, pattern string, required bool) (total, bad int,
 		// свойство схемы, а не одного файла.
 		seen := map[string]bool{}
 		if errs := validate(sch, data, "$", seen); len(errs) > 0 {
-			bad++
+			out.bad++
 			for _, e := range errs {
-				problems = append(problems, fmt.Sprintf("%s: %s", rel(repo, f), e))
+				out.problems = append(out.problems, fmt.Sprintf("%s: %s", rel(repo, f), e))
 			}
 		}
 		for m := range seen {
-			unverifiable = append(unverifiable, m)
+			out.unver = append(out.unver, m)
 		}
 	}
-	return total, bad, nil
+	return out, nil
 }
-
-// problems копит нарушения между вызовами checkDocs. Так некрасиво, зато
-// сигнатура не раздувается очисткой на каждый вызов.
-var problems []string
 
 func rel(repo, p string) string {
 	r, err := filepath.Rel(repo, p)

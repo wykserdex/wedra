@@ -194,3 +194,69 @@ func findRepoRoot() (string, error) {
 		dir = parent
 	}
 }
+
+// Детали обеих пачек манифестов обязаны попадать в отчёт. Раньше problems был
+// глобалом, который каждый вызов checkDocs обнулял: счётчик считал обе пачки,
+// а в отчёте оставалась только вторая. Тест ломает по одному манифесту в
+// каждом из двух паттернов и требует оба пути в отчёте.
+func TestCheckRepoKeepsDetailsFromBothManifestBatches(t *testing.T) {
+	src, err := findRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	for _, dir := range []string{"schemas", "examples"} {
+		if err := copyDir(t, filepath.Join(src, dir), filepath.Join(repo, dir)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Заведомо битые манифесты: не YAML вовсе, так что виноват путь чтения, а
+	// не тонкости схемы, — для проверки накопления этого достаточно: обе ветви
+	// checkDocs складывают детали в один отчёт.
+	// Первый паттерн — plugins/*/plugin.yaml (глубина 3), второй —
+	// plugins/*/*/plugin.yaml (глубина 4). Ломаем по одному файлу в каждом,
+	// чтобы вторая пачка не затирала первую.
+	broken := []string{
+		filepath.Join(repo, "plugins", "solo", "plugin.yaml"),
+		filepath.Join(repo, "plugins", "official", "a", "plugin.yaml"),
+	}
+	for _, p := range broken {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("{{{ не yaml\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := CheckRepo(repo)
+	if err == nil {
+		t.Fatalf("два битых манифеста обязаны ронять проверку:\n%s", out)
+	}
+	for _, want := range []string{"solo/plugin.yaml", "official/a/plugin.yaml"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("в отчёте нет детали пачки: нет %q:\n%s", want, out)
+		}
+	}
+}
+
+func copyDir(t *testing.T, src, dst string) error {
+	t.Helper()
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, raw, 0o644)
+	})
+}
