@@ -182,7 +182,7 @@ func pipelineYAML(name, pluginDir string, withGate bool) string {
 
 func startRun(t *testing.T, srv *Server, yaml string) (string, string, *RPCError) {
 	t.Helper()
-	out, _, rpcErr := srv.callTool("run_pipeline", map[string]interface{}{"yaml": yaml, "wait_seconds": 2.0})
+	out, _, rpcErr := srv.callTool(nil, "run_pipeline", map[string]interface{}{"yaml": yaml, "wait_seconds": 2.0})
 	if rpcErr != nil {
 		return "", "", rpcErr
 	}
@@ -401,7 +401,7 @@ func waitRunTerminal(t *testing.T, srv *Server, runID string) string {
 	deadline := time.Now().Add(30 * time.Second)
 	last := ""
 	for time.Now().Before(deadline) {
-		out, _, rpcErr := srv.callTool("get_run", map[string]interface{}{"run_id": runID})
+		out, _, rpcErr := srv.callTool(nil, "get_run", map[string]interface{}{"run_id": runID})
 		if rpcErr != nil {
 			t.Fatalf("get_run: %v", rpcErr)
 		}

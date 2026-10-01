@@ -88,7 +88,7 @@ func rpcCode(t *testing.T, e *RPCError) string {
 
 func assertCapRefusal(t *testing.T, s *Server, want string) {
 	t.Helper()
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "cap"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "cap"})
 	if rpcErr == nil {
 		t.Fatal("плагин с объявленными правами нельзя запускать через exec_plugin")
 	}
@@ -135,7 +135,7 @@ func TestToolExecPluginAllowsSafeCapabilities(t *testing.T) {
 	s := capServer(t, withPerms(baseManifest(), map[string]interface{}{
 		"network": []interface{}{}, "filesystem": "read", "secrets": []interface{}{},
 	}))
-	out, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "cap"})
+	out, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "cap"})
 	if rpcErr != nil {
 		t.Fatalf("безопасный плагин должен запускаться, отказ: %s", rpcErr.Message)
 	}
@@ -158,7 +158,7 @@ func TestToolExecPluginRefusesUnreadableManifest(t *testing.T) {
 	// раньше, чем дойдёт дело до прав. Отказ ожидаем любой, но он обязан быть.
 	s.workDir = root
 	s.multi = &multiEngine{dirs: []string{plugins}, workDir: root}
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "missing"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "missing"})
 	if rpcErr == nil {
 		t.Error("плагин без манифеста не должен запускаться")
 	}
@@ -173,7 +173,7 @@ func TestToolExecPluginCapabilityRefusalWritesNoIntent(t *testing.T) {
 		"secrets": []interface{}{"TOKEN"},
 	}))
 	s.runsDir = runs
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "cap"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "cap"})
 	if rpcErr == nil {
 		t.Fatal("ожидался отказ по правам")
 	}
@@ -214,11 +214,45 @@ func TestToolExecPluginTrustRefusalWinsOverCapabilities(t *testing.T) {
 	s.multi = &multiEngine{dirs: []string{plugins}, workDir: root}
 	s.trust.AllowUntrusted = false
 
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": dir})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": dir})
 	if rpcErr == nil {
 		t.Fatal("ожидался отказ")
 	}
 	if got := rpcCode(t, rpcErr); got != "E_AGENT_PLUGIN_UNTRUSTED" {
 		t.Errorf("код отказа = %q, ожидался E_AGENT_PLUGIN_UNTRUSTED (сообщение: %s)", got, rpcErr.Message)
+	}
+}
+
+// Неверный timeout_seconds — явная ошибка, а не тихое значение по умолчанию.
+// Раньше timeout_seconds=1000, 0, -5 или строка молча превращались в 60, и
+// агент думал, что получил запрошенное время.
+func TestToolExecPluginRejectsBadTimeout(t *testing.T) {
+	for _, v := range []interface{}{1000.0, 0.0, -5.0, "60s", true} {
+		s := capServer(t, withPerms(baseManifest(), map[string]interface{}{
+			"network": []interface{}{}, "filesystem": "read", "secrets": []interface{}{},
+		}))
+		_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "cap", "timeout_seconds": v})
+		if rpcErr == nil {
+			t.Errorf("timeout_seconds=%v: ожидалась ошибка, а не запуск", v)
+			continue
+		}
+		if !strings.Contains(rpcErr.Message, "timeout_seconds") {
+			t.Errorf("timeout_seconds=%v: ошибка должна называть поле: %s", v, rpcErr.Message)
+		}
+	}
+}
+
+// Дробные секунды принимаются точно: 0.5с — это полсекунды, а не ноль
+// (усечение давало бы мгновенный таймаут).
+func TestToolExecPluginAcceptsFractionalTimeout(t *testing.T) {
+	s := capServer(t, withPerms(baseManifest(), map[string]interface{}{
+		"network": []interface{}{}, "filesystem": "read", "secrets": []interface{}{},
+	}))
+	out, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "cap", "timeout_seconds": 0.5})
+	if rpcErr != nil {
+		t.Fatalf("timeout_seconds=0.5 должен приниматься, отказ: %s", rpcErr.Message)
+	}
+	if !strings.Contains(out, "output") {
+		t.Errorf("ожидался выход плагина, получено: %s", out)
 	}
 }

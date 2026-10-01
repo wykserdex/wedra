@@ -23,7 +23,7 @@ func agentServer() *Server {
 // согласия ядра агент не исполняет код вообще.
 func TestToolExecPluginDeniedByDefault(t *testing.T) {
 	s := &Server{}
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "echo_ok"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "echo_ok"})
 	if rpcErr == nil {
 		t.Fatal("exec_plugin без политики должен отказать, а не запускать код")
 	}
@@ -31,7 +31,7 @@ func TestToolExecPluginDeniedByDefault(t *testing.T) {
 		t.Error("отказ должен называть нужный флаг, получено: " + rpcErr.Message)
 	}
 	// Отказ до разбора аргументов: даже корректный аргумент не проходит.
-	_, _, rpcErr = s.toolExecPlugin(map[string]interface{}{})
+	_, _, rpcErr = s.toolExecPlugin(nil, map[string]interface{}{})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "--allow-agent-exec") {
 		t.Error("проверка разрешения должна идти до проверки аргументов, получено: " + rpcErr.Message)
 	}
@@ -39,7 +39,7 @@ func TestToolExecPluginDeniedByDefault(t *testing.T) {
 
 func TestToolExecPluginRequiresPlugin(t *testing.T) {
 	s := agentServer()
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{})
 	if rpcErr == nil {
 		t.Error("exec_plugin без plugin должен вернуть ошибку")
 	}
@@ -51,7 +51,7 @@ func TestToolExecPluginRequiresPlugin(t *testing.T) {
 func TestToolExecPluginRejectsOutsideRoot(t *testing.T) {
 	s := agentServer()
 	s.workDir = "/tmp/test"
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{
 		"plugin": "../outside",
 	})
 	if rpcErr == nil {
@@ -66,7 +66,7 @@ func TestToolExecPluginRejectsUnknownPlugin(t *testing.T) {
 	s := agentServer()
 	s.workDir = "/tmp/test"
 	s.multi = &multiEngine{dirs: []string{"/tmp/test/plugins"}, workDir: "/tmp/test"}
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{
 		"plugin": "nonexistent/plugin",
 	})
 	if rpcErr == nil {
@@ -94,7 +94,7 @@ func TestToolExecPluginRespectsConcurrencyLimit(t *testing.T) {
 		}
 	}()
 
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "echo_ok"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "echo_ok"})
 	if rpcErr == nil {
 		t.Fatal("при исчерпанных слотах вызов должен отказать, а не выполняться")
 	}
@@ -113,7 +113,7 @@ func TestToolExecPluginRespectsConcurrencyLimit(t *testing.T) {
 // Отказываем, а не выполняем: предел, которого нет, равен отсутствию предела.
 func TestToolExecPluginRefusesWithoutSlots(t *testing.T) {
 	s := &Server{trust: plugin.TrustPolicy{AgentCanExec: true}}
-	_, _, rpcErr := s.toolExecPlugin(map[string]interface{}{"plugin": "echo_ok"})
+	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{"plugin": "echo_ok"})
 	if rpcErr == nil || !strings.Contains(rpcErr.Message, "не инициализированы") {
 		t.Errorf("без слотов вызов должен отказать, получено: %v", rpcErr)
 	}
