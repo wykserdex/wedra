@@ -1,0 +1,121 @@
+# Контракт-тесты sslyze (mock sslyze CLI, без сети и без пакета sslyze).
+tests:
+  - name: certinfo → нормализованные findings по серверу
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input: { target: "example.com" }
+    expect:
+      status: ok
+      output:
+        target: example.com
+        scanned: 1
+        findings:
+          - { target: "example.com:443", command: certinfo, status: OK }
+
+  - name: несколько проверок → по записи на каждую
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input: { target: "example.com:8443", commands: ["certinfo", "heartbleed", "reneg"] }
+    expect:
+      status: ok
+      output:
+        target: "example.com:8443"
+        scanned: 1
+        findings:
+          - { target: "example.com:8443", command: certinfo, status: OK }
+          - { target: "example.com:8443", command: heartbleed, status: OK }
+          - { target: "example.com:8443", command: reneg, status: OK }
+
+  - name: сервер без связности → запись connectivity
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_NO_CONNECT: "1" }
+    input: { target: "example.com", commands: ["certinfo"] }
+    expect:
+      status: ok
+      output:
+        target: example.com
+        scanned: 1
+        findings:
+          - { target: "example.com:443", command: connectivity, status: ERROR_NO_CONNECTIVITY }
+
+  - name: пустой репорт → ok, findings []
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_EMPTY: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: ok
+      output:
+        target: example.com
+        scanned: 0
+        findings: []
+
+  - name: пустой target → доменная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input: { target: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: commands не массив → платформенная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input: { target: "example.com", commands: "certinfo" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_commands }
+
+  - name: неизвестная проверка → платформенная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input: { target: "example.com", commands: ["certinfo", "не-такая"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_commands, retryable: false }
+
+  - name: sslyze не установлен (путь)
+    env: { SSLYZE_BIN: "/nonexistent/sslyze-bin" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sslyze_not_installed, retryable: false }
+
+  - name: sslyze не установлен (имя из PATH)
+    env: { SSLYZE_BIN: "definitely_not_a_sslyze_bin_xyz" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sslyze_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_SLEEP: "3" }
+    input: { target: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: sslyze без репорта → доменная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_NO_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: sslyze упал → tool_failed
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_FAIL: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON репорта → платформенная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py", MOCK_BAD_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SSLYZE_BIN: "mock_sslyze.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

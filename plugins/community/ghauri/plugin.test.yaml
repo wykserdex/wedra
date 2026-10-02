@@ -1,0 +1,102 @@
+# Контракт-тесты ghauri (mock CLI, без сети и без пакета ghauri).
+tests:
+  - name: инъекция найдена → vulnerable true, параметр и техники
+    env: { GHAURI_BIN: "mock_ghauri.py" }
+    input: { url: "http://example.com/vuln.php?id=1", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        url: "http://example.com/vuln.php?id=1"
+        vulnerable: true
+        parameter: id
+        injections:
+          - { parameter: id, place: GET, technique: "OR boolean-based blind - WHERE or HAVING clause" }
+          - { parameter: name, place: POST, technique: "MySQL inline query (QUOTE)" }
+
+  - name: инъекций нет → ok, vulnerable false, пустой массив
+    env: { GHAURI_BIN: "mock_ghauri.py", MOCK_NOT_VULNERABLE: "1" }
+    input: { url: "http://example.com/index.php?page=2" }
+    expect:
+      status: ok
+      output:
+        url: "http://example.com/index.php?page=2"
+        vulnerable: false
+        parameter: ""
+        injections: []
+
+  - name: пустой url → доменная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py" }
+    input: { url: "ftp://example.com/x?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: в URL нет параметров → доменная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py", MOCK_NO_PARAMS: "1" }
+    input: { url: "http://example.com/index.php" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: ghauri не установлен (путь)
+    env: { GHAURI_BIN: "/nonexistent/ghauri-bin" }
+    input: { url: "http://example.com/?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ghauri_not_installed, retryable: false }
+
+  - name: ghauri не установлен (имя из PATH)
+    env: { GHAURI_BIN: "definitely_not_a_ghauri_bin_xyz" }
+    input: { url: "http://example.com/?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ghauri_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GHAURI_BIN: "mock_ghauri.py", MOCK_SLEEP: "3" }
+    input: { url: "http://example.com/?id=1", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: ghauri без лога → доменная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py", MOCK_NO_REPORT: "1" }
+    input: { url: "http://example.com/?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: ghauri упал → доменная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py", MOCK_FAIL: "1" }
+    input: { url: "http://example.com/?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: timeout не число → платформенная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py" }
+    input: { url: "http://example.com/?id=1", timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_timeout }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GHAURI_BIN: "mock_ghauri.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,38 @@
+id: lief
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  LIEF (LIEF-project/LIEF) — универсальный разбор бинарников: PE, ELF и Mach-O
+  одним и тем же парсером. Отдаёт формат, абстрактный заголовок (архитектура,
+  тип объекта, endianness, битность, entrypoint) и список секций. У донора нет
+  CLI, поэтому плагин запускает тот же интерпретатор с фиксированным сниппетом
+  (-c), который импортирует lief и печатает JSON (паттерн C). Библиотека
+  ставится отдельно: pip install lief.
+author: "community · wedra showcase (reverse engineering)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет lief — отдельно (pip install lief)
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к PE/ELF/Mach-O; должен существовать
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  file:     { type: string }
+  format:   { type: string }
+  header:   { type: object }
+  sections: { type: array }
+  count:    { type: number }
+
+permissions:
+  network: []
+  filesystem: read      # читает только указанный пользователем файл
+  secrets: []

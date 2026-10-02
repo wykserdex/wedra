@@ -1,0 +1,108 @@
+# Контракт-тесты dnstwist (mock dnstwist CLI, без сети и без пакета dnstwist).
+tests:
+  - name: перестановки + NS-записи из -f json
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input: { domain: "example.com", threads: 20 }
+    expect:
+      status: ok
+      output:
+        domain: "example.com"
+        total: 4
+        permutations:
+          contains: { domain: "example.com", fuzzer: "*original", resolved: true }
+        ns_history:
+          contains:
+            domain: "example.com"
+            nameservers: ["ns1.example-host.net", "ns2.example-host.net"]
+
+  - name: только зарегистрированные (--registered)
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input: { domain: "example.com", registered_only: true }
+    expect:
+      status: ok
+      output:
+        domain: "example.com"
+        total: 2
+        ns_history:
+          equals:
+            - { domain: "example.com", nameservers: ["ns1.example-host.net", "ns2.example-host.net"] }
+            - { domain: "example.c0m", nameservers: ["ns1.example-host.net"] }
+
+  - name: пустая выдача → ok с пустыми массивами
+    env: { DNSTWIST_BIN: "mock_dnstwist.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: "example.com"
+        permutations: []
+        ns_history: []
+        total: 0
+
+  - name: пустой domain → доменная ошибка
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: threads не число → платформенная ошибка
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input: { domain: "example.com", threads: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_threads }
+
+  - name: registered_only не bool → платформенная ошибка
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input: { domain: "example.com", registered_only: "да" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_registered_only }
+
+  - name: dnstwist не установлен (путь)
+    env: { DNSTWIST_BIN: "/nonexistent/dnstwist-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dnstwist_not_installed, retryable: false }
+
+  - name: dnstwist не установлен (имя из PATH)
+    env: { DNSTWIST_BIN: "definitely_not_a_dnstwist_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dnstwist_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DNSTWIST_BIN: "mock_dnstwist.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: резолвер не ответил → tool_failed, retryable
+    env: { DNSTWIST_BIN: "mock_dnstwist.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: вывод не JSON → платформенная ошибка
+    env: { DNSTWIST_BIN: "mock_dnstwist.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DNSTWIST_BIN: "mock_dnstwist.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

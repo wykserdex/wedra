@@ -1,0 +1,120 @@
+# Контракт-тесты pyelftools (mock сниппета донора, без пакета pyelftools и без сети).
+# Входной файл — заглушка (main.py в каталоге плагина): ELF разбирает мок,
+# плагин проверяет оркестрацию и нормализацию JSON.
+tests:
+  - name: ELF → класс, секции, библиотеки
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: "main.py"
+        elf_class: "ELF64"
+        count: 3
+        sections: { type: array }
+        libraries: ["libc.so.6", "libm.so.6"]
+
+  - name: секции нормализованы (name/type/size/addr)
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
+    input: { file: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        sections: { contains: { name: ".text", type: "SHT_PROGBITS", size: 48213, addr: 10768 } }
+
+  - name: ELF32 без секций → ok, count 0
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_ALT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        elf_class: "ELF32"
+        count: 0
+        sections: []
+        libraries: []
+
+  - name: пустой file → доменная ошибка
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
+    input: { file: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: несуществующий файл → missing_file
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
+    input: { file: "нет-такого.elf" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: файл не ELF → доменная ошибка not_elf
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NOT_ELF: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_elf, retryable: false }
+
+  - name: битый ELF → доменная ошибка bad_file
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_BAD_FILE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }
+
+  - name: pyelftools не установлен (донор переопределён на путь)
+    env: { PYELFTOOLS_BIN: "/nonexistent/pyelftools-bin" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pyelftools_not_installed, retryable: false }
+
+  - name: pyelftools не установлен (донор не импортируется)
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_MODULE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pyelftools_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_SLEEP: "3" }
+    input: { file: "main.py", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: сниппет без вывода → no_report
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_NO_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: донор упал → tool_failed
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_FAIL: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON донора → платформенная ошибка
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_report" }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { PYELFTOOLS_BIN: "mock_pyelftools.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

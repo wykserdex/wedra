@@ -1,0 +1,133 @@
+# Контракт-тесты ipwhois (mock ipwhois_cli, без сети и без пакета ipwhois).
+tests:
+  - name: RDAP-ответ → record целиком, found true
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: ok
+      output:
+        ip: "74.125.225.229"
+        found: true
+        record:
+          query: "74.125.225.229"
+          network: { handle: NET-74-125-0-0-1, cidr: "74.125.0.0/16", country: US }
+          objects: {}
+
+  - name: legacy whois (--whois) → ключ nets, found true
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "74.125.225.229", protocol: "whois" }
+    expect:
+      status: ok
+      output:
+        ip: "74.125.225.229"
+        found: true
+        record:
+          query: "74.125.225.229"
+          nets: [ { handle: NET-8-8-8-0-1, cidr: "8.8.8.0/24", country: US } ]
+          referral: { city: Mountain View, country: US }
+
+  - name: сети в ответе нет → ok, found false, record без network
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "192.0.2.55" }
+    expect:
+      status: ok
+      output:
+        ip: "192.0.2.55"
+        found: false
+        record: { query: "192.0.2.55" }
+
+  - name: IPv6 нормально
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "2001:4860:4860::8888" }
+    expect:
+      status: ok
+      output:
+        ip: "2001:4860:4860::8888"
+        found: true
+        record: { type: object }
+
+  - name: пустой ip → доменная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_ip, retryable: false }
+
+  - name: не IP → доменная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "не-адрес" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_ip }
+
+  - name: неизвестный protocol → доменная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "74.125.225.229", protocol: "rdap+json" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_protocol }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input: { ip: "74.125.225.229", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: ipwhois не установлен (путь)
+    env: { IPWHOIS_BIN: "/nonexistent/ipwhois-bin" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ipwhois_not_installed, retryable: false }
+
+  - name: ipwhois не установлен (имя из PATH)
+    env: { IPWHOIS_BIN: "definitely_not_an_ipwhois_cli_xyz" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ipwhois_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { IPWHOIS_BIN: "mock_ipwhois.py", MOCK_SLEEP: "3" }
+    input: { ip: "74.125.225.229", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: ipwhois упал → доменная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py", MOCK_FAIL: "1" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: ipwhois без вывода → доменная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py", MOCK_NO_REPORT: "1" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: обрезанный JSON ответа → платформенная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py", MOCK_BAD_REPORT: "1" }
+    input: { ip: "74.125.225.229" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { IPWHOIS_BIN: "mock_ipwhois.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

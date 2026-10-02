@@ -1,0 +1,50 @@
+id: h8mail
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  h8mail (Prosper0800/h8mail; поддерживается khast3x/h8mail, тот же pip-пакет
+  h8mail) — поиск email в утечках через HIBP, Snusbase, Dehashed, Emailrep,
+  IntelX и др. Обёртка всегда собирает конфиг с ключами из env во временный
+  каталог и передаёт его флагом -c, затем читает CSV-репорт (-o, колонки
+  Target/Type/Data). Ставится отдельно: pip install h8mail.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет h8mail — отдельно
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # email, username, домен, хеш или ip
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  target:   { type: string }
+  breaches: { type: array }
+  checked:  { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets:               # ключи читает main.py, собирая их в конфиг h8mail
+    - HIBP_API_KEY
+    - HUNTERIO_API_KEY
+    - SNUSBASE_TOKEN
+    - WELEAKINFO_PRIV_KEY
+    - WELEAKINFO_PUB_KEY
+    - XTLX_API_KEY
+    - LEAK_LOOKUP_PUB_KEY
+    - LEAK_LOOKUP_PRIV_KEY
+    - EMAILREP_API_KEY
+    - DEHASHED_EMAIL
+    - DEHASHED_KEY
+    - INTELX_KEY
+    - INTELX_MAXFILE
+    - BREACHDIRECTORY_USER
+    - BREACHDIRECTORY_PASS

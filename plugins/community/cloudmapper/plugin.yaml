@@ -1,0 +1,56 @@
+id: cloudmapper
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  CloudMapper (MitMaro → duo-labs) — карта собственной облачной инфраструктуры
+  AWS. Обёртка запускает два шага донора во временном каталоге: collect (сбор
+  метаданных аккаунта ключами из env) и prepare (сборка графа), затем читает
+  web/data.json — список элементов cytoscape, где data.source/data.target
+  означают ребро, остальное — узел. Возвращает account, nodes, edges, count.
+  Учётные данные читает САМ инструмент (AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION/AWS_DEFAULT_REGION);
+  main.py ключей не требует и в сеть не ходит. Донор ставится из репозитория:
+  git clone https://github.com/duo-labs/cloudmapper && pip install -r
+  requirements.txt (в репозитории нет setup.py, pip-пакета cloudmapper нет —
+  точку входа задавайте через CLOUDMAPPER_BIN).
+author: "community · wedra showcase (cloud audit)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; cloudmapper ставится отдельно (git)
+
+input:
+  account:
+    from: input.account
+    type: string
+    format: text        # имя аккаунта из config cloudmapper (или 12-значный ID)
+  profile:
+    from: input.profile
+    type: string
+    optional: true      # AWS-профиль для collect (--profile)
+  regions:
+    from: input.regions
+    type: string
+    optional: true      # CSV регионов, ex. us-east-1,us-west-2
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # лимит на каждый шаг, секунды (default 1800)
+
+output:
+  account: { type: string }
+  nodes:   { type: array }
+  edges:   { type: array }
+  count:   { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: AWS API (ec2, iam, s3, sts, …)" }
+  filesystem: none
+  secrets:               # читает донор (boto3 и сам collect), не main.py
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_SESSION_TOKEN
+    - AWS_REGION
+    - AWS_DEFAULT_REGION

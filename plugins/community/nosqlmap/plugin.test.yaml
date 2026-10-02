@@ -1,0 +1,121 @@
+# Контракт-тесты nosqlmap (mock nosqlmap CLI, без сети и без пакета nosqlmap).
+tests:
+  - name: web-app атака → уязвимый URL и техники из stdout+отчёта
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input: { url: "http://target.example:8080/acct.php?acctid=test" }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example:8080/acct.php?acctid=test"
+        vulnerable: true
+        count: 1
+        techniques:
+          - "PHP/ExpressJS != associative array injection"
+          - "$where injection (string escape)"
+          - "String Attack-Successful"
+          - "Integer attack-Successful"
+
+  - name: параметры из входа (acctid, search) → --params номерами
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input:
+      url: "http://target.example:8080/s.php?acctid=test&search=abc"
+      parameters: ["search"]
+    expect:
+      status: ok
+      output:
+        url: "http://target.example:8080/s.php?acctid=test&search=abc"
+        vulnerable: true
+        count: 1
+
+  - name: инъекций нет → ok, vulnerable false
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py", MOCK_CLEAN: "1" }
+    input: { url: "http://target.example/safe.php?name=test" }
+    expect:
+      status: ok
+      output:
+        vulnerable: false
+        count: 0
+        techniques: []
+
+  - name: пустой url → доменная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url без query-параметров → платформенная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input: { url: "http://target.example/acct.php" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_url }
+
+  - name: parameters не массив → платформенная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input: { url: "http://target.example/a.php?id=1", parameters: "id" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_parameters }
+
+  - name: параметра нет в query → платформенная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input: { url: "http://target.example/a.php?id=1", parameters: ["nope"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_parameters }
+
+  - name: wall timeout → доменная, retryable
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py", MOCK_SLEEP: "3" }
+    input: { url: "http://target.example/a.php?id=1", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: nosqlmap не установлен (путь)
+    env: { NOSQLMAP_BIN: "/nonexistent/nosqlmap-bin" }
+    input: { url: "http://target.example/a.php?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: nosqlmap_not_installed, retryable: false }
+
+  - name: nosqlmap не установлен (имя из PATH)
+    env: { NOSQLMAP_BIN: "definitely_not_a_nosqlmap_bin_xyz" }
+    input: { url: "http://target.example/a.php?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: nosqlmap_not_installed }
+
+  - name: nosqlmap без отчёта → доменная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py", MOCK_NO_REPORT: "1" }
+    input: { url: "http://target.example/a.php?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: нечитаемый отчёт → платформенная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "http://target.example/a.php?id=1" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: nosqlmap упал → доменная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py", MOCK_FAIL: "1" }
+    input: { url: "http://target.example/a.php?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { NOSQLMAP_BIN: "mock_nosqlmap.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

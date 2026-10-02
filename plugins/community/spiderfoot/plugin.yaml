@@ -1,0 +1,38 @@
+id: spiderfoot
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  SpiderFoot (smicallef) — OSINT-автоматизация, 200+ модулей. Обёртка над CLI
+  spiderfoot/sf.py: неинтерактивный скан цели (`-s`), JSON-вывод (`-o json`)
+  в stdout, stdin закрыт. SpiderFoot ставится отдельно: pip install spiderfoot
+  либо распакованный релиз v4.0 (`python3 sf.py`).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; SpiderFoot — отдельно
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # домен, IP, email, username, имя
+  module:
+    from: input.module
+    type: string
+    format: text        # опционально: sfp_dns,sfp_spider (через запятую)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  target: { type: string }
+  events: { type: array }
+  count:  { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: readwrite # SpiderFoot держит свою БД в ~/.spiderfoot/spiderfoot.db
+  secrets: []           # ключи нужны только отдельным модулям, входа у плагина нет

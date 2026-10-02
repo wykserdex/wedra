@@ -1,0 +1,94 @@
+# Контракт-тесты metafinder (mock metafinder CLI, без сети и без пакета metafinder).
+tests:
+  - name: метаданные из отчёта → documents с метаданными
+    env: { METAFINDER_BIN: "mock_metafinder.py" }
+    input: { domain: "example.org", limit: 10, threads: 2, engines: ["google", "bing"] }
+    expect:
+      status: ok
+      output:
+        domain: "example.org"
+        checked: 2
+        results:
+          equals:
+            - source: "google, bing"
+              url: "https://example.org/docs/annual-report.pdf"
+              title: "annual-report.pdf"
+
+  - name: метаданных не нашлось → ok с пустым массивом
+    env: { METAFINDER_BIN: "mock_metafinder.py", MOCK_NO_METADATA: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: ok
+      output:
+        domain: "example.org"
+        results: []
+        checked: 0
+
+  - name: пустой domain → доменная ошибка
+    env: { METAFINDER_BIN: "mock_metafinder.py" }
+    input: { domain: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: неизвестный поисковик → доменная ошибка
+    env: { METAFINDER_BIN: "mock_metafinder.py" }
+    input: { domain: "example.org", engines: ["yahoo"] }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_engines }
+
+  - name: engines не массив → платформенная ошибка
+    env: { METAFINDER_BIN: "mock_metafinder.py" }
+    input: { domain: "example.org", engines: "google" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_engines }
+
+  - name: metafinder не установлен (путь)
+    env: { METAFINDER_BIN: "/nonexistent/metafinder-bin" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: metafinder_not_installed, retryable: false }
+
+  - name: metafinder не установлен (имя из PATH)
+    env: { METAFINDER_BIN: "definitely_not_a_metafinder_bin_xyz" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: metafinder_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { METAFINDER_BIN: "mock_metafinder.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.org", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: metafinder упал на сети → retryable
+    env: { METAFINDER_BIN: "mock_metafinder.py", MOCK_FAIL: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: отчёт в чужом формате → платформенная ошибка
+    env: { METAFINDER_BIN: "mock_metafinder.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { METAFINDER_BIN: "mock_metafinder.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

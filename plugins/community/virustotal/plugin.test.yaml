@@ -1,0 +1,157 @@
+# Контракт-тесты virustotal (mock донора, без сети, без ключа, без SDK).
+tests:
+  - name: хэш файла → счётчики и репутация
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py" }
+    input: { indicator: "44D88612FEA8A8F36DE82E1278ABB02F" }
+    expect:
+      status: ok
+      output:
+        indicator: "44d88612fea8a8f36de82e1278abb02f"
+        malicious: 61
+        total: 70
+        reputation: -42
+        found: true
+
+  - name: домен нормализуется (FQDN с точкой, регистр) → ok
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_CLEAN: "1" }
+    input: { indicator: "Example.COM." }
+    expect:
+      status: ok
+      output:
+        indicator: "example.com"
+        malicious: 0
+        total: 0
+        reputation: 0
+        found: true
+
+  - name: IP нормализуется → ok
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_CLEAN: "1" }
+    input: { indicator: "2001:0DB8:0000::1" }
+    expect:
+      status: ok
+      output:
+        indicator: "2001:db8::1"
+        malicious: 0
+        total: 0
+        reputation: 0
+        found: true
+
+  - name: индикатора нет в базе → ok, found false (не ошибка)
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_NOT_FOUND: "1" }
+    input: { indicator: "0000000000000000000000000000000000000000000000000000000000000000" }
+    expect:
+      status: ok
+      output:
+        indicator: "0000000000000000000000000000000000000000000000000000000000000000"
+        malicious: 0
+        total: 0
+        reputation: 0
+        found: false
+
+  - name: пустой indicator → доменная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py" }
+    input: { indicator: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_indicator, retryable: false }
+
+  - name: не хэш, не домен, не IP → доменная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py" }
+    input: { indicator: "не индикатор" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_indicator }
+
+  - name: донор не установлен (путь)
+    env: { VIRUSTOTAL_BIN: "/nonexistent/virustotal-bin" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: virustotal_not_installed, retryable: false }
+
+  - name: донор не установлен (имя из PATH)
+    env: { VIRUSTOTAL_BIN: "definitely_not_a_virustotal_bin_xyz" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: virustotal_not_installed }
+
+  - name: ключ не задан → tool_failed, не retryable
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_NO_KEY: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: неверный ключ → tool_failed, не retryable
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_AUTH_ERR: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: исчерпана квота → tool_failed, retryable
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_RATE_LIMIT: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: 503 от API → tool_failed, retryable
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_SERVER_ERR: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: wall timeout → доменная, retryable
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_SLEEP: "3" }
+    input: { indicator: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донор без отчёта → доменная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_NO_REPORT: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый отчёт донора → платформенная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_BAD_REPORT: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → доменная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py", MOCK_FAIL: "1" }
+    input: { indicator: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py" }
+    input: { indicator: "example.com", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { VIRUSTOTAL_BIN: "mock_virustotal.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

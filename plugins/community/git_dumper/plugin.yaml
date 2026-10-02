@@ -1,0 +1,38 @@
+id: git_dumper
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  git-dumper (arthaud/git-dumper) — поиск и выкачивание оставленного .git на
+  целевом хосте. Обёртка зовёт CLI `git-dumper <url> <dir>` с дампом во
+  временную папку и разбирает его построчный лог `[-] ...` из stdout
+  (probe .git/HEAD, скачанные файлы, стадии обхода). Отчёт-файл донор не
+  пишет — единственный машинный вывод это stdout. Ставится отдельно:
+  pip install git-dumper.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет git-dumper — отдельно (pip install git-dumper)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # цель, у которой проверяем .git/HEAD
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:      { type: string }
+  findings: { type: array }   # [{kind, ...}]: stage | probe | file
+  count:    { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: хост из url, заданного пользователем" }
+    - { any_host: true, port: 80, note: "target: хост из url, заданного пользователем" }
+  filesystem: none       # дамп кладём во временный каталог ОС
+  secrets: []

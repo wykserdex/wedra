@@ -1,0 +1,37 @@
+id: gallery_dl
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  gallery-dl (mikf/gallery-dl) — метаданные изображений и галерей по URL, без
+  скачивания картинок. Обёртка запускает инструмент в режиме «только
+  метаданные»: -j/--dump-json (печать JSON в stdout) + --no-download. Из
+  отчёта берутся только сообщения Message.Url и Message.Directory: список
+  позиций с нормализованными полями и заголовок галереи.
+  Инструмент ставится отдельно: pip install gallery-dl.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет gallery-dl — отдельно (pip install gallery-dl)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # ссылка на галерею, ровно один аргумент
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:    { type: string }   # исходный URL, как его понял инструмент
+  items:  { type: array }    # [{index, url, category, extension}] — по Message.Url
+  count:  { type: number }   # сколько позиций в items
+  title:  { type: string }   # title/gallery_title/category из Message.Directory
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: сайт-хостинг галереи из url пользователя; точечный egress не enforce'ится, поэтому заявлен весь интернет" } ]
+  filesystem: none
+  secrets: []

@@ -1,0 +1,107 @@
+# Контракт-тесты spiderfoot (mock CLI sf.py, без сети и без пакета spiderfoot).
+tests:
+  - name: скан цели → события
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py" }
+    input: { target: "example.com", module: "sfp_dns" }
+    expect:
+      status: ok
+      output:
+        target: "example.com"
+        count: 2
+        events:
+          - type: "Internet Name"
+            data: "example.com"
+            module: sfp_dns
+            source: ""
+          - type: "IP Address"
+            data: "203.0.113.7"
+            module: sfp_dnsresolve
+            source: "example.com"
+
+  - name: скан без событий → ok, count 0
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py", MOCK_EMPTY: "1" }
+    input: { target: "example.org", module: "sfp_dns" }
+    expect:
+      status: ok
+      output:
+        target: "example.org"
+        count: 0
+        events: []
+
+  - name: пустой target → доменная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py" }
+    input: { target: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: module не строка → платформенная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py" }
+    input: { target: "example.com", module: 5 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_module }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py" }
+    input: { target: "example.com", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: spiderfoot не установлен (путь)
+    env: { SPIDERFOOT_BIN: "/nonexistent/spiderfoot-bin" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: spiderfoot_not_installed, retryable: false }
+
+  - name: spiderfoot не установлен (имя из PATH)
+    env: { SPIDERFOOT_BIN: "definitely_not_a_spiderfoot_bin_xyz" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: spiderfoot_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py", MOCK_SLEEP: "3" }
+    input: { target: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: spiderfoot без JSON → доменная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py", MOCK_NO_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: spiderfoot упал → доменная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py", MOCK_FAIL: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый репорт → платформенная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py", MOCK_BAD_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SPIDERFOOT_BIN: "mock_spiderfoot.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,108 @@
+# Контракт-тесты git_dumper (mock CLI git-dumper, без пакета и без сети).
+tests:
+  - name: найденный .git → probe/файлы/стадии из лога
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py" }
+    input: { url: "https://target.example/app" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/app"
+        count: 13
+        findings:
+          equals:
+            - { kind: probe, target: "/.git/HEAD", status: 200 }
+            - { kind: probe, target: "/.git/", status: 403 }
+            - { kind: stage, stage: "Fetching common files" }
+            - { kind: file, path: ".gitignore", status: 200, cached: false }
+            - { kind: file, path: ".gitignore", status: 0, cached: true }
+            - { kind: file, path: ".git/HEAD", status: 200, cached: false }
+            - { kind: file, path: ".git/config", status: 200, cached: false }
+            - { kind: stage, stage: "Finding refs/" }
+            - { kind: file, path: ".git/refs/heads/main", status: 200, cached: false }
+            - { kind: stage, stage: "Finding packs" }
+            - { kind: stage, stage: "Finding objects" }
+            - { kind: stage, stage: "Fetching objects" }
+            - { kind: stage, stage: "Running git checkout ." }
+
+  - name: пустой лог (ничего не нашли) → ok, findings []
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: 0
+        findings: []
+
+  - name: цели нет .git/HEAD (404) → ok, findings []
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py", MOCK_NOT_FOUND: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      exit_code: 0
+      output:
+        count: 0
+        findings: []
+
+  - name: пустой url → доменная ошибка
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py" }
+    input: { url: "https://target.example", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: git-dumper не установлен (путь)
+    env: { GIT_DUMPER_BIN: "/nonexistent/git-dumper-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: git_dumper_not_installed, retryable: false }
+
+  - name: git-dumper не установлен (имя из PATH)
+    env: { GIT_DUMPER_BIN: "definitely_not_a_git_dumper_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: git_dumper_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: цель недоступна → tool_failed, retryable (сеть)
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py", MOCK_UNREACHABLE: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: git-dumper упал → доменная ошибка
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GIT_DUMPER_BIN: "mock_git_dumper.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

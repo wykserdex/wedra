@@ -1,0 +1,122 @@
+# Контракт-тесты corsy (mock Corsy CLI, без сети и без пакета Corsy).
+tests:
+  - name: CORS-мисконфигурация → finding из JSON-отчёта -o
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api"
+        count: 1
+        findings:
+          - origin: "https://example.com"
+            url: "https://target.example/api"
+            vulnerable: true
+
+  - name: origins из входа принимаются (Corsy пробит Origin сам)
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input:
+      url: "https://target.example/api"
+      origins: ["https://evil.example", "null"]
+    expect:
+      status: ok
+      output:
+        count: 1
+        findings:
+          contains:
+            origin: "https://example.com"
+            url: "https://target.example/api"
+            vulnerable: true
+
+  - name: мисконфигураций нет (Corsy не пишет -o) → ok, findings []
+    env: { CORSY_BIN: "mock_corsy.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api"
+        findings: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url без схемы → платформенная ошибка
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input: { url: "target.example/api" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_url }
+
+  - name: origins не массив → платформенная ошибка
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input: { url: "https://target.example/api", origins: "https://evil.example" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_origins }
+
+  - name: origins с не-строкой → платформенная ошибка
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input: { url: "https://target.example/api", origins: [123] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_origins }
+
+  - name: wall timeout → доменная, retryable
+    env: { CORSY_BIN: "mock_corsy.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example/api", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: corsy не установлен (путь)
+    env: { CORSY_BIN: "/nonexistent/corsy-bin" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: corsy_not_installed, retryable: false }
+
+  - name: corsy не установлен (имя из PATH)
+    env: { CORSY_BIN: "definitely_not_a_corsy_bin_xyz" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: corsy_not_installed }
+
+  - name: пустой файл отчёта → доменная ошибка
+    env: { CORSY_BIN: "mock_corsy.py", MOCK_EMPTY_REPORT: "1" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON-отчёт → платформенная ошибка
+    env: { CORSY_BIN: "mock_corsy.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: corsy упал → доменная ошибка
+    env: { CORSY_BIN: "mock_corsy.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { CORSY_BIN: "mock_corsy.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,36 @@
+id: emailfinder
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  EmailFinder (soxoj/emailfinder, на PyPI — josue87/emailfinder) — email-адреса
+  домена через Hunter.io. Обёртка над CLI: гоняет `emailfinder -d <домен>` и
+  разбирает stdout универсальным regex по адресам (машинного формата у
+  инструмента нет). Требуется API-ключ Hunter — его читает сам инструмент из
+  env HUNTER_API_KEY, плагин ключ не проверяет. Ставится отдельно:
+  pip install emailfinder.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет emailfinder — отдельно
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен или URL; схема и ведущий www. отбрасываются
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:  { type: string }
+  emails:  { type: array }
+  checked: { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 } ]
+  filesystem: none
+  secrets: [ HUNTER_API_KEY ]   # ключ Hunter.io; читает сам emailfinder из env

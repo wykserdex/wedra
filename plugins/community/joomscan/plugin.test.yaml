@@ -1,0 +1,140 @@
+# Контракт-тесты joomscan (mock joomscan CLI, без сети и без Perl-инструмента).
+tests:
+  - name: аудит → версия, находки и компоненты
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "https://target.example/joomla", components: true, timeout: 20 }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/joomla"
+        version: "3.9.24"
+        count: 3
+        vulns:
+          - { check: "Checking Debug Mode status", detail: "Debug mode Enabled : https://target.example/joomla/" }
+          - { check: "Checking Directory Listing", detail: "directory has directory listing :" }
+          - { check: "Finding common backup files name", detail: "Backup file is found" }
+        components:
+          - { name: com_content, location: "https://target.example/joomla/components/com_content/" }
+          - { name: com_contact, location: "https://target.example/joomla/components/com_contact/" }
+
+  - name: цель без схемы → нормализуется в http (как сам joomscan)
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "target.example" }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example"
+        version: { equals: "3.9.24" }
+
+  - name: Joomla без находок и компонентов → ok, count 0
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_CLEAN: "1" }
+    input: { url: "https://target.example", components: true }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        version: "3.9.24"
+        vulns: []
+        components: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "file:///etc/passwd" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: components не boolean → доменная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "https://target.example", components: { yes: 1 } }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_components }
+
+  - name: timeout не число → доменная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "https://target.example", timeout: "долго" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_timeout }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input: { url: "https://target.example", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: joomscan не установлен (путь)
+    env: { JOOMSCAN_BIN: "/nonexistent/joomscan-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: joomscan_not_installed, retryable: false }
+
+  - name: joomscan не установлен (имя из PATH)
+    env: { JOOMSCAN_BIN: "definitely_not_a_joomscan_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: joomscan_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: joomscan без репорта → доменная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: цель не отвечает → tool_failed
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_NOT_ALIVE: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: joomscan упал → tool_failed
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: нечитаемый репорт → платформенная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { JOOMSCAN_BIN: "mock_joomscan.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,8 @@
+admin
+api
+backup
+config
+index
+login
+robots.txt
+uploads

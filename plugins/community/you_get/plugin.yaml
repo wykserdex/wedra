@@ -1,0 +1,39 @@
+id: you_get
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  You-Get (soimort/you-get) — метаданные ролика/медиа с разных видеосервисов по
+  URL, без скачивания медиа. Обёртка запускает инструмент в режиме «только
+  метаданные»: --json (печать извлечённых данных в JSON; флаг сам включает
+  dry_run и заканчивает работу в json_output.output() до загрузки файла).
+  Из отчёта берутся title, site (extractor), uploader, duration и число потоков.
+  Инструмент ставится отдельно: pip install you-get.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет you-get — отдельно (pip install you-get)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # ровно один аргумент
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:       { type: string }   # url из отчёта (страница), иначе исходный URL
+  title:     { type: string }
+  uploader:  { type: string }   # в схеме you-get ключа нет → "" (берётся uploader/author, если экстрактор их отдаст)
+  duration:  { type: number }   # в схеме you-get ключа нет → 0
+  extractor: { type: string }   # поле site отчёта — имя экстрактора (YouTube, Vimeo, ...)
+  streams:   { type: number }   # сколько записей в streams (вместе с dash_streams)
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: видеосервис из url пользователя; точечный egress не enforce'ится, поэтому заявлен весь интернет" } ]
+  filesystem: none
+  secrets: []

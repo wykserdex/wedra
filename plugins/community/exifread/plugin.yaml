@@ -1,0 +1,35 @@
+id: exifread
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  ExifRead (lexiflex/exifread, на PyPI — ExifRead) — чтение EXIF-метаданных
+  изображений. У донора нет пригодного CLI, поэтому плагин запускает
+  интерпретатор со встроенным сниппетом, который импортирует exifread и
+  печатает JSON в stdout (паттерн C); отчёт — stdout. Ставится отдельно:
+  pip install exifread.
+author: "community · wedra showcase (forensics)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет exifread — отдельно (pip install exifread)
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к изображению; относительный — от каталога плагина
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 60)
+
+output:
+  file:  { type: string }
+  tags:  { type: object }   # { "IFD Тег": значение } — ключи exifread вида "EXIF DateTimeOriginal"
+  count: { type: number }
+
+permissions:
+  network: []           # инструмент работает по локальному файлу, сеть не нужна
+  filesystem: none
+  secrets: []

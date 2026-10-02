@@ -1,0 +1,45 @@
+id: degoogle
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  DeGoogle — поиск email/телефонов по домену через Google-доркинг (soxoj/degoogle,
+  пакет deepseagirl/degoogle). Обёртка над CLI degoogle: собирает дорк, разбирает
+  текстовый отчёт выдачи и вытаскивает контакты из описаний и URL. Ставится
+  отдельно: pip install degoogle.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет degoogle — отдельно (pip install degoogle)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен-цель, попадает в дорк по умолчанию
+  query:
+    from: input.query
+    type: string
+    format: text
+    optional: true      # свой Google-дорк вместо "<domain>"
+  pages:
+    from: input.pages
+    type: number
+    optional: true      # сколько страниц выдачи смотреть (default 1)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:   { type: string }
+  emails:   { type: array }
+  phones:   { type: array }
+  checked:  { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: www.google.com (выдача Google по дорку)" }
+  filesystem: none
+  secrets: []

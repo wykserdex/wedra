@@ -1,0 +1,113 @@
+# Контракт-тесты hakrawler (mock hakrawler CLI, без сети и без бинаря hakrawler).
+tests:
+  - name: краул → URL, скрипты и формы
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input: { url: "https://target.example", depth: 3, threads: 4, subs: true }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: 4
+        results:
+          - { url: "https://target.example/about", source: href, where: "" }
+          - { url: "https://target.example/login", source: href, where: "" }
+          - { url: "https://target.example/search", source: form, where: "" }
+          - { url: "https://target.example/static/app.js", source: script, where: "" }
+
+  - name: без схемы цель нормализуется в https
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input: { url: "target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: { equals: 4 }
+
+  - name: цель без ссылок → ok, пустой массив
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py", MOCK_EMPTY: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        results: []
+        count: 0
+
+  - name: без -json (голые ссылки) тоже разбираются
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py", MOCK_PLAIN: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        count: 4
+        results: { contains: { url: "https://target.example/login", source: "", where: "" } }
+
+  - name: пустой url → доменная ошибка
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input: { url: "gopher://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: threads не число → доменная ошибка
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input: { url: "https://target.example", threads: "много" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_threads }
+
+  - name: hakrawler не установлен (путь)
+    env: { HAKRAWLER_BIN: "/nonexistent/hakrawler-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: hakrawler_not_installed, retryable: false }
+
+  - name: hakrawler не установлен (имя из PATH)
+    env: { HAKRAWLER_BIN: "definitely_not_a_hakrawler_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: hakrawler_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: hakrawler упал → tool_failed
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: мусор в stdout → платформенная ошибка
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { HAKRAWLER_BIN: "mock_hakrawler.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

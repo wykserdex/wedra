@@ -1,0 +1,39 @@
+id: ghunt
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  GHunt (mxrch) — OSINT по Google-аккаунтам. Обёртка над CLI ghunt:
+  `ghunt <mode> <цель> --json <файл>`, разбирает выгруженный JSON.
+  GHunt ставится отдельно (pipx install ghunt) и требует авторизации:
+  сначала `ghunt login`. Токен/сессия читаются инструментом из env
+  GHUNT_TOKEN — плагин только пробрасывает переменную и не требует её.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; GHunt — отдельно
+
+input:
+  mode:
+    from: input.mode
+    type: string
+    format: text        # email | username
+  target:
+    from: input.target
+    type: string
+    format: text        # адрес или ник, в зависимости от mode
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  target:  { type: string }
+  records: { type: array }
+  count:   { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 } ]
+  filesystem: readwrite # GHunt хранит сессию авторизации вне рабочего каталога
+  secrets: [GHUNT_TOKEN]

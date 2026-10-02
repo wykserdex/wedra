@@ -1,0 +1,94 @@
+# Контракт-тесты degoogle (mock degoogle CLI, без сети и без пакета degoogle).
+tests:
+  - name: дорк → email/телефоны из выдачи
+    env: { DEGOOGLE_BIN: "mock_degoogle.py" }
+    input: { domain: "example.org", pages: 2 }
+    expect:
+      status: ok
+      output:
+        domain: "example.org"
+        emails: { equals: ["info@example.org"] }
+        phones: { equals: ["+1 202 555 0143"] }
+        checked: 2
+
+  - name: пустая выдача → ok с пустыми массивами
+    env: { DEGOOGLE_BIN: "mock_degoogle.py", MOCK_NO_RESULTS: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: ok
+      output:
+        domain: "example.org"
+        emails: []
+        phones: []
+        checked: 0
+
+  - name: свой дорк query вместо домена
+    env: { DEGOOGLE_BIN: "mock_degoogle.py" }
+    input: { domain: "ignored.example", query: "\"target.example\"" }
+    expect:
+      status: ok
+      output:
+        domain: "ignored.example"
+        emails: { contains: "info@target.example" }
+        checked: 2
+
+  - name: пустой domain → доменная ошибка
+    env: { DEGOOGLE_BIN: "mock_degoogle.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: pages не число → платформенная ошибка
+    env: { DEGOOGLE_BIN: "mock_degoogle.py" }
+    input: { domain: "example.org", pages: "много" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_pages }
+
+  - name: degoogle не установлен (путь)
+    env: { DEGOOGLE_BIN: "/nonexistent/degoogle-bin" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: degoogle_not_installed, retryable: false }
+
+  - name: degoogle не установлен (имя из PATH)
+    env: { DEGOOGLE_BIN: "definitely_not_a_degoogle_bin_xyz" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: degoogle_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DEGOOGLE_BIN: "mock_degoogle.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.org", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: degoogle упал (сетевой сбой) → retryable
+    env: { DEGOOGLE_BIN: "mock_degoogle.py", MOCK_FAIL: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: отчёт не в формате degoogle → платформенная ошибка
+    env: { DEGOOGLE_BIN: "mock_degoogle.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.org" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DEGOOGLE_BIN: "mock_degoogle.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,127 @@
+# Контракт-тесты webanalyze (mock CLI, без сети и без Go-сборки webanalyze).
+tests:
+  - name: сайт → технологии из JSON webanalyze
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "https://example.com" }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com"
+        count: 3
+        technologies:
+          - { name: Nginx, version: "1.18.0" }
+          - { name: Hugo, version: "0.121.1" }
+          - { name: Netlify, version: "" }
+
+  - name: голый хост без схемы → url без схемы
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "example.com", crawl: 2 }
+    expect:
+      status: ok
+      output:
+        url: "example.com"
+        count: 3
+
+  - name: apps_file и схема передаются, url нормализуется
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "http://example.org/tech?x=1", apps_file: "technologies.json" }
+    expect:
+      status: ok
+      output:
+        url: "http://example.org"
+        technologies: { type: array }
+
+  - name: технологий не определено → ok, пустой массив, count 0
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "https://host.invalid" }
+    expect:
+      status: ok
+      output:
+        url: "https://host.invalid"
+        count: 0
+        technologies: []
+
+  - name: пустой url → доменная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: неподдерживаемая схема → доменная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "ftp://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: нечисловой crawl → платформенная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "https://example.com", crawl: "много" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_crawl }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input: { url: "https://example.com", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: webanalyze не установлен (путь)
+    env: { WEBANALYZE_BIN: "/nonexistent/webanalyze-bin" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: webanalyze_not_installed, retryable: false }
+
+  - name: webanalyze не установлен (имя из PATH)
+    env: { WEBANALYZE_BIN: "definitely_not_a_webanalyze_bin_xyz" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: webanalyze_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: webanalyze упал → доменная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: webanalyze без вывода → доменная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: мусор вместо JSON → платформенная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { WEBANALYZE_BIN: "mock_webanalyze.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

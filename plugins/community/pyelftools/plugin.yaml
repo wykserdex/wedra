@@ -1,0 +1,37 @@
+id: pyelftools
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  pyelftools (eliben/pyelftools) — разбор ELF: класс (ELF32/ELF64), секции и
+  список подключаемых библиотек DT_NEEDED. У донора нет CLI, поэтому плагин
+  запускает тот же интерпретатор с фиксированным сниппетом (-c), который
+  импортирует elftools и печатает JSON (паттерн C). Библиотека ставится
+  отдельно: pip install pyelftools.
+author: "community · wedra showcase (reverse engineering)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет pyelftools — отдельно (pip install pyelftools)
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к ELF-файлу (.so/бинарник/объектник); должен существовать
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  file:      { type: string }
+  elf_class: { type: string }
+  sections:  { type: array }
+  libraries: { type: array }
+  count:     { type: number }
+
+permissions:
+  network: []
+  filesystem: read      # читает только указанный пользователем ELF-файл
+  secrets: []

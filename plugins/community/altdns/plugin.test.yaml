@@ -1,0 +1,136 @@
+# Контракт-тесты altdns (mock altdns CLI, без сети и без пакета altdns).
+tests:
+  - name: перестановки по словарю → дедуп + сортировка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com", words: ["dev", "test"] }
+    expect:
+      status: ok
+      output:
+        host: www.example.com
+        total: 12
+        permutations:
+          - dev-www.example.com
+          - dev.www.example.com
+          - devwww.example.com
+          - test-www.example.com
+          - test.www.example.com
+          - testwww.example.com
+          - www-dev.example.com
+          - www-test.example.com
+          - www.dev.example.com
+          - www.test.example.com
+          - wwwdev.example.com
+          - wwwtest.example.com
+
+  - name: number_suffix → ещё и варианты с цифрами
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com", words: ["dev"], number_suffix: true }
+    expect:
+      status: ok
+      output:
+        host: www.example.com
+        total: 26
+        permutations:
+          contains: www-0.example.com
+
+  - name: без words → дефолтный словарь
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com" }
+    expect:
+      status: ok
+      output:
+        host: www.example.com
+        total: 48
+        permutations: { type: array }
+
+  - name: пустой отчёт → ok, permutations []
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_EMPTY: "1" }
+    input: { host: "www.example.com", words: ["dev"] }
+    expect:
+      status: ok
+      output:
+        host: www.example.com
+        total: 0
+        permutations: []
+
+  - name: пустой host → доменная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_host, retryable: false }
+
+  - name: words не массив → платформенная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com", words: "dev" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_words }
+
+  - name: number_suffix не bool → платформенная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com", number_suffix: "да" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_number_suffix }
+
+  - name: threads не число → платформенная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input: { host: "www.example.com", threads: "много" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_threads }
+
+  - name: altdns не установлен (путь)
+    env: { ALTDNS_BIN: "/nonexistent/altdns-bin" }
+    input: { host: "www.example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: altdns_not_installed, retryable: false }
+
+  - name: altdns не установлен (имя из PATH)
+    env: { ALTDNS_BIN: "definitely_not_an_altdns_bin_xyz" }
+    input: { host: "www.example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: altdns_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_SLEEP: "3" }
+    input: { host: "www.example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: altdns без файла перестановок → доменная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_NO_REPORT: "1" }
+    input: { host: "www.example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: altdns упал → tool_failed
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_FAIL: "1" }
+    input: { host: "www.example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: отчёт не в UTF-8 → платформенная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py", MOCK_BAD_REPORT: "1" }
+    input: { host: "www.example.com" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { ALTDNS_BIN: "mock_altdns.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

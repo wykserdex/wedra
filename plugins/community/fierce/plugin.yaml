@@ -1,0 +1,51 @@
+id: fierce
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Fierce (haifazeem/fierce, py3-порт) — DNS-брутфорс домена по словарю и поиск
+  не-непрерывного IP-пространства. Обёртка над CLI fierce3: разбирает
+  текстовый stdout (у донора машинного формата нет) и отдаёт найденные
+  субдомены с IP. Ставится отдельно: pip install fierce3 (оригинал
+  haifazeem/fierce — только Python 2).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет fierce3 — отдельно (pip install fierce3)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text
+  words:
+    from: input.words
+    type: array
+    optional: true      # свой словарь (--subdomain-file); без него — встроенный default.txt
+  dns_servers:
+    from: input.dns_servers
+    type: array
+    optional: true      # резолверы для обратных запросов (--dns-servers)
+  tcp:
+    from: input.tcp
+    type: boolean
+    optional: true      # DNS-запросы по TCP вместо UDP
+  delay:
+    from: input.delay
+    type: number
+    optional: true      # пауза между запросами, секунды
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:     { type: string }
+  subdomains: { type: array }   # [{host, ip}]
+  total:      { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 53, note: "target: DNS-резолверы и исследуемый домен" } ]
+  filesystem: none
+  secrets: []

@@ -1,0 +1,128 @@
+# Контракт-тесты pocsuite3 (mock pocsuite CLI, без сети и без пакета pocsuite3).
+tests:
+  - name: прогон PoC → найденные уязвимости
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "https://target.example/index.php", timeout: 10 }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/index.php"
+        count: 2
+        vulns:
+          - { poc: cms-demo-sqli, target: "https://target.example/index.php" }
+          - { poc: cms-demo-lfi, target: "https://target.example/index.php" }
+
+  - name: фильтр по keyword → те же находки
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "https://target.example", keyword: "cms" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        vulns: { equals: [{ poc: cms-demo-sqli, target: "https://target.example" },
+                          { poc: cms-demo-lfi, target: "https://target.example" }] }
+        count: 2
+
+  - name: цель без схемы → нормализуется в https
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "target.example/app" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/app"
+        count: { equals: 2 }
+
+  - name: отчёт без находок → ok, count 0
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py", MOCK_EMPTY: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        vulns: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "file:///etc/passwd" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: timeout не число → доменная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "https://target.example", timeout: "долго" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_timeout }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "https://target.example", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: pocsuite не установлен (путь)
+    env: { POCSUITE3_BIN: "/nonexistent/pocsuite-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pocsuite3_not_installed, retryable: false }
+
+  - name: pocsuite не установлен (имя из PATH)
+    env: { POCSUITE3_BIN: "definitely_not_a_pocsuite_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pocsuite3_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: pocsuite без отчёта → доменная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: pocsuite упал → tool_failed
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: нечитаемый отчёт → платформенная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

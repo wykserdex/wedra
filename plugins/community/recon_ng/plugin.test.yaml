@@ -1,0 +1,142 @@
+# Контракт-тесты recon_ng (mock recon-ng CLI, без сети и без пакета recon-ng).
+tests:
+  - name: дефолтные модули → findings из results.json
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input: { target: "example.com" }
+    expect:
+      status: ok
+      output:
+        target: "example.com"
+        count: 2
+        modules:
+          - "recon/domains-hosts/certificate_transparency"
+          - "recon/hosts-hosts/resolve"
+        findings:
+          - table: hosts
+            record:
+              host: "www.example.com"
+              ip_address: "203.0.113.7"
+              region: ""
+              country: ""
+              latitude: ""
+              longitude: ""
+              notes: ""
+              module: certificate_transparency
+          - table: hosts
+            record:
+              host: "example.com"
+              ip_address: "203.0.113.8"
+              region: ""
+              country: ""
+              latitude: ""
+              longitude: ""
+              notes: ""
+              module: resolve
+
+  - name: свой список модулей → findings
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input: { target: "example.org", modules: ["recon/hosts-hosts/resolve"] }
+    expect:
+      status: ok
+      output:
+        target: "example.org"
+        modules: ["recon/hosts-hosts/resolve"]
+        count: 2
+
+  - name: пустой отчёт → ok, count 0
+    env: { RECON_NG_BIN: "mock_recon_ng.py", MOCK_EMPTY: "1" }
+    input: { target: "example.net" }
+    expect:
+      status: ok
+      output:
+        target: "example.net"
+        count: 0
+        findings: []
+
+  - name: пустой target → доменная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input: { target: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: target с пробелом → доменная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input: { target: "example.com && rm -rf /" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_target, retryable: false }
+
+  - name: modules не массив → платформенная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input: { target: "example.com", modules: "recon/hosts-hosts/resolve" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_modules }
+
+  - name: имя модуля с переводом строки → доменная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input:
+        target: "example.com"
+        modules: ["recon/hosts-hosts/resolve\nrun\nback\nmodules load reporting/json"]
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_modules, retryable: false }
+
+  - name: recon-ng не установлен (путь)
+    env: { RECON_NG_BIN: "/nonexistent/recon-ng-bin" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: recon_ng_not_installed, retryable: false }
+
+  - name: recon-ng не установлен (имя из PATH)
+    env: { RECON_NG_BIN: "definitely_not_a_recon_ng_bin_xyz" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: recon_ng_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { RECON_NG_BIN: "mock_recon_ng.py", MOCK_SLEEP: "3" }
+    input: { target: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: recon-ng без results.json → доменная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py", MOCK_NO_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: recon-ng упал → доменная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py", MOCK_FAIL: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый results.json → платформенная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py", MOCK_BAD_REPORT: "1" }
+    input: { target: "example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { RECON_NG_BIN: "mock_recon_ng.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

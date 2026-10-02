@@ -1,0 +1,119 @@
+# Контракт-тесты you_get (mock CLI you-get, без сети и без пакета).
+tests:
+  - name: ролик → title, site как extractor и число потоков
+    env: { YOU_GET_BIN: "mock_you_get.py" }
+    input: { url: "https://www.youtube.com/watch?v=demo" }
+    expect:
+      status: ok
+      output:
+        url: "https://www.youtube.com/watch?v=demo"
+        title: "Demo Clip"
+        uploader: ""
+        duration: 0
+        extractor: DemoSite
+        streams: 3
+
+  - name: минимальный отчёт (без site/streams) → пустые значения и 0
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_MINIMAL: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: ok
+      output:
+        title: "Demo Clip"
+        extractor: ""
+        streams: 0
+        duration: 0
+
+  - name: два JSON-объекта подряд → берётся последний
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_MULTI: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: ok
+      output:
+        title: "Demo Clip (part 2)"
+        streams: 2
+
+  - name: пустой url → доменная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url с пробелом/лишним дефисом → доменная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py" }
+    input: { url: "--json /tmp/что-то" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py" }
+    input: { url: "https://example.com/clip", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: you-get не установлен (путь)
+    env: { YOU_GET_BIN: "/nonexistent/you-get-bin" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: you_get_not_installed, retryable: false }
+
+  - name: you-get не установлен (имя из PATH)
+    env: { YOU_GET_BIN: "definitely_not_a_you_get_bin_xyz" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: you_get_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com/clip", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: пустой stdout → доменная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: you-get упал (unsupported url) → доменная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: you-get упал с 429 → tool_failed, retryable
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_FAIL_RETRY: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: обрезанный JSON отчёта → платформенная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://example.com/clip" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { YOU_GET_BIN: "mock_you_get.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

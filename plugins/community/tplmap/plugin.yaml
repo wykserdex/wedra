@@ -1,0 +1,44 @@
+id: tplmap
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Tplmap (epinna/tplmap) — поиск SSTI (server-side template injection) по одной
+  явно заданной цели. Обёртка над CLI tplmap: подставляет набор payloads по
+  15+ движкам и разбирает его stdout-репорт (блок «Tplmap identified the
+  following injection point»). Флагов --pipe и файлового отчёта у tplmap нет,
+  отчёт только текстовый в stdout. Эксплуатация (--os-cmd/--os-shell/
+  --upload/--download/--bind-shell) не включается никогда — только детект.
+  Инструмент ставится отдельно из исходников (см. README плагина).
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; сам tplmap ставится отдельно (см. README)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная цель проверки; tplmap -u
+  engine:
+    from: input.engine
+    type: string
+    optional: true      # tplmap -e: ограничить проверку одним движком
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  vulnerable: { type: boolean }
+  engine:     { type: string }
+  payloads:   { type: array }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: url из входа" }
+    - { any_host: true, port: 80, note: "target: url из входа" }
+  filesystem: none
+  secrets: []

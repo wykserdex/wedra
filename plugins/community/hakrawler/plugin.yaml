@@ -1,0 +1,49 @@
+id: hakrawler
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Hakrawler (hakluke) — быстрый веб-краулер для OSINT: собирает URL и адреса
+  JS-файлов и форм с указанной цели. Обёртка над CLI hakrawler v2: цель
+  передаётся в stdin (как просит сам инструмент), результат читается из stdout
+  в режиме -json. Ставится отдельно: go install
+  github.com/hakluke/hakrawler@latest.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; бинарь hakrawler — отдельно (go install)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель краула; без схемы — https://
+  depth:
+    from: input.depth
+    type: number
+    optional: true      # -d, глубина обхода (default 2)
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # -t, потоков (default 8)
+  subs:
+    from: input.subs
+    type: boolean
+    optional: true      # -subs, считать субдомены частью цели (default false)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  results:    { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель оператора)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель оператора)" }
+  filesystem: none
+  secrets: []

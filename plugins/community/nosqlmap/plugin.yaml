@@ -1,0 +1,44 @@
+id: nosqlmap
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  NoSQLMap (c0rsh/nosqlmap) — проверка веб-приложения на MongoDB/NoSQL-инъекции
+  по одной явно заданной цели. Обёртка над CLI nosqlmap в режиме web-app атаки
+  (--attack 2): раскладывает url на host/port/uri, подставляет параметры для
+  инъекции и разбирает текстовый отчёт --savePath (Vulnerable URLs / Possibly
+  Vulnerable URLs / Timing based attacks). Флагов -u/--report/--technique у
+  nosqlmap нет. Инструмент ставится отдельно из исходников, донор написан на
+  Python 2 (см. README плагина).
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; сам nosqlmap ставится отдельно (см. README)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная цель проверки, обязательно с query
+  parameters:
+    from: input.parameters
+    type: array
+    optional: true      # имена query-параметров для инъекции; пусто — все
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  vulnerable: { type: boolean }
+  techniques: { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: url из входа" }
+    - { any_host: true, port: 80, note: "target: url из входа" }
+  filesystem: none
+  secrets: []

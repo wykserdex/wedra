@@ -1,0 +1,131 @@
+# Контракт-тесты fierce (mock fierce3 CLI, без сети и без пакета fierce3).
+tests:
+  - name: брутфорс по словарю → найденные субдомены с IP
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com", words: ["mail", "www", "dev", "nope"] }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 3
+        subdomains:
+          - { host: mail.example.com, ip: 192.0.2.20 }
+          - { host: www.example.com, ip: 192.0.2.10 }
+          - { host: dev.example.com, ip: 192.0.2.30 }
+
+  - name: dns_servers + tcp + delay → субдомены те же
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input:
+      domain: "example.com"
+      words: ["api", "vpn"]
+      dns_servers: ["192.0.2.53"]
+      tcp: true
+      delay: 0.1
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 2
+        subdomains:
+          contains: { host: api.example.com, ip: 192.0.2.31 }
+
+  - name: ничего не нашлось (маркеры есть, Found нет) → ok, пустой массив
+    env: { FIERCE_BIN: "mock_fierce.py", MOCK_EMPTY: "1" }
+    input: { domain: "example.com", words: ["mail"] }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 0
+        subdomains: []
+
+  - name: без words → встроенный default.txt донора, разбор пустого вывода
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 0
+        subdomains: []
+
+  - name: пустой domain → доменная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: words не массив → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com", words: "mail" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_words }
+
+  - name: dns_servers не массив → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com", dns_servers: "192.0.2.53" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_dns_servers }
+
+  - name: tcp не bool → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com", tcp: "да" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_tcp }
+
+  - name: delay не число → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input: { domain: "example.com", delay: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_delay }
+
+  - name: fierce не установлен (путь)
+    env: { FIERCE_BIN: "/nonexistent/fierce3-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: fierce_not_installed, retryable: false }
+
+  - name: fierce не установлен (имя из PATH)
+    env: { FIERCE_BIN: "definitely_not_a_fierce_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: fierce_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { FIERCE_BIN: "mock_fierce.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: fierce упал (нет NS/SOA) → tool_failed
+    env: { FIERCE_BIN: "mock_fierce.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: вывод не от fierce → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com", words: ["mail"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { FIERCE_BIN: "mock_fierce.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

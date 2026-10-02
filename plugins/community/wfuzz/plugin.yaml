@@ -1,0 +1,46 @@
+id: wfuzz
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Wfuzz (de4nsid4n/wfuzz) — фаззинг URL, путей и параметров по словарю: подставляет
+  слова из wordlist вместо маркера FUZZ в заданную пользователем цель и возвращает
+  совпавшие ответы (код, строки, слова, символы, payload). Репорт берётся из JSON-принтера
+  wfuzz (-f <файл>,json). Wfuzz ставится отдельно: pip install wfuzz.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет wfuzz — отдельно (pip install wfuzz)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # цель с маркером FUZZ, напр. https://host/FUZZ
+  wordlist:
+    from: input.wordlist
+    type: string
+    format: text         # путь к файлу-словарю; без него wfuzz не запускается
+    optional: true
+  matcher:
+    from: input.matcher
+    type: string
+    format: text         # выражение фильтра wfuzz, напр. "c=200 and w>50"
+    optional: true
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:     { type: string }
+  results: { type: array }
+  count:   { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель пользователя)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель пользователя)" }
+  filesystem: none
+  secrets: []

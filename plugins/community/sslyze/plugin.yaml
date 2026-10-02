@@ -1,0 +1,39 @@
+id: sslyze
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  SSLyze (nabla-c0t3r) — анализ TLS/SSL цели: версии и шифры, renegotiation,
+  heartbleed, certificate info и т.д. Обёртка над CLI sslyze, машинный отчёт
+  --json_out=<файл> читается из временного каталога. Ставится отдельно:
+  pip install sslyze.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет sslyze — отдельно (pip install sslyze)
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # host или host:port (без порта — 443)
+  commands:
+    from: input.commands
+    type: array
+    optional: true      # флаги проверок sslyze (certinfo, heartbleed, reneg,
+                        # tlsv1_3, ...); без него — ["certinfo"]
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  target:   { type: string }
+  findings: { type: array }   # [{target, command, status}]
+  scanned:  { type: number }  # сколько серверов в отчёте
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: TLS-хост (нестандартный порт задаётся в target как host:port)" } ]
+  filesystem: none
+  secrets: []

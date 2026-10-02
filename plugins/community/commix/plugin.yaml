@@ -1,0 +1,47 @@
+id: commix
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Commix (commixproject) — автоматический поиск OS-командных инъекций. Обёртка
+  над CLI commix: сканирует ТОЛЬКО явно заданный пользователем url, без краулинга
+  и разведки, в неинтерактивном режиме (--batch) и без файловых техник
+  (--skip-technique=f); эксплуатация (--os-cmd/--os-shell/--file-read) не
+  включается никогда — только детект и JSON-репорт (--report-json). Нужен commix
+  4.2+ из исходников (см. README плагина).
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; сам commix ставится отдельно (см. README)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная цель сканирования
+  parameter:
+    from: input.parameter
+    type: string
+    optional: true      # commix -p: тестировать только этот параметр
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # таймаут на HTTP-запрос, секунды (default 10)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  vulnerable: { type: boolean }
+  parameter:  { type: string }
+  injections: { type: array }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: url из входа" }
+    - { any_host: true, port: 80, note: "target: url из входа" }
+  filesystem: none
+  secrets: []

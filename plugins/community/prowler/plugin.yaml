@@ -1,0 +1,49 @@
+id: prowler
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Prowler (prowler-cloud) — аудит соответствия и безопасности облака. Обёртка
+  над CLI prowler: запускает `prowler <provider> -M json-ocsf -o <dir> -F <name>
+  -b -z [--severity S]` во временном каталоге и читает <name>.ocsf.json — массив
+  OCSF Detection Finding. Возвращает provider, findings[{check,severity,title,
+  status}], count. Учётные данные читает САМ инструмент (AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_DEFAULT_REGION/AWS_REGION);
+  main.py ключей не требует и в сеть не ходит. Ставится отдельно: pip install
+  prowler.
+author: "community · wedra showcase (cloud audit)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет prowler — отдельно
+
+input:
+  provider:
+    from: input.provider
+    type: string
+    format: text        # провайдер prowler: aws (default), azure, gcp, kubernetes…
+    optional: true
+  severity:
+    from: input.severity
+    type: string
+    optional: true      # critical | high | medium | low | informational
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 1800)
+
+output:
+  provider: { type: string }
+  findings: { type: array }
+  count:    { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: API облачного провайдера, чьи ключи уже есть" }
+  filesystem: none
+  secrets:               # читает донор (boto3), не main.py
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_SESSION_TOKEN
+    - AWS_DEFAULT_REGION
+    - AWS_REGION

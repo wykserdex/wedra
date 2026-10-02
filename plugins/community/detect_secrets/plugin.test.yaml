@@ -1,0 +1,103 @@
+# Контракт-тесты detect_secrets (mock CLI detect-secrets, без пакета и без сети).
+tests:
+  - name: сканирование → места секретов (без значений)
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+    input: { path: "." }
+    expect:
+      status: ok
+      output:
+        path: { contains: "detect_secrets" }
+        count: 3
+        secrets:
+          equals:
+            - { type: "Secret Keyword", filename: "conf/settings.py", line_number: 12 }
+            - { type: "Secret Keyword", filename: "conf/settings.py", line_number: 31 }
+            - { type: AWSKeyDetector, filename: "deploy/values.yaml", line_number: 4 }
+
+  - name: секретов не нашли → ok, пустой массив
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_EMPTY_RESULTS: "1" }
+    input: { path: "." }
+    expect:
+      status: ok
+      output:
+        count: 0
+        secrets: []
+
+  - name: пустой path → доменная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+    input: { path: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_path }
+
+  - name: несуществующий path → доменная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+    input: { path: "/nonexistent/detect-secrets-scan-dir" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_path, retryable: false }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+    input: { path: ".", wall_timeout: "не число" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: detect-secrets не установлен (путь)
+    env: { DETECT_SECRETS_BIN: "/nonexistent/detect-secrets-bin" }
+    input: { path: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: detect_secrets_not_installed, retryable: false }
+
+  - name: detect-secrets не установлен (имя из PATH)
+    env: { DETECT_SECRETS_BIN: "definitely_not_a_detect_secrets_bin_xyz" }
+    input: { path: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: detect_secrets_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_SLEEP: "3" }
+    input: { path: ".", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: detect-secrets без baseline → доменная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_NO_REPORT: "1" }
+    input: { path: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый baseline → платформенная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_BAD_REPORT: "1" }
+    input: { path: "." }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: detect-secrets упал → доменная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py", MOCK_FAIL: "1" }
+    input: { path: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DETECT_SECRETS_BIN: "mock_detect_secrets.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,110 @@
+# Контракт-тесты python_whois (mock whois-сниппета, без сети и без пакета).
+tests:
+  - name: домен → распознанные поля whois, found true
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        found: true
+        record:
+          domain_name: example.com
+          registrar: MarkMonitor Inc.
+          creation_date: "1995-08-14T04:00:00Z"
+          expiration_date: "2028-08-13T04:00:00Z"
+          updated_date: "2025-08-14T07:01:31Z"
+          status: [clientDeleteProhibited, clientTransferProhibited]
+          name_servers: [ns1.example.net, ns2.example.net]
+          emails: [abuse@markmonitor.com]
+          country: US
+
+  - name: URL нормализуется до домена
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input: { domain: "https://www.example.com/contacts?x=1" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        found: true
+        record: { type: object }
+
+  - name: сервер не ответил данными → ok, record пустой, found false
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input: { domain: "nikto-ne-nayden-xyz.invalid" }
+    expect:
+      status: ok
+      output:
+        domain: nikto-ne-nayden-xyz.invalid
+        found: false
+        record: {}
+
+  - name: пустой domain → доменная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input: { domain: "example.com", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: пакет whois не установлен → доменная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py", MOCK_NO_MODULE: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: python_whois_not_installed, retryable: false }
+
+  - name: бинарь переопределения не найден → доменная ошибка
+    env: { PYTHON_WHOIS_BIN: "/nonexistent/python-whois-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: python_whois_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: whois упал → доменная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: whois без вывода → доменная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: обрезанный JSON ответа → платформенная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { PYTHON_WHOIS_BIN: "mock_python_whois.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

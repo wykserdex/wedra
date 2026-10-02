@@ -1,0 +1,115 @@
+# Контракт-тесты social_analyzer (mock CLI, без сети и без пакета).
+tests:
+  - name: JSON-вывод → найденные профили + все проверенные
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input: { username: "demo" }
+    expect:
+      status: ok
+      output:
+        username: demo
+        checked: 4
+        found:
+          - { site: Github, url: "https://github.com/user/demo" }
+          - { site: Reddit, url: "https://reddit.com/user/demo" }
+
+  - name: websites ограничивают список проверок
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input: { username: "demo", websites: ["github"] }
+    expect:
+      status: ok
+      output:
+        username: demo
+        checked: 3
+        found:
+          - { site: Github, url: "https://github.com/user/demo" }
+
+  - name: текстовый вывод без JSON → fallback-разбор
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py", MOCK_PLAIN: "1" }
+    input: { username: "demo", websites: ["github", "reddit"] }
+    expect:
+      status: ok
+      output:
+        username: demo
+        checked: 3
+        found:
+          - { site: github.com, url: "https://github.com/user/demo" }
+          - { site: reddit.com, url: "https://reddit.com/user/demo" }
+
+  - name: профилей нет → ok с пустым массивом
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py", MOCK_EMPTY: "1" }
+    input: { username: "nikto_ne_nayden_xyz" }
+    expect:
+      status: ok
+      output:
+        username: nikto_ne_nayden_xyz
+        found: []
+        checked: 0
+
+  - name: пустой username → доменная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input: { username: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_username, retryable: false }
+
+  - name: websites не массив → платформенная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input: { username: "x", websites: "github" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_websites }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input: { username: "x", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: social-analyzer не установлен (путь)
+    env: { SOCIAL_ANALYZER_BIN: "/nonexistent/social-analyzer-bin" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: social_analyzer_not_installed, retryable: false }
+
+  - name: social-analyzer не установлен (имя из PATH)
+    env: { SOCIAL_ANALYZER_BIN: "definitely_not_a_social_analyzer_bin_xyz" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: social_analyzer_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py", MOCK_SLEEP: "3" }
+    input: { username: "x", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: social-analyzer без вывода → доменная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py", MOCK_NO_REPORT: "1" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: social-analyzer упал → доменная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py", MOCK_FAIL: "1" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SOCIAL_ANALYZER_BIN: "mock_social_analyzer.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

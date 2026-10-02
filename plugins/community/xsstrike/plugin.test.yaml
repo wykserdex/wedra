@@ -1,0 +1,128 @@
+# Контракт-тесты xsstrike (mock CLI XSStrike, без сети и без пакета xsstrike).
+tests:
+  - name: поиск XSS → векторы из XSStrike 3.x
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py" }
+    input: { url: "https://demo.invalid/search?q=test", wall_timeout: 60 }
+    timeout: 60s
+    expect:
+      status: ok
+      output:
+        url: "https://demo.invalid/search?q=test"
+        vulnerable: true
+        count: 2
+        payloads:
+          contains:
+            kind: vector
+            url: "https://demo.invalid/search?q=test"
+            parameter: ""
+            vector: "<svg/onload=alert(1)>"
+
+  - name: DOM XSS → kind dom
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_DOM: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: ok
+      output:
+        vulnerable: true
+        payloads:
+          contains:
+            kind: dom
+            url: "https://demo.invalid/"
+            parameter: ""
+            vector: ""
+
+  - name: старый формат вывода (Vulnerable webpage + Vector for)
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_OLD: "1" }
+    input: { url: "https://demo.invalid/reflect" }
+    expect:
+      status: ok
+      output:
+        vulnerable: true
+        count: 2
+        payloads:
+          contains:
+            kind: reflected
+            url: "https://demo.invalid/reflect"
+            parameter: q
+            vector: "<hTmL%0dONPOINTeReNTer%0d=%0da=prompt,a()%0dx//"
+
+  - name: находок нет → ok, vulnerable false
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_CLEAN: "1" }
+    input: { url: "https://demo.invalid/search?q=test" }
+    expect:
+      status: ok
+      output:
+        vulnerable: false
+        count: 0
+        payloads: []
+
+  - name: пустой url → доменная ошибка
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py" }
+    input: { url: "https://demo.invalid/", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: xsstrike не установлен (путь)
+    env: { XSSTRIKE_BIN: "/nonexistent/xsstrike-bin" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: xsstrike_not_installed, retryable: false }
+
+  - name: xsstrike не установлен (имя из PATH)
+    env: { XSSTRIKE_BIN: "definitely_not_a_xsstrike_bin_xyz" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: xsstrike_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_SLEEP: "3" }
+    input: { url: "https://demo.invalid/", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: xsstrike упал → tool_failed
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_FAIL: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: xsstrike ничего не напечатал → доменная ошибка
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: нечитаемый вывод → платформенная ошибка
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { XSSTRIKE_BIN: "mock_xsstrike.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

@@ -1,0 +1,118 @@
+# Контракт-тесты gospider (mock gospider CLI, без сети и без бинаря gospider).
+tests:
+  - name: краул → JS/linkfinder/url эндпоинты
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "https://target.example/app", depth: 2, sitemap: true }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/app"
+        count: 3
+        endpoints:
+          - { url: "https://target.example/app/static/app.js", type: javascript, source: body, status: 200 }
+          - { url: "/api/v1/users", type: linkfinder, source: "https://target.example/app/static/app.js", status: 0 }
+          - { url: "https://target.example/app", type: url, source: body, status: 200 }
+
+  - name: без схемы цель нормализуется в https
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: { equals: 3 }
+
+  - name: пустой отчёт → ok, count 0
+    env: { GOSPIDER_BIN: "mock_gospider.py", MOCK_EMPTY: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        endpoints: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "file:///etc/passwd" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: depth не число → доменная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "https://target.example", depth: "глубоко" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_depth }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input: { url: "https://target.example", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: gospider не установлен (путь)
+    env: { GOSPIDER_BIN: "/nonexistent/gospider-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: gospider_not_installed, retryable: false }
+
+  - name: gospider не установлен (имя из PATH)
+    env: { GOSPIDER_BIN: "definitely_not_a_gospider_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: gospider_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GOSPIDER_BIN: "mock_gospider.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: gospider упал → tool_failed
+    env: { GOSPIDER_BIN: "mock_gospider.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: gospider без отчёта → доменная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: нечитаемый отчёт → платформенная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GOSPIDER_BIN: "mock_gospider.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

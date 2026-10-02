@@ -1,0 +1,37 @@
+id: oletools
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  oletools (decalage2/oletools) — извлечение и анализ макросов офисных
+  документов (VBA/XLM), обфускация и IOCs. Обёртка зовёт CLI `olevba -j -a
+  <file>`: машинный JSON-репорт идёт в stdout, ключи — macros[] (имя модуля,
+  поток OLE) и findings[] (AutoExec / Suspicious / IOC). `-a` отключает вывод
+  исходников макросов — в отчёт попадают только метаданные и анализ. Ставится
+  отдельно: pip install oletools.
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет oletools — отдельно (pip install oletools)
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к .doc/.docx/.xls/.xlsm/.ppt/... файлу
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  file:     { type: string }
+  macros:   { type: array }   # [{vba_filename, subfilename, ole_stream}]
+  findings: { type: array }   # [{type, keyword, description}]
+  count:    { type: number }
+
+permissions:
+  network: []            # анализ локального файла, сеть не нужна
+  filesystem: read       # читает только указанный пользователем документ
+  secrets: []

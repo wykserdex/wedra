@@ -1,0 +1,123 @@
+# Контракт-тесты prowler (mock CLI prowler, без сети, без пакета и без ключей AWS).
+tests:
+  - name: скан aws → находки из wedra.ocsf.json
+    env: { PROWLER_BIN: "mock_prowler.py" }
+    input: { provider: "aws" }
+    expect:
+      status: ok
+      output:
+        provider: aws
+        count: 2
+        findings:
+          - { check: s3_bucket_public_access, severity: High, title: "Check if S3 bucket has an ACL defined which allows public READ", status: FAIL }
+          - { check: iam_root_account_hardware_mfa_enabled, severity: Informational, title: "Check if the root account has a hardware MFA enabled", status: PASS }
+
+  - name: дефолтный provider aws + обязательные флаги -M/-o/-F/-b/-z
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_STRICT_ARGS: "1" }
+    input: {}
+    expect:
+      status: ok
+      output:
+        provider: aws
+        count: 2
+        findings: { type: array }
+
+  - name: фильтр --severity передаётся дону
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_STRICT_ARGS: "1" }
+    input: { provider: "gcp", severity: "critical" }
+    expect:
+      status: ok
+      output:
+        provider: gcp
+        count: 2
+        findings: { type: array }
+
+  - name: скан без находок → ok с пустым массивом
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_EMPTY: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: ok
+      output:
+        provider: aws
+        count: 0
+        findings: []
+
+  - name: неизвестный provider → доменная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py" }
+    input: { provider: "digitalocean" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_provider, retryable: false }
+
+  - name: недопустимая severity → доменная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py" }
+    input: { provider: "aws", severity: "кошмарная" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_severity }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py" }
+    input: { provider: "aws", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: prowler не установлен (путь)
+    env: { PROWLER_BIN: "/nonexistent/prowler-bin" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: prowler_not_installed, retryable: false }
+
+  - name: prowler не установлен (имя из PATH)
+    env: { PROWLER_BIN: "definitely_not_a_prowler_bin_xyz" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: prowler_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_SLEEP: "3" }
+    input: { provider: "aws", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: prowler без отчёта → доменная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_NO_REPORT: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: prowler упал → доменная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_FAIL: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый отчёт prowler → платформенная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py", MOCK_BAD_REPORT: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { PROWLER_BIN: "mock_prowler.py" }
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

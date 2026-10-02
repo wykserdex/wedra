@@ -1,0 +1,140 @@
+# Контракт-тесты otx_pulse (mock донора, без сети и без ключа OTX).
+tests:
+  - name: хост в пульсах → список пульсов и count
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "malware.wicar.org" }
+    expect:
+      status: ok
+      output:
+        indicator: "malware.wicar.org"
+        count: 2
+        found: true
+        pulses:
+          equals:
+            - id: "69ede4900c0c36d508b00892"
+              name: "URLHaus data - 20-04-2025"
+              created: "2025-04-20T23:31:45.683000"
+            - id: "69e71ebd702704e87cdd1189"
+              name: "Lab 3"
+              created: "2026-04-21T06:52:41.748000"
+
+  - name: IP без пульсов → ok с пустым массивом (не ошибка)
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        indicator: "8.8.8.8"
+        count: 0
+        pulses: []
+        found: false
+
+  - name: хэш-индикатор без пульсов → ok с пустым массивом
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "44d88612fea8a8f36de82e1278abb02f" }
+    expect:
+      status: ok
+      output:
+        indicator: "44d88612fea8a8f36de82e1278abb02f"
+        count: 0
+        pulses: []
+        found: false
+
+  - name: URL-индикатор без пульсов → ok с пустым массивом
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "http://example.org/bad" }
+    expect:
+      status: ok
+      output:
+        indicator: "http://example.org/bad"
+        count: 0
+        found: false
+
+  - name: пустой indicator → доменная ошибка
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_indicator, retryable: false }
+
+  - name: индикатор с пробелом → доменная ошибка
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input: { indicator: "malware wicar org" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_indicator, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: донор не найден (путь)
+    env: { OTX_PULSE_BIN: "/nonexistent/otx-pulse-bin" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: otx_pulse_not_installed, retryable: false }
+
+  - name: донор не найден (имя из PATH)
+    env: { OTX_PULSE_BIN: "definitely_not_an_otx_pulse_bin_xyz" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: otx_pulse_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_SLEEP: "3" }
+    input: { indicator: "8.8.8.8", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донора нет в stdout → no_report
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_NO_REPORT: "1" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый ответ донора → платформенная ошибка
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_BAD_REPORT: "1" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → tool_failed
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_FAIL: "1" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: OTX 404 (нет такого индикатора) → ok с пустым массивом
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_HTTP_STATUS: "404" }
+    input: { indicator: "нет-такого.индикатора" }
+    expect:
+      status: ok
+      output:
+        indicator: "нет-такого.индикатора"
+        pulses: []
+        count: 0
+        found: false
+
+  - name: OTX вернул 5xx → tool_failed retryable
+    env: { OTX_PULSE_BIN: "mock_otx_pulse.py", MOCK_HTTP_STATUS: "500" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }

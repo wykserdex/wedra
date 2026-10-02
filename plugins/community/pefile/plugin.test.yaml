@@ -1,0 +1,120 @@
+# Контракт-тесты pefile (mock сниппета донора, без пакета pefile и без сети).
+# Входной файл — заглушка (main.py в каталоге плагина): PE разбирает мок,
+# плагин проверяет оркестрацию и нормализацию JSON.
+tests:
+  - name: PE → machine, секции, импорты
+    env: { PEFILE_BIN: "mock_pefile.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: "main.py"
+        machine: "IMAGE_FILE_MACHINE_AMD64"
+        count: 2
+        sections: { type: array }
+        imports: { contains: { dll: "KERNEL32.dll", symbols: ["CreateFileW", "GetProcAddress"] } }
+
+  - name: секции нормализованы (имя без \x00, числа — числами)
+    env: { PEFILE_BIN: "mock_pefile.py" }
+    input: { file: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        sections: { contains: { name: ".text", virtual_address: 4096, size: 1048576, characteristics: 2164261632 } }
+        imports: { contains: { dll: "USER32.dll", symbols: ["MessageBoxW"] } }
+
+  - name: неизвестная архитектура → 0x-код, пустые импорты
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_ALT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        machine: "0x0166"
+        count: 0
+        imports: []
+
+  - name: пустой file → доменная ошибка
+    env: { PEFILE_BIN: "mock_pefile.py" }
+    input: { file: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: несуществующий файл → missing_file
+    env: { PEFILE_BIN: "mock_pefile.py" }
+    input: { file: "нет-такого.exe" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: файл не PE → доменная ошибка not_pe
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NOT_PE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: not_pe, retryable: false }
+
+  - name: битый PE → доменная ошибка bad_file
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_FILE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }
+
+  - name: pefile не установлен (бинарь переопределён на путь)
+    env: { PEFILE_BIN: "/nonexistent/pefile-bin" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pefile_not_installed, retryable: false }
+
+  - name: pefile не установлен (донор не импортируется)
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_PE_MODULE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: pefile_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_SLEEP: "3" }
+    input: { file: "main.py", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: сниппет без вывода → no_report
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_NO_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: донор упал → tool_failed
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_FAIL: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON донора → платформенная ошибка
+    env: { PEFILE_BIN: "mock_pefile.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_report" }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { PEFILE_BIN: "mock_pefile.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

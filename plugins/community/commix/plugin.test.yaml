@@ -1,0 +1,125 @@
+# Контракт-тесты commix (mock commix CLI, без сети и без пакета commix).
+tests:
+  - name: аудит цели → инъекция найдена, JSON-репорт разобран
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input: { url: "http://target.example/vuln.php?addr=1", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example/vuln.php?addr=1"
+        vulnerable: true
+        parameter: addr
+        injections:
+          - parameter: addr
+            http_method: GET
+            technique: classic command injection
+            type: Command injection
+            payload: "; sleep 5 #"
+          - parameter: addr
+            http_method: GET
+            technique: time-based command injection
+            type: Command injection
+            payload: "; sleep 10 #"
+
+  - name: заданный параметр (-p) — попадает и в отчёт, и в output
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input: { url: "http://target.example/page?id=7", parameter: "id" }
+    expect:
+      status: ok
+      output:
+        vulnerable: true
+        parameter: id
+        injections:
+          contains:
+            parameter: id
+            http_method: GET
+            technique: classic command injection
+            type: Command injection
+            payload: "; sleep 5 #"
+
+  - name: цель не уязвима (пустой findings) → ok, vulnerable false
+    env: { COMMIX_BIN: "mock_commix.py", MOCK_CLEAN: "1" }
+    input: { url: "http://target.example/safe.php?name=1" }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example/safe.php?name=1"
+        vulnerable: false
+        parameter: ""
+        injections: []
+
+  - name: пустой url → доменная ошибка
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url без схемы → платформенная ошибка
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input: { url: "target.example/vuln.php" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_url, retryable: false }
+
+  - name: parameter не строка → платформенная ошибка
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input: { url: "http://target.example/p?id=1", parameter: ["id"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_parameter }
+
+  - name: wall timeout → доменная, retryable
+    env: { COMMIX_BIN: "mock_commix.py", MOCK_SLEEP: "3" }
+    input: { url: "http://target.example/vuln.php?addr=1", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: commix не установлен (путь)
+    env: { COMMIX_BIN: "/nonexistent/commix-bin" }
+    input: { url: "http://target.example/vuln.php?addr=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: commix_not_installed, retryable: false }
+
+  - name: commix не установлен (имя из PATH)
+    env: { COMMIX_BIN: "definitely_not_a_commix_bin_xyz" }
+    input: { url: "http://target.example/vuln.php?addr=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: commix_not_installed }
+
+  - name: commix без репорта → доменная ошибка
+    env: { COMMIX_BIN: "mock_commix.py", MOCK_NO_REPORT: "1" }
+    input: { url: "http://target.example/vuln.php?addr=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: битый JSON-репорт → платформенная ошибка
+    env: { COMMIX_BIN: "mock_commix.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "http://target.example/vuln.php?addr=1" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: commix упал → доменная ошибка
+    env: { COMMIX_BIN: "mock_commix.py", MOCK_FAIL: "1" }
+    input: { url: "http://target.example/vuln.php?addr=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { COMMIX_BIN: "mock_commix.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

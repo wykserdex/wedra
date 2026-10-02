@@ -1,0 +1,45 @@
+id: dnstwist
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  dnstwist (elceef/dnstwist) — генератор перестановок домена (тайпсквоттинг,
+  фишинг-домены). Обёртка над CLI dnstwist: берёт машинный вывод
+  -f json и разбирает перестановки вместе с NS-записями. Ставится отдельно:
+  pip install dnstwist.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет dnstwist — отдельно (pip install dnstwist)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен-цель
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # потоков резолвера; не передан — решение dnstwist
+  registered_only:
+    from: input.registered_only
+    type: boolean
+    optional: true      # только зарегистрированные домены (--registered)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:       { type: string }
+  permutations: { type: array }
+  ns_history:   { type: array }
+  total:        { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 53, note: "target: резолверы DNS для проверки перестановок" }
+    - { any_host: true, port: 443, note: "target: резолверы DNS-over-HTTPS, если они заданы" }
+  filesystem: none
+  secrets: []

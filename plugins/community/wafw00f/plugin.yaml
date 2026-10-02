@@ -1,0 +1,43 @@
+id: wafw00f
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  WAFW00F (EnableSecurity/wafw00f) — определение WAF/файрвола за сайтом.
+  Обёртка над CLI wafw00f: одна проверка URL с JSON-выводом (-o report.json),
+  на выходе — имя найденного файрвола, вендор и факт обнаружения. Ключей не
+  требует. Ставится отдельно: pip install wafw00f.
+author: "community · wedra showcase (web security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет wafw00f — отдельно (pip install wafw00f)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # без схемы wafw00f сам допишет https://
+  findall:
+    from: input.findall
+    type: boolean
+    optional: true       # -a: тестировать все сигнатуры, а не останавливаться на первой
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true       # -T: таймаут запроса, секунды (default 7)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:          { type: string }
+  waf:          { type: string }   # имя файрвола, "Generic" при общей детекции
+  manufacturer: { type: string }   # вендор из подписи wafw00f
+  detected:     { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

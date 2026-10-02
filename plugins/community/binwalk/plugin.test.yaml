@@ -1,0 +1,146 @@
+# Контракт-тесты binwalk (mock binwalk v3 CLI, без пакета binwalk).
+# Файл на входе — README.md плагина: настоящий файл с каталога плагина,
+# содержимое мок не разбирает.
+tests:
+  - name: сканирование → сигнатуры из JSON-отчёта
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: "README.md" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 2 }
+        extracted: { equals: [] }
+        signatures:
+          equals:
+            - { offset: 0, size: 4096, name: gzip, confidence: 250,
+                extracted: false,
+                description: "gzip compressed data, from Unix, original size modulo 2^32 8192" }
+            - { offset: 8192, size: 2048, name: lzma, confidence: 128,
+                extracted: false,
+                description: "LZMA compressed data, size: 2048" }
+
+  - name: extract=true → файлы извлечения в каталоге плагина
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: "README.md", extract: true }
+    expect:
+      status: ok
+      output:
+        count: { equals: 2 }
+        extracted: { equals: ["README.md/0/decompressed.bin"] }
+        signatures:
+          type: array
+          contains:
+            { offset: 0, size: 4096, name: gzip, confidence: 250,
+              extracted: true,
+              description: "gzip compressed data, from Unix, original size modulo 2^32 8192" }
+
+  - name: экстракция без успеха → extracted пуст, флаг снят
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_EXTRACT_FAIL: "1" }
+    input: { file: "README.md", extract: true }
+    expect:
+      status: ok
+      output:
+        count: { equals: 2 }
+        extracted: { equals: [] }
+
+  - name: пустой отчёт (ничего не нашли) → ok, signatures пуст
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_NO_SIGS: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 0 }
+        signatures: { equals: [] }
+        extracted: { equals: [] }
+
+  - name: пустое поле file → доменная ошибка
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: file не строка → платформенная ошибка
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: ["README.md"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_file }
+
+  - name: extract не boolean → платформенная ошибка
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: "README.md", extract: "yes" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_extract }
+
+  - name: файла нет → доменная ошибка missing_file
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input: { file: "no_such_firmware_xyz.bin" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: binwalk не установлен (путь)
+    env: { BINWALK_BIN: "/nonexistent/binwalk-bin" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: binwalk_not_installed, retryable: false }
+
+  - name: binwalk не установлен (имя из PATH)
+    env: { BINWALK_BIN: "definitely_not_a_binwalk_bin_xyz" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: binwalk_not_installed }
+
+  - name: указан несуществующий скрипт → binwalk_not_installed
+    env: { BINWALK_BIN: "no_such_binwalk_script_xyz.py" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: binwalk_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_SLEEP: "3" }
+    input: { file: "README.md", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: binwalk упал → tool_failed
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_FAIL: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: отчёта нет → no_report
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_NO_REPORT: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON отчёта → платформенная ошибка
+    env: { BINWALK_BIN: "mock_binwalk.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { BINWALK_BIN: "mock_binwalk.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2

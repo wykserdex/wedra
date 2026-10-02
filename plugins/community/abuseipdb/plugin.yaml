@@ -1,0 +1,39 @@
+id: abuseipdb
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  AbuseIPDB — репутация IP по базе жалоб: abuseConfidenceScore (0..100), число
+  жалоб, страна. Обёртка над SDK abuseipdb (pip install abuseipdb), паттерн C:
+  сеть делает дочерний процесс, ключ читается из env ABUSEIPDB_API_KEY.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет abuseipdb — отдельно (pip install abuseipdb)
+
+input:
+  ip:
+    from: input.ip
+    type: string
+    format: ip          # IPv4 или IPv6
+  days:
+    from: input.days
+    type: number
+    optional: true      # окно жалоб в днях, 1..180 (default 30 — как у SDK)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  ip:             { type: string }
+  abuse_score:    { type: number }
+  total_reports:  { type: number }
+  country:        { type: string }
+  found:          { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: api.abuseipdb.com:443" } ]
+  filesystem: none
+  secrets: [ABUSEIPDB_API_KEY]

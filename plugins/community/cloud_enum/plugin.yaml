@@ -1,0 +1,52 @@
+id: cloud_enum
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  cloud_enum (RHISAC/cloud_enum, ныне initstring/cloud_enum) — поиск открытых и
+  защищённых облачных ресурсов по ключевым словам/именам: S3 и awsapps (AWS),
+  storage/блобы/БД/ВМ (Azure), GCS/Firebase/App Engine/Cloud Functions (GCP).
+  Обёртка над CLI cloud_enum: ключ(и) приходят из входа (не из env, поэтому
+  secrets пуст), машинный вывод — JSON-лог (-l -f json). Инструмент ставится
+  отдельно: pip install cloud_enum.
+author: "community · wedra showcase (cloud security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет cloud_enum — отдельно (pip install cloud_enum)
+
+input:
+  key:
+    from: input.key
+    type: string
+    format: text        # -k, ключевое слово для перебора имён (не секрет!)
+    optional: true      # вместе с name обязателен хотя бы один
+  name:
+    from: input.name
+    type: string
+    format: text        # второе ключевое слово (-k можно повторять)
+    optional: true
+  mutations:
+    from: input.mutations
+    type: string
+    optional: true      # -m, свой список мутаций (enum_tools/fuzz.txt из пакета)
+  quickscan:
+    from: input.quickscan
+    type: boolean
+    optional: true      # -qs, без мутаций и второго уровня (быстрее, глуше)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  bucket_name: { type: string }
+  provider:    { type: string }
+  open:        { type: boolean }
+  services:    { type: array }
+  count:       { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

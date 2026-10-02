@@ -1,0 +1,46 @@
+id: sqlmap
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Sqlmap (sqlmapproject/sqlmap) — аудит SQL-инъекций по явно заданной цели.
+  Обёртка запускает только безопасный аудит: --batch --flush-session --level=1
+  --risk=1, техники ограничены неразрушающими B/E/U/T (stacked-queries и inline
+  запрещены), разрушающие --os-shell/--file-write/--sql-shell не применяются.
+  Лог sqlmap пишется во временный каталог запуска, --output-dir тоже внутри него.
+  У sqlmap нет стабильного машинного отчёта, поэтому вывод разбирается консервативно
+  по stdout. Sqlmap НЕ на PyPI: ставится из git —
+  git clone https://github.com/sqlmapproject/sqlmap (подробности в README).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; sqlmap ставится отдельно из git
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # цель с параметром или маркером * внутри значения
+  technique:
+    from: input.technique
+    type: string
+    format: text         # только B, E, U, T (default "BEU"); S и Q запрещены
+    optional: true
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 900)
+
+output:
+  url:        { type: string }
+  vulnerable: { type: boolean }
+  parameter:  { type: string }
+  injections: { type: array }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель пользователя)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель пользователя)" }
+  filesystem: none
+  secrets: []

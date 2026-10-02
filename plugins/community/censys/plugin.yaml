@@ -1,0 +1,37 @@
+id: censys
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Censys (официальный SDK censys-python 2.x) — сервисы и гео хоста по IP или
+  имени. Донор — библиотека, пригодного CLI для этого сценария нет, поэтому
+  обёртка идёт по паттерну C: плагин запускает `python -c <SNIPPET> <target>`,
+  сниппет сам импортирует censys, читает CENSYS_API_ID/CENSYS_API_SECRET из
+  os.environ и печатает нормализованный JSON. Ставится отдельно:
+  pip install censys. Донор переопределяется env CENSYS_BIN.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; SDK ставится отдельно (pip install censys)
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # IPv4/IPv6 — прямой view(ip), домен — поиск по dns.names
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 120)
+
+output:
+  target:    { type: string }
+  services:  { type: array }
+  location:  { type: object }
+  found:     { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: search.censys.io" } ]
+  filesystem: none
+  secrets: [CENSYS_API_ID, CENSYS_API_SECRET]
