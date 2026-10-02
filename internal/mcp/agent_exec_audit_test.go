@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 func auditTestServer(t *testing.T, runsDir string) *Server {

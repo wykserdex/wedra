@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // ScanPlugins — плагины из plugins/official, plugins/community и plugins

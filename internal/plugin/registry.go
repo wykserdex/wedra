@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"wedra/internal/common"
-	"wedra/internal/pipeline"
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 type Engine struct {

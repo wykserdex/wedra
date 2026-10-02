@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 const jsonImportingScript = "import json, sys\n" +

@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // allApplicationPackages вЂ” S-1-15-2, SID, РїРѕРґ РєРѕС‚РѕСЂС‹Рј С…РѕРґСЏС‚ РІСЃРµ AppContainer-С‚РѕРєРµРЅС‹.

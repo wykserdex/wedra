@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // writePluginDir — каталог плагина с заданным main.py и манифестом.

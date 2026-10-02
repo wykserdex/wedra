@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 type ExecutionGraph struct {
@@ -38,9 +38,7 @@ func BuildGraphFromPipeline(pf *pipeline.PipelineFile) (*ExecutionGraph, error) 
 				parts := strings.Split(v, ".")
 				if len(parts) >= 2 {
 					dep := parts[1]
-					if strings.HasSuffix(dep, "_all") {
-						dep = strings.TrimSuffix(dep, "_all")
-					}
+					dep = strings.TrimSuffix(dep, "_all")
 					deps[dep] = true
 				}
 			}
@@ -50,9 +48,7 @@ func BuildGraphFromPipeline(pf *pipeline.PipelineFile) (*ExecutionGraph, error) 
 				parts := strings.Split(f.Field, ".")
 				if len(parts) >= 2 {
 					dep := parts[1]
-					if strings.HasSuffix(dep, "_all") {
-						dep = strings.TrimSuffix(dep, "_all")
-					}
+					dep = strings.TrimSuffix(dep, "_all")
 					deps[dep] = true
 				}
 			}

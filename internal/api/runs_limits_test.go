@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 // oversizedJournal — n событий step_end, обёрнутые в run_start/run_end.
@@ -46,21 +46,6 @@ func runsTestServer(t *testing.T, runsDir string) *Server {
 		}
 	}
 	return NewServer(plugins, pipelines, runsDir)
-}
-
-// getJSONRaw — ответ целиком: нужен заголовок обрезания списка ранов.
-func getJSONRaw(t *testing.T, url string) (int, map[string]interface{}, http.Header) {
-	t.Helper()
-	resp, err := http.Get(url)
-	if err != nil {
-		t.Fatalf("GET %s: %v", url, err)
-	}
-	defer resp.Body.Close()
-	var out map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("GET %s: json: %v", url, err)
-	}
-	return resp.StatusCode, out, resp.Header
 }
 
 // Журнал больше потолка ответа: события обрезаются хвостом, total точный,

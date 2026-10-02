@@ -470,11 +470,15 @@ func validate(sch interface{}, val interface{}, path string, seen map[string]boo
 			switch key {
 			case "oneOf":
 				if matched != 1 {
-					out = append(out, fmt.Sprintf("%s: oneOf сошёлся ровно с одной ветвью, а сошлось %d", path, matched))
+					// Почему не сошлось — самое полезное в сообщении: без ветвей
+					// автор схемы видит только счётчик и идёт читать схему сам.
+					out = append(out, fmt.Sprintf("%s: oneOf сошёлся ровно с одной ветвью, а сошлось %d%s",
+						path, matched, branchErrsHint(branchErrs)))
 				}
 			case "anyOf":
 				if matched == 0 {
-					out = append(out, fmt.Sprintf("%s: не подошла ни одна ветвь anyOf", path))
+					out = append(out, fmt.Sprintf("%s: не подошла ни одна ветвь anyOf%s",
+						path, branchErrsHint(branchErrs)))
 				}
 			case "allOf":
 				for i, b := range branches {
@@ -632,4 +636,26 @@ func kindOf(v interface{}) string {
 		return "object"
 	}
 	return fmt.Sprintf("%T", v)
+}
+
+// branchErrsHint — что именно не сошлось в ветвях oneOf/anyOf. Ограничение по
+// длине: сообщение уходит в CLI и в JSON, простыня из пяти ветвей там мешает.
+func branchErrsHint(branchErrs [][]string) string {
+	if len(branchErrs) == 0 {
+		return ""
+	}
+	const perBranch, maxBranches = 2, 3
+	var parts []string
+	for i, errs := range branchErrs {
+		if i == maxBranches {
+			parts = append(parts, fmt.Sprintf("… ещё ветвей: %d", len(branchErrs)-maxBranches))
+			break
+		}
+		cut := errs
+		if len(cut) > perBranch {
+			cut = cut[:perBranch]
+		}
+		parts = append(parts, strings.Join(cut, "; "))
+	}
+	return " (ветви: " + strings.Join(parts, " | ") + ")"
 }

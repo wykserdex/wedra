@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"wedra/internal/errdoc"
-	"wedra/internal/schemacheck"
-	"wedra/internal/verdoc"
+	"github.com/wykserdex/wedra/internal/errdoc"
+	"github.com/wykserdex/wedra/internal/schemacheck"
+	"github.com/wykserdex/wedra/internal/verdoc"
 )
 
 type checkStep struct {
@@ -69,7 +69,17 @@ func checkSteps() []checkStep {
 		{name: "vet", desc: "go vet ./...", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return runCapture(o.repo, "go", "vet", "./...")
+			}}, {name: "lint", desc: "staticcheck ./...", fast: true,
+			run: func(o checkOpts) (string, error) {
+				bin, err := staticcheckBin()
+				if err != nil {
+					// Не пропуск: «пропуск неотличим от успеха» — правило самого
+					// проекта. Отсутствие линтера — отсутствие проверки.
+					return "", err
+				}
+				return runCapture(o.repo, bin, "./...")
 			}},
+
 		{name: "mod", desc: "проверка целостности go.mod/go.sum", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return runCapture(o.repo, "go", "mod", "verify")
@@ -579,4 +589,21 @@ git fetch --unshallow, а не отключением шага.
   wedra check --race          то же с -race, ровно как в CI
   wedra check --census        охота за зависанием Windows-джоба
 `)
+}
+
+// staticcheckPin — версия линтера, которую ставит CI. Пин в одном месте: если
+// версии разъедутся, локальная зелёная проверка и CI будут говорить о разном
+// коде разное.
+const staticcheckPin = "2026.2.1"
+
+// staticcheckBin ищет staticcheck в PATH: своим шагом он не тянет зависимость в
+// go.mod (а значит, не попадает в SBOM и релизные бинарники), но и молча не
+// пропускается, когда его нет.
+func staticcheckBin() (string, error) {
+	if p, err := exec.LookPath("staticcheck"); err == nil {
+		return p, nil
+	}
+	return "", fmt.Errorf("staticcheck не найден в PATH: локальная проверка без него "+
+		"неполна, а «пропуск неотличим от успеха». Поставьте: go install honnef.co/go/tools/cmd/staticcheck@%s",
+		staticcheckPin)
 }

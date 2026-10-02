@@ -15,7 +15,7 @@ package execution
 import (
 	"testing"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // trustPluginsDir — allow-list по каталогу с тестовыми плагинами.

@@ -155,7 +155,27 @@ func tailOf(path string, lines int) string {
 	return strings.Join(all, "\n")
 }
 
-func sanitizeForFile(s string) string {
+// pkgShortName убирает домен и владельца из пути пакета, оставляя имя модуля:
+// github.com/wykserdex/wedra/internal/mcp → wedra/internal/mcp.
+//
+// Это не косметика: раньше имя модуля было ровно "wedra", и весь путь пакета уже
+// читался коротко. После переезда на полный путь модуля (нужный, чтобы работал
+// `go install`) имя файла стало "github.com_wykserdex_wedra_internal_mcp" — а имя
+// шага census (`var/census/<пакет>.txt`) человек читает глазами и ищет в нём
+// пакет, а не репозиторий.
+//
+// Правило не знает ни одного конкретного модуля: если первый сегмент пути похож
+// на домен (содержит точку), он и следующий за ним сегмент отбрасываются.
+func pkgShortName(pkg string) string {
+	parts := strings.Split(pkg, "/")
+	if len(parts) < 3 || !strings.Contains(parts[0], ".") {
+		return pkg
+	}
+	return strings.Join(parts[2:], "/")
+}
+
+func sanitizeForFile(pkg string) string {
+	s := pkgShortName(pkg)
 	var b strings.Builder
 	for _, r := range s {
 		switch {

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 func TestCachedRunSummaryReusesUnchangedJournal(t *testing.T) {

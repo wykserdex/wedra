@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"wedra/internal/common"
-	"wedra/internal/gate"
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 type RunOptions struct {
@@ -484,7 +484,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 	}
 	if opts.RunsDir == "" {
-		opts.RunsDir = "var/runs"
+		opts.RunsDir = journal.DefaultRunsDir()
 	}
 	if fs, ok := store.(*journal.FilesystemStore); ok {
 		if fs.BaseDir == "" {
@@ -634,10 +634,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		}
 		if opts.Resume == "" {
 			opts.logf("  → фаза 1: получение массива %s из %d шагов", pf.Pipeline.Foreach, len(preSteps))
-			preRefs := make([]*pipeline.Step, 0, len(preSteps))
-			for i := range preSteps {
-				preRefs = append(preRefs, preSteps[i])
-			}
+			preRefs := append([]*pipeline.Step(nil), preSteps...)
 			acts, err := runParallelSegments(eng, pf, preRefs, ctx, j, opts, true)
 			if err != nil {
 				failEvent(j, ctx, err, nil)
@@ -740,10 +737,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		j.Event("item_start", map[string]interface{}{"item_index": idx, "item": it})
 
 		itemStatus := "ok"
-		loopRefs := make([]*pipeline.Step, 0, len(loopSteps))
-		for i := range loopSteps {
-			loopRefs = append(loopRefs, loopSteps[i])
-		}
+		loopRefs := append([]*pipeline.Step(nil), loopSteps...)
 		acts, err := runParallelSegments(eng, pf, loopRefs, ctx, j, opts, true)
 		if err != nil {
 			failEvent(j, ctx, err, nil)
@@ -790,10 +784,7 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 		opts.logf("\n▶ фаза 3: post-foreach %d шагов (агрегаты: %d)", len(postSteps), len(agg))
 		writeAggregates(ctx, agg, loopSteps)
 		j.Event("post_phase_start", map[string]interface{}{"steps": len(postSteps)})
-		postRefs := make([]*pipeline.Step, 0, len(postSteps))
-		for i := range postSteps {
-			postRefs = append(postRefs, postSteps[i])
-		}
+		postRefs := append([]*pipeline.Step(nil), postSteps...)
 		acts, err := runParallelSegments(eng, pf, postRefs, ctx, j, opts, true)
 		if err != nil {
 			failEvent(j, ctx, err, nil)

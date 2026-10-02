@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // Аргументы bwrap проверяются без запуска: на CI-раннерах user namespaces могут

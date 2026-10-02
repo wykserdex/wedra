@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/common"
 )
 
 func envValue(env []string, key string) string {

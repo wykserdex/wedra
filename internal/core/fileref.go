@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 func fileRefWarnings(m *Manifest, st *Step, input map[string]interface{}, root string) []string {
@@ -44,13 +43,4 @@ func fileRefWarnings(m *Manifest, st *Step, input map[string]interface{}, root s
 		warns = append(warns, msg)
 	}
 	return warns
-}
-
-func fileRefWarningsForRun(m *Manifest, st *Step, input map[string]interface{}) []string {
-	root, _ := os.Getwd()
-	return fileRefWarnings(m, st, input, root)
-}
-
-func formatHintForLog(w string) string {
-	return strings.ReplaceAll(w, "\n", " ")
 }

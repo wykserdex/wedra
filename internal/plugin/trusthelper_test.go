@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // Помощники доверия для тестов.
@@ -38,11 +38,6 @@ func trustCtx(t *testing.T, manifests ...*Manifest) context.Context {
 
 // trustAllCtx — то же, но allow-list строится по всему каталогу. Нужно там, где
 // манифесты не собраны в список (например, каталог фикстур целиком).
-func trustAllCtx(t *testing.T, policy TrustPolicy) context.Context {
-	t.Helper()
-	return WithTrustPolicy(context.Background(), policy)
-}
-
 // writePlainPlugin — временный плагин БЕЗ строки `sandbox`.
 //
 // Отдельный помощник, а не переиспользование writePlugin: тот намеренно ставит

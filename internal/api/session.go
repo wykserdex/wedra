@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	"wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/gate"
 )
 
 const (
@@ -311,7 +311,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 			"expires_in":    int(s.policy.ttl / time.Second),
 		})
 	default:
-		http.Error(w, "GET or POST", 405)
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -328,7 +328,7 @@ func (s *Server) sessionHandshake(w http.ResponseWriter, r *http.Request) bool {
 	}
 	token, err := s.exchangePairingCode(k)
 	if err != nil {
-		http.Error(w, "код входа не подошёл: "+err.Error(), 401)
+		http.Error(w, "код входа не подошёл: "+err.Error(), http.StatusUnauthorized)
 		return true
 	}
 	s.setSessionCookie(w, r, token)

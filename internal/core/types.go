@@ -1,8 +1,8 @@
 package core
 
 import (
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 type Duration = pipeline.Duration
@@ -26,9 +26,5 @@ var NewEngine = plugin.NewEngine
 var IsBuiltin = plugin.IsBuiltin
 
 func PortSource(portName string, port Port, st *Step) string {
-	return pipeline.PortSource(portName, port, st)
-}
-
-func portSource(portName string, port Port, st *Step) string {
 	return pipeline.PortSource(portName, port, st)
 }

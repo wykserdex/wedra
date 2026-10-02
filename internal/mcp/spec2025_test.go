@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // --- клиент, который умеет отвечать серверу ---

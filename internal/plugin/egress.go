@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // Egress-фильтр для плагинов, которым объявлен any_host.
@@ -104,8 +104,6 @@ type egress struct {
 	closed bool
 	conns  map[net.Conn]struct{}
 }
-
-func tlsPortAllowed(p int) bool { return p == 443 || p == 8443 }
 
 func newEgress(allow []pipeline.NetworkPermission) (*egress, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

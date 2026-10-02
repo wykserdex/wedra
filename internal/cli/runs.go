@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 func RunRunsList(args []string) {
-	runsDir := "var/runs"
+	runsDir := journal.DefaultRunsDir()
 	storeType := "fs"
 	dbPath := ""
 	for _, a := range args {
@@ -60,7 +60,7 @@ func RunRunsShow(args []string) {
 		os.Exit(2)
 	}
 	id := args[0]
-	runsDir := "var/runs"
+	runsDir := journal.DefaultRunsDir()
 	storeType := "fs"
 	dbPath := ""
 	for _, a := range args[1:] {

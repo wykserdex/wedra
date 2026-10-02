@@ -130,9 +130,9 @@ is the same reason the Linux backend mounts the plugin directory read-only.
 
 ### macOS: backend archived
 
-The `sandbox-exec` backend was removed from the build and kept at
-`attic/sandbox_darwin.go.archived`, with its behavioural test at
-`attic/sandbox_darwin_test.go.archived`. macOS now resolves through the same
+The `sandbox-exec` backend was removed from the build and archived out of the
+tree: it lives in git history (commit `9d17120`, files `sandbox_darwin.go` and
+its behavioural test) and is not compiled or tested. macOS now resolves through the same
 fail-closed path as Windows: an untrusted plugin is refused rather than run
 without isolation.
 

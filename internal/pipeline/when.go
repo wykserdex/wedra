@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 // When — условие выполнения шага (v0.20).

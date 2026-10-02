@@ -52,9 +52,6 @@ func inputFieldList(pf *PipelineFile) []string {
 // compatibleOutputs — выходы предыдущих шагов, совместимые с wanted
 // типом/форматом: "steps.<id>.<out>". Пустой wanted — любой подходит.
 func compatibleOutputs(prior map[string]priorStep, wantType, wantFormat string) []string {
-	type cand struct {
-		id, out string
-	}
 	var ids []string
 	for id := range prior {
 		ids = append(ids, id)
@@ -336,10 +333,7 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				if port.Optional {
 					v.warn(W_PORT_OPTIONAL_SOURCE, st.ID, portName, srcPath, "optional-порт: источник может отсутствовать", nil, "шаг %s, порт %s: %s (optional)", st.ID, portName, perr)
 				} else {
-					fixCands := inputFieldList(pf)
-					for _, c := range compatibleOutputs(prior, port.Type, port.Format) {
-						fixCands = append(fixCands, c)
-					}
+					fixCands := append(inputFieldList(pf), compatibleOutputs(prior, port.Type, port.Format)...)
 					v.err(code, st.ID, portName, srcPath, fmt.Sprintf("доступные поля: %s", strings.Join(inputFieldList(pf), ", ")), &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: fixCands}, "шаг %s, порт %s: %s", st.ID, portName, perr)
 				}
 				continue

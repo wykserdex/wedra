@@ -8,16 +8,6 @@ import (
 	"time"
 )
 
-const sleeperPipeYAML = `format_version: "0.2"
-pipeline:
-  name: sleep_demo
-  input: {}
-  steps:
-    - id: sleep
-      plugin: PLUGIN_DIR
-      timeout: 30s
-`
-
 func writeSleeperPlugin(t *testing.T, dir string) string {
 	t.Helper()
 	d := filepath.Join(dir, "sleeper")

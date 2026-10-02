@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/common"
 )
 
 var formatRank = map[string]int{
@@ -166,276 +166,6 @@ func Validate(pf *PipelineFile, eng Engine) (errs, warns []string) {
 	return SplitIssues(ValidateIssues(pf, eng))
 }
 
-func validateLegacy(pf *PipelineFile, eng Engine) (errs, warns []string) {
-	if pf.FormatVersion != "0.1" && pf.FormatVersion != "0.2" {
-		if pf.FormatVersion != "" {
-			errs = append(errs, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
-		} else {
-			warns = append(warns, fmt.Sprintf("format_version %q не из списка поддерживаемых: 0.1, 0.2", pf.FormatVersion))
-		}
-	}
-	// v0.16: secrets — предупреждение до запуска, ошибка будет в раннере
-	for _, k := range pf.Pipeline.Secrets {
-		if os.Getenv(k) == "" {
-			warns = append(warns, fmt.Sprintf("secrets: переменная окружения %s не задана (нужна для запуска)", k))
-		}
-	}
-	if cycle := DetectCycle(pf); cycle != "" {
-		errs = append(errs, cycle)
-	}
-	p := &pf.Pipeline
-	if p.Foreach != "" {
-		if strings.HasPrefix(p.Foreach, "input.") {
-			key := strings.TrimPrefix(p.Foreach, "input.")
-			if value, ok := p.Input[key]; !ok {
-				errs = append(errs, "foreach: массив "+p.Foreach+" не найден в input")
-			} else if arr, ok := value.([]interface{}); ok && len(arr) > MaxForeachItems {
-				errs = append(errs, fmt.Sprintf("foreach: input.%s содержит %d элементов, максимум %d", key, len(arr), MaxForeachItems))
-			}
-		} else if strings.HasPrefix(p.Foreach, "steps.") {
-			parts := strings.Split(p.Foreach, ".")
-			if len(parts) < 3 {
-				errs = append(errs, "foreach: steps.* должен быть вида steps.<id>.<field>")
-			} else {
-				found := false
-				for _, st := range p.Steps {
-					if st.ID == parts[1] {
-						found = true
-						break
-					}
-				}
-				if !found {
-					errs = append(errs, fmt.Sprintf("foreach: шаг %s не найден в пайплайне", parts[1]))
-				}
-			}
-		} else {
-			errs = append(errs, "foreach: путь должен начинаться с input. или steps.")
-		}
-	}
-	seen := map[string]bool{}
-	prior := map[string]priorStep{}
-	for i := range p.Steps {
-		st := &p.Steps[i]
-		if st.ID == "" {
-			errs = append(errs, fmt.Sprintf("шаг #%d: пустой id", i+1))
-			continue
-		}
-		if seen[st.ID] {
-			errs = append(errs, "шаг "+st.ID+": дублирующийся id")
-		}
-		seen[st.ID] = true
-		if !IsBuiltin(st.Plugin) && IsBuiltinNamespace(st.Plugin) {
-			errs = append(errs, fmt.Sprintf("шаг %s: неизвестный встроенный модуль: %s", st.ID, st.Plugin))
-			continue
-		}
-		// v0.20: управляющий поток на уровне шага
-		if st.When.IsSet() {
-			if !WhenOps[st.When.Op] {
-				errs = append(errs, fmt.Sprintf("шаг %s: when: неизвестный оператор %q (допускаются: truthy, exists, missing, eq, neq, gt, gte, lt, lte, contains)", st.ID, st.When.Op))
-			}
-			if !strings.HasPrefix(st.When.Path, "input.") && !strings.HasPrefix(st.When.Path, "steps.") {
-				errs = append(errs, fmt.Sprintf("шаг %s: when: путь должен начинаться с input. или steps. (got %s)", st.ID, st.When.Path))
-			} else if parts := strings.Split(st.When.Path, "."); strings.HasPrefix(st.When.Path, "steps.") {
-				if len(parts) < 3 {
-					errs = append(errs, fmt.Sprintf("шаг %s: when: steps.* должен быть вида steps.<id>.<field>", st.ID))
-				} else if _, ok := prior[parts[1]]; !ok {
-					errs = append(errs, fmt.Sprintf("шаг %s: when: читает из шага %s, который ещё не выполняется", st.ID, parts[1]))
-				}
-			}
-		}
-		if st.Foreach != "" {
-			if !strings.HasPrefix(st.Foreach, "input.") && !strings.HasPrefix(st.Foreach, "steps.") {
-				errs = append(errs, fmt.Sprintf("шаг %s: foreach: путь должен начинаться с input. или steps. (got %s)", st.ID, st.Foreach))
-			} else if strings.HasPrefix(st.Foreach, "steps.") {
-				parts := strings.Split(st.Foreach, ".")
-				if len(parts) < 3 {
-					errs = append(errs, fmt.Sprintf("шаг %s: foreach: steps.* должен быть вида steps.<id>.<field>", st.ID))
-				} else if _, ok := prior[parts[1]]; !ok {
-					errs = append(errs, fmt.Sprintf("шаг %s: foreach: шаг %s не найден или ещё не выполняется", st.ID, parts[1]))
-				}
-			} else if key := strings.TrimPrefix(st.Foreach, "input."); !strings.Contains(key, ".") {
-				if _, ok := p.Input[key]; !ok {
-					errs = append(errs, fmt.Sprintf("шаг %s: foreach: массив %s не найден в input", st.ID, st.Foreach))
-				}
-			}
-			if st.AfterForeach {
-				errs = append(errs, fmt.Sprintf("шаг %s: foreach и after_foreach не сочетаются", st.ID))
-			}
-			if st.ParallelGroup != "" {
-				errs = append(errs, fmt.Sprintf("шаг %s: foreach не сочетается с parallel_group", st.ID))
-			}
-			if st.ForeachItem != "" && strings.ContainsAny(st.ForeachItem, ". \t\"'") {
-				errs = append(errs, fmt.Sprintf("шаг %s: foreach_item должно быть простым именем (got %q)", st.ID, st.ForeachItem))
-			}
-			if IsBuiltin(st.Plugin) {
-				errs = append(errs, fmt.Sprintf("шаг %s: human_gate не принимает foreach", st.ID))
-			}
-		}
-		if st.ParallelGroup != "" && IsBuiltin(st.Plugin) {
-			errs = append(errs, fmt.Sprintf("шаг %s: human_gate нельзя ставить в параллельную группу %q (гейты сериализуют терминал)", st.ID, st.ParallelGroup))
-		}
-		switch st.OnError {
-		case "", "stop", "skip", "retry":
-		default:
-			errs = append(errs, "шаг "+st.ID+": on_error="+st.OnError+", ожидается stop|skip|retry")
-		}
-		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts < 1 {
-			errs = append(errs, "шаг "+st.ID+": retry.attempts < 1")
-		}
-		if st.OnError == "retry" && st.Retry != nil && st.Retry.Attempts > MaxRetryAttempts {
-			errs = append(errs, fmt.Sprintf("шаг %s: retry.attempts=%d, максимум %d", st.ID, st.Retry.Attempts, MaxRetryAttempts))
-		}
-		if IsBuiltin(st.Plugin) {
-			if len(st.Bind) > 0 {
-				errs = append(errs, "шаг "+st.ID+": human_gate не принимает bind")
-			}
-			switch st.OnReject {
-			case "", "stop", "continue":
-			default:
-				errs = append(errs, "шаг "+st.ID+": on_reject="+st.OnReject+", ожидается stop|continue")
-			}
-			for _, action := range st.Actions {
-				if action != "accept" && action != "reject" {
-					errs = append(errs, "шаг "+st.ID+": actions="+action+", допустимы accept|reject")
-				}
-			}
-			bnSeen := map[string][]string{}
-			for _, f := range st.Form {
-				bn := Basename(f.Field)
-				bnSeen[bn] = append(bnSeen[bn], f.Field)
-			}
-			for bn, fields := range bnSeen {
-				if len(fields) > 1 {
-					warns = append(warns, fmt.Sprintf("шаг %s, form: базовое имя %q встречается в %v — будут ключи вида <step_id>_%s", st.ID, bn, fields, bn))
-				}
-			}
-			for _, f := range st.Form {
-				if src, e := resolveSource(f.Field, prior, pf, nil); e != "" {
-					warns = append(warns, fmt.Sprintf("шаг %s, form: %s — поле может отсутствовать", st.ID, e))
-				} else if src.Step != nil && src.Step.OnError == "skip" {
-					warns = append(warns, fmt.Sprintf("шаг %s, form: %s читает из skip-able шага %s", st.ID, f.Field, src.Step.ID))
-				}
-			}
-			prior[st.ID] = priorStep{step: st, manifest: &Manifest{ID: "core/human_gate"}}
-			continue
-		}
-		m, err := eng.LoadManifest(st.Plugin)
-		if err != nil {
-			errs = append(errs, "шаг "+st.ID+": "+err.Error())
-			continue
-		}
-		for b := range st.Bind {
-			if _, ok := m.Input[b]; !ok {
-				errs = append(errs, fmt.Sprintf("шаг %s: bind указывает на несуществующий порт %q (порты: %s)", st.ID, b, portNames(m.Input)))
-			}
-		}
-		// v0.17: declare-now — плагин заявил сеть в манифесте.
-		// Пустое поле network равно deny, иначе валидатор молчал бы там, где
-		// рантайм отказывает. allow + список host:port — тоже отказ рантайма,
-		// поэтому валидатор обязан его повторить.
-		if len(m.Permissions.Network) > 0 {
-			hosts := NetworkHosts(m)
-			switch {
-			case EffectiveNetwork(p) == NetworkDeny:
-				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть (%s), а %s", st.ID, st.Plugin, hosts, networkDenyBecause(p.Network)))
-			case EffectiveNetwork(p) == NetworkAllow && NetworkHasStructuredDeclarations(m):
-				errs = append(errs, fmt.Sprintf("шаг %s: плагин %s заявил сеть по host:port (%s), но точечный egress-фильтр не реализован — полный доступ вместо списка хостов выдавать нельзя", st.ID, st.Plugin, hosts))
-			default:
-				warns = append(warns, fmt.Sprintf("шаг %s: плагин заявил сеть: %s (declare-now, аудит — журнал)", st.ID, hosts))
-			}
-		}
-		for portName, port := range m.Input {
-			srcPath := PortSource(portName, port, st)
-			if srcPath == "" {
-				if port.Optional {
-					warns = append(warns, fmt.Sprintf("шаг %s, порт %s: нет привязки (optional)", st.ID, portName))
-					continue
-				}
-				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: нет привязки", st.ID, portName))
-				continue
-			}
-			src, perr := resolveSource(srcPath, prior, pf, st)
-			if perr != "" {
-				if port.Optional {
-					warns = append(warns, fmt.Sprintf("шаг %s, порт %s: %s (optional)", st.ID, portName, perr))
-				} else {
-					errs = append(errs, fmt.Sprintf("шаг %s, порт %s: %s", st.ID, portName, perr))
-				}
-				continue
-			}
-			src.Name = srcPath
-			if src.Type != "" && port.Type != "" && src.Type != port.Type {
-				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: тип %s несовместим с выходом %q (%s)", st.ID, portName, port.Type, src.Name, src.Type))
-			}
-			literalChecked := false
-			if src.Literal != nil && port.Format != "" {
-				if s, isStr := src.Literal.(string); isStr {
-					literalChecked = true
-					if !scalarMatchesFormat(s, port.Format) {
-						errs = append(errs, fmt.Sprintf("шаг %s, порт %s: значение input %q не соответствует формату %q", st.ID, portName, s, port.Format))
-					}
-				}
-			}
-			if !literalChecked && !formatsCompatible(src.Format, port.Format) {
-				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: формат источника %q не покрывает %q", st.ID, portName, src.Format, port.Format))
-			}
-			if src.Step != nil && src.Step.OnError == "skip" && !port.Optional {
-				errs = append(errs, fmt.Sprintf("шаг %s, порт %s: читает из skip-able шага %s — объявите optional", st.ID, portName, src.Step.ID))
-			}
-		}
-		prior[st.ID] = priorStep{step: st, manifest: m}
-	}
-	// v0.20: parallel_group — шаги группы должны быть смежными в списке
-	groupLast := map[string]int{}
-	groupSize := map[string]int{}
-	for i := range p.Steps {
-		g := p.Steps[i].ParallelGroup
-		if g == "" {
-			continue
-		}
-		groupSize[g]++
-		if last, ok := groupLast[g]; ok && i != last+1 {
-			errs = append(errs, fmt.Sprintf("parallel_group %q: шаги группы должны быть рядом в списке (шаг %s отделён от группы)", g, p.Steps[i].ID))
-		}
-		groupLast[g] = i
-	}
-	for g, n := range groupSize {
-		if n == 1 {
-			warns = append(warns, fmt.Sprintf("parallel_group %q: один шаг — параллелизм бессмыслен", g))
-		}
-		if n > MaxParallelWidth {
-			errs = append(errs, fmt.Sprintf("parallel_group %q: %d шагов, максимум %d", g, n, MaxParallelWidth))
-		}
-	}
-	// v0.17: кросс-проверка secrets — pipeline.secrets ↔ permissions.secrets манифестов
-	pluginSecrets := map[string]bool{}
-	for _, ps := range prior {
-		for _, s := range ps.manifest.Permissions.Secrets {
-			pluginSecrets[s] = true
-		}
-	}
-	pipelineSecrets := map[string]bool{}
-	for _, k := range p.Secrets {
-		pipelineSecrets[k] = true
-	}
-	for _, k := range p.Secrets {
-		if !pluginSecrets[k] {
-			warns = append(warns, fmt.Sprintf("secrets: пайплайн объявляет %s, но ни один плагин не заявляет её в permissions.secrets", k))
-		}
-	}
-	var undeclared []string
-	for s := range pluginSecrets {
-		if !pipelineSecrets[s] {
-			undeclared = append(undeclared, s)
-		}
-	}
-	sort.Strings(undeclared)
-	for _, s := range undeclared {
-		warns = append(warns, fmt.Sprintf("secrets: плагину нужен ключ %s — объявите в pipeline secrets (иначе может не быть в env при запуске)", s))
-	}
-	return errs, warns
-}
-
 func portNames(m map[string]Port) string {
 	if len(m) == 0 {
 		return "—"
@@ -489,6 +219,39 @@ func ValidatePluginDir(dir string) []string {
 		}
 	}
 	return errs
+}
+
+// PluginManifestWarnings — предупреждения о манифесте, которые не мешают
+// валидности, но обещают автору проблему на запуске. Сейчас их два класса.
+//
+// Сеть по host:port: CONTRIBUTING раньше прямо требовал объявлять «каждый
+// сетевой вызов» как {host, port}, а рантайм такие пайплайны отвергает
+// (E_NETWORK_NOT_ENFORCEABLE: точечный egress-фильтр не реализован). Автор
+// писал честный манифест и узнавал об этом только на `pipeline run`, когда
+// пайплайн с network: allow уже был собран. Теперь он слышит это там, где
+// работает — на `plugin validate`/`plugin test`: до того, как что-то запущено.
+//
+// Незнакомая сеть: плагин без объявленной сети — не проблема сама по себе, но
+// манифест, который ничего не заявляет, стоит перечитать перед сдачей в реестр.
+func PluginManifestWarnings(dir string) []string {
+	raw, err := os.ReadFile(filepath.Join(dir, "plugin.yaml"))
+	if err != nil {
+		return nil
+	}
+	var m Manifest
+	if err := unmarshalYAML(raw, &m); err != nil {
+		return nil
+	}
+	var warns []string
+	if NetworkHasStructuredDeclarations(&m) {
+		warns = append(warns, fmt.Sprintf(
+			"сеть объявлена по host:port (%s), но точечный egress-фильтр не реализован: "+
+				"такой плагин не запустится ни в одном пайплайне (E_NETWORK_NOT_ENFORCEABLE). "+
+				"Объявите any_host: true, если плагину действительно нужен весь интернет, "+
+				"иначе уберите сеть из permissions",
+			NetworkHosts(&m)))
+	}
+	return warns
 }
 
 func KindOf(v interface{}) string {
@@ -985,9 +748,7 @@ func DetectCycle(pf *PipelineFile) string {
 				parts := strings.Split(f.Field, ".")
 				if len(parts) >= 2 {
 					id := parts[1]
-					if strings.HasSuffix(id, "_all") {
-						id = strings.TrimSuffix(id, "_all")
-					}
+					id = strings.TrimSuffix(id, "_all")
 					deps[id] = true
 				}
 			}

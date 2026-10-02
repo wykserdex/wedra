@@ -1,4 +1,4 @@
-module wedra
+module github.com/wykserdex/wedra
 
 go 1.26
 

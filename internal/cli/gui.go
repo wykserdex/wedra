@@ -9,9 +9,10 @@ import (
 	"runtime"
 	"strings"
 
-	"wedra/internal/api"
-	"wedra/internal/guidirs"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/api"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/guidirs"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // RunGUI — wedra gui [--listen 127.0.0.1:8765] [--open] [--allow-remote]
@@ -42,6 +43,9 @@ func RunGUI(args []string) {
 	// связана с политикой прослушивания: allow-list Host и доверие к
 	// плагинам решают разные вещи.
 	trustCfg := ""
+	// Пусто = встроенный фронтенд. Значение по умолчанию — пустое, а не
+	// "web/static": подхват каталога из CWD делал GUI зависимым от места запуска.
+	staticDir := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -57,6 +61,11 @@ func RunGUI(args []string) {
 			i++
 		case strings.HasPrefix(a, "--trust-config="):
 			trustCfg = strings.TrimPrefix(a, "--trust-config=")
+		case len(a) > 9 && a[:9] == "--static=":
+			staticDir = a[9:]
+		case a == "--static" && i+1 < len(args):
+			staticDir = args[i+1]
+			i++
 		case a == "--open":
 			open = true
 		case a == "--no-session":
@@ -101,8 +110,15 @@ func RunGUI(args []string) {
 		fmt.Println("gui: ошибка конфига доверия:", err)
 		os.Exit(2)
 	}
+	if staticDir != "" {
+		if info, err := os.Stat(staticDir); err != nil || !info.IsDir() {
+			fmt.Printf("gui: --static=%s: %s\n", staticDir, "каталог фронтенда не читается")
+			os.Exit(2)
+		}
+	}
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
 	srv.Trusted = trusted
+	srv.StaticDir = staticDir
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
 		fmt.Println("порт недоступен:", err)
@@ -128,10 +144,7 @@ func RunGUI(args []string) {
 		}
 		srv.EnableSession(code)
 	}
-	ver := api.Version
-	if raw, err := os.ReadFile("VERSION"); err == nil {
-		ver = strings.TrimSpace(string(raw))
-	}
+	ver := buildinfo.Resolve()
 	link := "http://" + browserHost(ln.Addr().String(), opts) + "/"
 	if api.LinkScheme(opts) == "https" {
 		link = "https://" + browserHost(ln.Addr().String(), opts) + "/"
@@ -151,7 +164,11 @@ func RunGUI(args []string) {
 		fmt.Println("  второй браузер/вкладка: нажмите Enter в этом терминале — выдадим новый код.")
 	}
 	fmt.Println("  API: /api/health (без входа), остальное /api/* — с cookie сессии; обмен кода: /api/session")
-	fmt.Println("  Frontend: web/static с диска (если виден из CWD) или встроенный GUI (go:embed, v0.7) — консоль: раны, live-журнал, DAG; /editor/ — редактор пайплайнов")
+	if staticDir != "" {
+		fmt.Printf("  Frontend: %s с диска (--static) — правки JS видны после перезагрузки страницы\n", staticDir)
+	} else {
+		fmt.Println("  Frontend: встроенный GUI (go:embed, v0.7) — консоль: раны, live-журнал, DAG; /editor/ — редактор пайплайнов")
+	}
 	fmt.Println("  Ctrl+C — остановить")
 
 	if code != "" {
@@ -189,7 +206,7 @@ func RunGUI(args []string) {
 func guiUsage() {
 	fmt.Println(`wedra gui [--listen 127.0.0.1:8765] [--port N] [--open] [--no-session]
              [--allow-remote] [--public-host=имя[:порт]]... [--trusted-proxy] [--origin-scheme=http|https]
-             [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>]
+             [--plugins=<dir>] [--pipelines=<dir>] [--runs-dir=<dir>] [--static=<dir>]
 
 Вход: одноразовый код печатается здесь и обменивается на cookie. Всё под /api/*
 (кроме /api/health и POST /api/session) без cookie → 401 E_SESSION_REQUIRED.
@@ -201,7 +218,11 @@ Host проверяется по allow-list: 127.0.0.1, localhost, [::1] и яв
 отвергать все. --no-session вместе с внешним доступом запрещён.
 
 X-Forwarded-Proto читается только с --trusted-proxy (Secure у cookie);
-X-Forwarded-Host не читается никогда.`)
+X-Forwarded-Host не читается никогда.
+
+--static=<dir> отдаёт фронтенд с диска (dev-режим: правки JS без пересборки).
+Без флага работает встроенный (go:embed) GUI: содержимое каталога запуска на
+отдаваемый фронтенд не влияет.`)
 }
 
 // PrintGUIUsage — справка gui для `wedra gui --help`.

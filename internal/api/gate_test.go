@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 const gatePipeYAML = `format_version: "0.1"

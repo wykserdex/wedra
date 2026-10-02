@@ -117,7 +117,7 @@ func TestRepeatedAwaitDoesNotCallWaitTwice(t *testing.T) {
 func TestSanitizeForFileKeepsPackageShape(t *testing.T) {
 	// Имя файла лога выводится из имени пакета: там есть слэши и двоеточия,
 	// которые в пути недопустимы.
-	got := sanitizeForFile("wedra/internal/mcp:sub")
+	got := sanitizeForFile("github.com/wykserdex/wedra/internal/mcp:sub")
 	for _, bad := range []string{"/", ":", `\`, " ", "*", "?"} {
 		if strings.Contains(got, bad) {
 			t.Fatalf("в имени файла остался недопустимый символ %q: %q", bad, got)

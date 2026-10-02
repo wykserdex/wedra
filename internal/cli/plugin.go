@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/core"
 )
 
 func RunPluginValidate(args []string) {
@@ -21,6 +21,9 @@ func RunPluginValidate(args []string) {
 	}
 	if len(errs) > 0 {
 		os.Exit(1)
+	}
+	for _, w := range core.PluginManifestWarnings(args[0]) {
+		fmt.Println("  · предупреждение:", w)
 	}
 	fmt.Println("OK: манифест плагина корректен")
 }

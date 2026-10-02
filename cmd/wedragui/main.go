@@ -28,8 +28,9 @@ import (
 	"syscall"
 	"time"
 
-	"wedra/internal/api"
-	"wedra/internal/guidirs"
+	"github.com/wykserdex/wedra/internal/api"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/guidirs"
 )
 
 func main() {
@@ -89,10 +90,7 @@ func main() {
 	logPath, logFile := openLog()
 	defer logFile.Close()
 
-	ver := api.Version
-	if raw, e := os.ReadFile("VERSION"); e == nil {
-		ver = strings.TrimSpace(string(raw))
-	}
+	ver := buildinfo.Resolve()
 
 	logf := func(format string, a ...interface{}) {
 		line := "[" + time.Now().Format("15:04:05") + "] " + fmt.Sprintf(format, a...) + "\n"

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // untrustedManifestWith — python-плагин, который на запуск пишет marker.

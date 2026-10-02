@@ -3,8 +3,8 @@ package core
 import (
 	"time"
 
-	"wedra/internal/common"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 type ExecResult struct {

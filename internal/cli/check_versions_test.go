@@ -102,21 +102,44 @@ func TestVersionsStepPassesAndFailsOnDrift(t *testing.T) {
 		t.Fatalf("копия репозитория обязана проходить: %v\n%s", err, out)
 	}
 
+	// Рассинхрон версии и документов — тот случай, ради которого шаг и написан.
+	// Версия валидная по схеме: иначе сработала бы проверка SemVer ниже, и тест
+	// проверял бы не то, что заявляет.
 	versionPath := filepath.Join(repo, "VERSION")
-	if err := os.WriteFile(versionPath, []byte("9.99z\n"), 0o644); err != nil {
+	if err := os.WriteFile(versionPath, []byte("9.99.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := step.run(checkOpts{repo: repo})
 	if err == nil {
 		t.Fatalf("расхождение версий не поймано:\n%s", out)
 	}
-	if !strings.Contains(out, "9.99z") {
+	if !strings.Contains(out, "9.99.9") {
 		t.Fatalf("в отчёте нет подставленной версии:\n%s", out)
 	}
 	for _, rel := range []string{"README.md", "README.en.md"} {
 		if !strings.Contains(out, rel) {
 			t.Fatalf("%s не назван в отчёте:\n%s", rel, out)
 		}
+	}
+}
+
+// Буквенная схема отклоняется на уровне шага: VERSION без SemVer означает тег,
+// которого не существует для go install, — и это не «расхождение документов»,
+// а отказ ещё до сверки.
+func TestVersionsStepRejectsLetteredVersion(t *testing.T) {
+	repo := repoUnderTest(t)
+	step := stepByName(t, "versions")
+
+	versionPath := filepath.Join(repo, "VERSION")
+	if err := os.WriteFile(versionPath, []byte("9.99z\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := step.run(checkOpts{repo: repo})
+	if err == nil {
+		t.Fatalf("буквенная версия прошла проверку:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "SemVer") {
+		t.Fatalf("отказ обязан объяснять причину (SemVer): %v", err)
 	}
 }
 

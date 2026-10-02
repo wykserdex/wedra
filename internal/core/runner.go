@@ -1,7 +1,7 @@
 package core
 
 import (
-	"wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/execution"
 )
 
 type RunOptions = execution.RunOptions

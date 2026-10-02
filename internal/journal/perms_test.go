@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"testing"
 
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 // Контракт режимов проверяется на любой платформе, потому что на Windows

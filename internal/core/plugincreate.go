@@ -423,23 +423,6 @@ tests:
 `
 }
 
-func pluginReadmeTemplate(id string) string {
-	return `# ` + id + `
-
-TODO: одна строка — что делает плагин, что читает, что пишет.
-
-## Цикл разработки
-
-` + "```bash" + `
-# правим main.py, затем:
-tool plugin test ` + id + `      # контракт-тесты (зелёные из коробки)
-tool plugin validate ` + id + `  # проверка манифеста
-` + "```" + `
-
-Протокол и правила контракта: protocol/v0.2/PROTOCOL.md в корне репозитория.
-`
-}
-
 func pluginReadmeTemplateWithOpts(id string, opts CreateOptions) string {
 	desc := opts.Description
 	if desc == "" {
