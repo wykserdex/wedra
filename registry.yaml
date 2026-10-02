@@ -167,6 +167,446 @@ plugins:
     version: v0.32
     commit: cf024eb6810068d20eabec3fe2ecac432d21be09
     description: "theHarvester (laramies) — emails/имена/субдомены по домену. Установка из git: pip install git+https://github.com/laramies/theHarvester.git@4.9.2"
+  abuseipdb:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/abuseipdb
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "AbuseIPDB — репутация IP: abuseConfidenceScore, число жалоб, страна, паттерн C. pip install abuseipdb."
+
+  altdns:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/altdns
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "altdns (infosec-au) — генерация перестановок поддоменов по словарю, полностью офлайн. pip install py-altdns."
+
+  arjun:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/arjun
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Arjun (s0md3v) — фаззинг скрытых GET-параметров, JSON-отчёт -oJ. pip install arjun."
+
+  binwalk:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/binwalk
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "binwalk (ReFirmLabs) v3 — поиск и извлечение данных из бинарников, JSON-отчёт. pip install binwalk."
+
+  buckethacker:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/buckethacker
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "buckethacker (ingo60) — открытые облачные хранилища по имени, разбор stdout."
+
+  censys:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/censys
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Censys — сервисы и геолокация хоста через SDK censys-python, паттерн C; ключи из CENSYS_API_ID/CENSYS_API_SECRET."
+
+  cloud_enum:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/cloud_enum
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "cloud_enum (initstring) — открытые облачные хранилища по ключу/имени. pip install cloud_enum."
+
+  cloudmapper:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/cloudmapper
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "cloudmapper (MitMaro) — карта инфраструктуры AWS по своим аккаунтам (узлы и рёбра). Установка из git, путь через CLOUDMAPPER_BIN."
+
+  commix:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/commix
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Commix (commixproject) — автоматизация инъекций, batch-режим, JSON-отчёт (нужна версия 4.2+). Установка из git, подробности в README."
+
+  corsy:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/corsy
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Corsy (s0md3v) — сканер CORS-мисконфигураций, JSON-отчёт. pip install corsy."
+
+  degoogle:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/degoogle
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "degoogle — Google-доркинг: email и телефоны по домену из выдачи. pip install degoogle."
+
+  detect_secrets:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/detect_secrets
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "detect-secrets (Yelp) — поиск секретов в коде, baseline-JSON; значения секретов наружу не отдаются. pip install detect-secrets."
+
+  dirsearch:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/dirsearch
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "dirsearch (maurosoria) — брутфорс директорий и файлов, JSON-отчёт. pip install dirsearch."
+
+  dnsrecon:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/dnsrecon
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "dnsrecon (darkoperator) — DNS-разведка: A/AAAA/NS/MX/SOA/SPF/CNAME, AXFR, брутфорс по словарю. pip install dnsrecon."
+
+  dnstwist:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/dnstwist
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "dnstwist (elceef) — перестановки домена (тайпсквоттинг, фишинг), JSON-вывод. pip install dnstwist."
+
+  droopescan:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/droopescan
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "droopescan (SamJoan) — плагиновый сканер CMS (Drupal, WordPress, Silverstripe). pip install droopescan."
+
+  emailfinder:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/emailfinder
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "emailfinder — email-адреса домена через Hunter.io; ключ читает инструмент из HUNTER_API_KEY. pip install emailfinder."
+
+  exifread:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/exifread
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "exifread (lexiflex) — EXIF-метаданные изображений через библиотеку, паттерн C. pip install exifread."
+
+  exiftool:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/exiftool
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "ExifTool (Phil Harvey) — метаданные файлов (EXIF/IPTC/XMP, GPS) через -j. Системный ExifTool либо pyexiftool."
+
+  fierce:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/fierce
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "fierce — DNS-брутфорс домена по словарю, разбор stdout. pip install fierce3."
+
+  gallery_dl:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/gallery_dl
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "gallery-dl (mikf) — метаданные изображений и галерей, без скачивания. pip install gallery-dl."
+
+  geoiplookup:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/geoiplookup
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "geoiplookup (MaxMind) — страна по IP из локальной базы GeoIP/DB-IP, сети не нужно. apt install geoip-bin."
+
+  ghauri:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/ghauri
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "ghauri (r0oth3x49) — детектор SQL-инъекций на Python, разбор лога. pip install ghauri."
+
+  ghunt:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/ghunt
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "GHunt (mxrch) — OSINT по Google-аккаунтам, токен из GHUNT_TOKEN. pipx install ghunt."
+
+  git_dumper:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/git_dumper
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "git-dumper (arthaud) — поиск оставленного .git на целевом хосте, разбор stdout. pip install git-dumper."
+
+  gospider:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/gospider
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "gospider (jaeles-project) — краулер с извлечением эндпоинтов из JS, robots.txt и sitemap. go install github.com/jaeles-project/gospider@latest."
+
+  h8mail:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/h8mail
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "h8mail (Prosper0800) — email в утечках (HIBP, Snusbase, Dehashed, IntelX); конфиг ключей собирается из env в temp. pip install h8mail."
+
+  hakrawler:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/hakrawler
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "hakrawler (hakluke) — веб-краулер для OSINT: URL, JS-файлы, формы. go install github.com/hakluke/hakrawler@latest."
+
+  instaloader:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/instaloader
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "instaloader — метаданные публичного профиля Instagram, без логина и загрузок, паттерн C. pip install instaloader."
+
+  ipwhois:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/ipwhois
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "ipwhois (Philip Hane) — WHOIS/RDAP по IP v4/v6: сеть, диапазоны, RIR, ASN. pip install ipwhois."
+
+  joomscan:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/joomscan
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "OWASP JoomScan — аудит Joomla: версия, известные уязвимости, компоненты. apt install joomscan."
+
+  lief:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/lief
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "LIEF (LIEF-project) — универсальный разбор бинарников PE/ELF/Mach-O, паттерн C. pip install lief."
+
+  linkfinder:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/linkfinder
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "LinkFinder (GerbenJavado) — краулинг страницы и извлечение ссылок из JS. Ставится из репозитория, путь через LINKFINDER_BIN."
+
+  metafinder:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/metafinder
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "metafinder (Josue87) — метаданные в выдаче поисковиков по домену, отчёт-файл. pip install metafinder."
+
+  msoffcrypto_tool:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/msoffcrypto_tool
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "msoffcrypto-tool (nolze) — проверка/снятие пароля офисного документа; пароль из MSOFFCRYPTO_PASSWORD. pip install msoffcrypto-tool."
+
+  nosqlmap:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/nosqlmap
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "nosqlmap — проверка NoSQL-инъекций по явно заданной цели. Требует Python 2 (см. README), pip install nosqlmap."
+
+  oletools:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/oletools
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "oletools (decalage2) — анализ макросов в офисных документах, JSON-вывод olevba -j. pip install oletools."
+
+  otx_pulse:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/otx_pulse
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "AlienVault OTX — публичные пульсы по индикатору без ключа, паттерн C на stdlib-urllib."
+
+  pefile:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/pefile
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "pefile — разбор PE: заголовок, секции, импорты, паттерн C. pip install pefile."
+
+  pocsuite3:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/pocsuite3
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "pocsuite3 (poc-suite) — проверка POC по явно заданной цели, batch-режим. pip install pocsuite3."
+
+  prowler:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/prowler
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Prowler (prowler-cloud) — аудит соответствия и безопасности облака, отчёт OCSF. pip install prowler."
+
+  pyelftools:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/pyelftools
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "pyelftools (eliben) — разбор ELF: класс, секции, импортируемые библиотеки, паттерн C. pip install pyelftools."
+
+  python_whois:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/python_whois
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "python-whois (mvondrak) — WHOIS-данные домена через библиотеку, паттерн C. pip install python-whois."
+
+  recon_ng:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/recon_ng
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "recon-ng — модульный OSINT-фреймворк, сценарий собирается плагином, отчёт JSON. pip install recon-ng."
+
+  scoutsuite:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/scoutsuite
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "ScoutSuite (nccgroup) — аудит облачного аккаунта, JSON-отчёт. pip install scoutsuite."
+
+  sherlock:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/sherlock
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Sherlock (sherlock-project) — поиск username по 400+ соцсетям, разбор stdout. pip install sherlock-project."
+
+  shodan:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/shodan
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Shodan — данные хоста по IP через официальный SDK, паттерн C; ключ из SHODAN_API_KEY. pip install shodan."
+
+  social_analyzer:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/social_analyzer
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "social-analyzer (okandemirci) — профили по соцсетям из username, с обходом простой антибот-защиты. pip install social-analyzer."
+
+  spiderfoot:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/spiderfoot
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "SpiderFoot (smicallef) — OSINT-фреймворк, модульные прогоны по цели, JSON в stdout. pip install spiderfoot."
+
+  sqlmap:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/sqlmap
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "sqlmap (sqlmapproject) — аудит SQL-инъекций по явно заданной цели, без техник эксплуатации. Установка из git, подробности в README."
+
+  sslyze:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/sslyze
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "sslyze (nabla-c0t3r) — анализ TLS/SSL цели, JSON-отчёт sslyze --json_out. pip install sslyze."
+
+  sublist3r:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/sublist3r
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Sublist3r (aboul3la) — пассивный сбор поддоменов, отчёт-файл. pip install Sublist3r."
+
+  threatfox:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/threatfox
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "ThreatFox (abuse.ch) — поиск IOC по публичному API, паттерн C на stdlib-urllib; Auth-Key опционален (THREATFOX_AUTH_KEY)."
+
+  tplmap:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/tplmap
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "tplmap (epinna) — поиск SSTI по явно заданной цели, разбор stdout. Установка из репозитория, путь через TPLMAP_BIN."
+
+  virustotal:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/virustotal
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "VirusTotal — репутация файла/домена/IP через SDK vt-py, паттерн C; ключ из VT_API_KEY. pip install vt-py."
+
+  volatility3:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/volatility3
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "volatility3 — анализ дампов памяти, JSON-рендерер, плагины pslist/cmdline/banners. pip install volatility3."
+
+  wafw00f:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/wafw00f
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "wafw00f (EnableSecurity) — определение WAF/firewall за сайтом, JSON-отчёт. pip install wafw00f."
+
+  wapiti:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/wapiti
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "Wapiti (wapiti-scanner) — аудит веб-приложения, JSON-отчёт, scope ограничен URL. pip install wapiti3."
+
+  webanalyze:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/webanalyze
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "webanalyze (rverton) — отпечаток технологий сайта, JSON-вывод. go install github.com/rverton/webanalyze/cmd/webanalyze@latest."
+
+  wfuzz:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/wfuzz
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "wfuzz (xmendez) — фаззинг параметров по словарю, JSON-отчёт. pip install wfuzz."
+
+  xsstrike:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/xsstrike
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "XssStrike (s0md3v) — поиск XSS, разбор stdout. pip install xsstrike."
+
+  you_get:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/you_get
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "you-get (soimort) — метаданные видео с разных сервисов (--json). pip install you-get."
+
+  yt_dlp:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/yt_dlp
+    version: v0.33c
+    commit: f5417a93364130b29e19d000e1d8e82936761910
+    description: "yt-dlp — метаданные видео по URL (-J), без скачивания. pip install yt-dlp."
 presets:
   csv_foreach:
     source: https://github.com/wykserdex/wedra
