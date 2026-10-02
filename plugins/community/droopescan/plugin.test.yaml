@@ -1,0 +1,120 @@
+# Контракт-тесты droopescan (mock droopescan CLI, без сети и без пакета droopescan).
+tests:
+  - name: скан → версия + плагины + темы
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "https://target.example/drupal", cms: "drupal", enumerate: "v", words: 100, threads: 8 }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/drupal"
+        version: "7.34,7.35,7.36"
+        vulns: []
+        count: 4
+        modules:
+          - { name: garland, url: "https://target.example/drupal/themes/garland/" }
+          - { name: pathauto, url: "https://target.example/drupal/sites/all/modules/pathauto/" }
+          - { name: token, url: "https://target.example/drupal/sites/all/modules/token/" }
+          - { name: views, url: "https://target.example/drupal/sites/all/modules/views/" }
+
+  - name: без схемы цель нормализуется в https
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: { equals: 4 }
+
+  - name: пустой url → доменная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "file:///etc/passwd" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: cms не имя → доменная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "https://target.example", cms: "-u" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_cms }
+
+  - name: enumerate не из списка argparse → доменная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "https://target.example", enumerate: "ptv" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_enumerate }
+
+  - name: threads не число → доменная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input: { url: "https://target.example", threads: "быстро" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_threads }
+
+  - name: droopescan не установлен (путь)
+    env: { DROOPESCAN_BIN: "/nonexistent/droopescan-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: droopescan_not_installed, retryable: false }
+
+  - name: droopescan не установлен (имя из PATH)
+    env: { DROOPESCAN_BIN: "definitely_not_a_droopescan_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: droopescan_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DROOPESCAN_BIN: "mock_droopescan.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: droopescan упал → tool_failed
+    env: { DROOPESCAN_BIN: "mock_droopescan.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: CMS не определена → no_report
+    env: { DROOPESCAN_BIN: "mock_droopescan.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON отчёта → платформенная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DROOPESCAN_BIN: "mock_droopescan.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

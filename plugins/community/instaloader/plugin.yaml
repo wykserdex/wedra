@@ -1,0 +1,42 @@
+id: instaloader
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Instaloader (instaloader/instaloader) — метаданные публичного профиля
+  Instagram, без скачивания медиа и без логина. CLI instaloader не умеет
+  печатать метаданные профиля в stdout (флаг --json не существует), поэтому
+  обёртка идёт паттерном C: запускает тот же интерпретатор с фиксированным
+  сниппетом, который читает профиль публичным API (Profile.from_username,
+  анонимно) и печатает JSON. Загрузка картинок/видео и запись метаданных в
+  файлы выключены (соответствуют флагам --no-pictures, --no-videos,
+  --no-video-thumbnails, --no-metadata-json).
+  Инструмент ставится отдельно: pip install instaloader.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет instaloader — отдельно (pip install instaloader)
+
+input:
+  profile:
+    from: input.profile
+    type: string
+    format: text        # имя публичного профиля Instagram без @
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  profile:    { type: string }   # как передан на входе
+  username:   { type: string }   # username из ответа Instagram
+  followers:  { type: number }   # подписчики; у закрытого профиля без логина 0
+  posts:      { type: number }   # число публикаций (mediacount)
+  is_private: { type: boolean }
+  full_name:  { type: string }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: api.instagram.com:443 (публичный запрос профиля, без логина); точечный egress не enforce'ится, поэтому заявлен весь интернет" } ]
+  filesystem: none
+  secrets: []

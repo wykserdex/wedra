@@ -1,0 +1,40 @@
+id: recon_ng
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Recon-ng (recon-ng/recon-ng) — модульный OSINT-фреймворк. Обёртка сама
+  собирает .rcn-сценарий (цель + список модулей + отчёт), запускает
+  `recon-ng -w <workspace> -r <script>` и читает JSON-отчёт модуля
+  reporting/json. Дефолтные модули — только те, что работают без
+  api-ключей (crt.sh и DNS-резолвер). Ставится отдельно: pip install recon-ng.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; recon-ng — отдельно
+
+input:
+  target:
+    from: input.target
+    type: string
+    format: text        # домен (или хост) — SOURCE для модулей recon/...
+  modules:
+    from: input.modules
+    type: array
+    optional: true      # пути модулей recon-ng, без api-ключей
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  target:   { type: string }
+  modules:  { type: array }
+  findings: { type: array }
+  count:    { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: readwrite # воркспейс и база recon-ng живут в ~/.recon-ng
+  secrets: []

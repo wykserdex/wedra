@@ -1,0 +1,46 @@
+id: arjun
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Arjun (s0md3v/Arjun) — фаззинг скрытых GET-параметров по словарю из 25 890 имён.
+  Обёртка над CLI arjun: работает только по одной явно заданной цели, JSON-репорт
+  (-oJ) разбирается в список найденных параметров. Arjun ставится отдельно:
+  pip install arjun.
+author: "community · wedra showcase (web security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет arjun — отдельно (pip install arjun)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель: её задаёт оператор, разведки нет
+  stable:
+    from: input.stable
+    type: boolean
+    optional: true      # --stable: 1 поток + случайная задержка 6-12 c (default false)
+  chunks:
+    from: input.chunks
+    type: number
+    optional: true      # -c, сколько имён параметров уходит за один запрос
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # -T, таймаут HTTP-запроса, секунды (default 15)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  parameters: { type: array }
+  count:      { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

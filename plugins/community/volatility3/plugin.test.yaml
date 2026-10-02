@@ -1,0 +1,129 @@
+# Контракт-тесты volatility3 (mock CLI vol, без пакета volatility3 и без сети).
+# Файл дампа в тестах — заглушка (main.py в каталоге плагина): разбор делает
+# мок, плагин проверяет только оркестрацию и разбор JSON-вывода vol.
+tests:
+  - name: windows.pslist → строки репорта
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "main.py", module: "windows.pslist" }
+    expect:
+      status: ok
+      output:
+        image: "main.py"
+        module: "windows.pslist"
+        count: 2
+        rows: { contains: { PID: 4, PPID: 0, ImageFileName: "System", Threads: 129, Handles: 41207, SessionId: 0, Wow64: 0 } }
+
+  - name: модуль по умолчанию — banners.Banners
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "main.py" }
+    expect:
+      status: ok
+      output:
+        module: "banners.Banners"
+        count: 2
+        rows: { contains: { Banner: "Linux version 5.15.0-71-generic (mock) #71 SMP Tue May 2" } }
+
+  - name: rows — массив, count — число
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "main.py", module: "windows.cmdline" }
+    expect:
+      status: ok
+      output:
+        rows: { type: array }
+        count: 2
+
+  - name: пустой image → доменная ошибка
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_image, retryable: false }
+
+  - name: несуществующий дамп → missing_file
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "нет-такого-дампа.raw" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: module не имя плагина → bad_module
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "main.py", module: "--renderer json" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_module, retryable: false }
+
+  - name: volatility_config — не файл и не JSON → доменная ошибка
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input: { image: "main.py", volatility_config: "не json" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_volatility_config, retryable: false }
+
+  - name: volatility_config JSON-объектом — принимается
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input:
+      image: "main.py"
+      module: "banners.Banners"
+      volatility_config: "{\"plugins.Banners.banner_regex\": \".*\"}"
+    expect:
+      status: ok
+      output: { count: 2 }
+
+  - name: volatility3 не установлен (путь)
+    env: { VOLATILITY3_BIN: "/nonexistent/vol-bin" }
+    input: { image: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: volatility3_not_installed, retryable: false }
+
+  - name: volatility3 не установлен (имя из PATH)
+    env: { VOLATILITY3_BIN: "definitely_not_a_vol_bin_xyz" }
+    input: { image: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: volatility3_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { VOLATILITY3_BIN: "mock_volatility3.py", MOCK_SLEEP: "3" }
+    input: { image: "main.py", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: vol без вывода → no_report
+    env: { VOLATILITY3_BIN: "mock_volatility3.py", MOCK_NO_REPORT: "1" }
+    input: { image: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: vol упал → tool_failed
+    env: { VOLATILITY3_BIN: "mock_volatility3.py", MOCK_FAIL: "1" }
+    input: { image: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON-вывод vol → платформенная ошибка
+    env: { VOLATILITY3_BIN: "mock_volatility3.py", MOCK_BAD_REPORT: "1" }
+    input: { image: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_report" }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { VOLATILITY3_BIN: "mock_volatility3.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

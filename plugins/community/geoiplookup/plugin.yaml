@@ -1,0 +1,44 @@
+id: geoiplookup
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  GeoIP по IP-адресу через CLI geoiplookup (MaxMind, из пакета geoip-bin) по
+  локальной базе GeoIP/GeoLite2/DB-IP — сети не нужно. Инструмент ставится
+  отдельно (apt install geoip-bin или сборка из исходников maxmind/geoip), база
+  кладётся оператором и указывается входом db_path либо env GEOIP_DB_PATH.
+  Дона, названного в ТЗ (репозиторий speciallicity/geoiplookup и PyPI-пакет
+  geoiplookup), не существует: GitHub отдаёт 404, на PyPI /simple/geoiplookup/
+  пусто. Поэтому обёртка зовёт документированный инструмент с этим именем.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; geoiplookup — отдельная программа
+
+input:
+  ip:
+    from: input.ip
+    type: string
+    format: ip          # IPv4 или IPv6; проверяется через stdlib ipaddress
+  db_path:
+    from: input.db_path
+    type: string
+    optional: true      # путь к файлу базы (-f) или каталогу баз (-d);
+                        # пусто → берётся env GEOIP_DB_PATH
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 60)
+
+output:
+  ip:       { type: string }
+  country:  { type: string }   # как в ответе инструмента, напр. "US, United States"
+  region:   { type: string }   # пусто, если инструмент печатает только страну
+  city:     { type: string }   # пусто, если инструмент печатает только страну
+  found:    { type: boolean }  # инструмент что-то нашёл по адресу
+
+permissions:
+  network: []            # инструмент работает по локальной базе, сети не нужно
+  filesystem: read       # читается база, путь к которой задаёт оператор
+  secrets: []

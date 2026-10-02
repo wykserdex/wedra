@@ -1,0 +1,43 @@
+id: corsy
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Corsy (s0md3v/Corsy) — поиск CORS-мисконфигураций по одной явно заданной цели.
+  Обёртка над CLI corsy: запускает активные пробы Origin и разбирает машинный
+  JSON-отчёт `-o` (ключ — проверенный url, значение — class/severity/acao/acac
+  заголовки). Флаг -i у Corsy — это ФАЙЛ со списком url, а не сама цель: цель
+  передаётся через -u. Свой список Origin задать нельзя — Corsy v1.0-beta
+  проверяет свой фиксированный набор (input origins только валидируется).
+  Инструмент ставится отдельно из исходников (см. README плагина).
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; сам Corsy ставится отдельно (см. README)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная цель проверки; corsy -u
+  origins:
+    from: input.origins
+    type: array
+    optional: true      # только валидируется: у Corsy нет флага для Origin
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:      { type: string }
+  findings: { type: array }
+  count:    { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: url из входа" }
+    - { any_host: true, port: 80, note: "target: url из входа" }
+  filesystem: none
+  secrets: []

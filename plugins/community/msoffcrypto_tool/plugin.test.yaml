@@ -1,0 +1,126 @@
+# Контракт-тесты msoffcrypto_tool (mock CLI msoffcrypto-tool, без пакета и без сети).
+# Пароль нигде не настоящий: в тестах используется mock-строка только на время
+# запуска мока.
+tests:
+  - name: расшифровка паролем из env → файл на выходе
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: { contains: "msoffcrypto_tool" }
+        decrypted: true
+        output_path: { contains: "decrypted" }
+
+  - name: пароля в env нет → режим проверки (-t), ничего не расшифровано
+    env: { MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: { contains: "msoffcrypto_tool" }
+        decrypted: false
+        output_path: ""
+
+  - name: пароля нет и документ не зашифрован (-t → exit 1) → ok
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MOCK_NOT_ENCRYPTED: "1"
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        decrypted: false
+        output_path: ""
+
+  - name: пароль есть, но outfile не создан → доменная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+      MOCK_NO_REPORT: "1"
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: неверный пароль → tool_failed
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+      MOCK_FAIL: "1"
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: out не строка → платформенная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "main.py", out: ["a", "b"] }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_out }
+
+  - name: пустой file → доменная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file }
+
+  - name: несуществующий файл → доменная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "/nonexistent/msoffcrypto-encrypted.docx" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: на входе каталог, а не файл → доменная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file }
+
+  - name: msoffcrypto-tool не установлен (путь)
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "/nonexistent/msoffcrypto-tool-bin"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: msoffcrypto_tool_not_installed, retryable: false }
+
+  - name: msoffcrypto-tool не установлен (имя из PATH)
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "definitely_not_an_msoffcrypto_bin_xyz"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: msoffcrypto_tool_not_installed }
+
+  - name: битый JSON входа → платформенная ошибка
+    env:
+      MSOFFCRYPTO_TOOL_BIN: "mock_msoffcrypto_tool.py"
+      MSOFFCRYPTO_PASSWORD: "mock-password-not-a-secret"
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

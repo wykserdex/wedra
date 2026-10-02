@@ -1,0 +1,48 @@
+id: linkfinder
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  LinkFinder (GerbenJavado/LinkFinder) — извлечение эндпоинтов и ссылок из
+  JavaScript (краулинг страницы/домена, дефейс-бэкдоры, забытые API).
+  Обёртка над скриптом linkfinder.py: машинный вывод -o cli идёт в stdout,
+  его и разбираем плагин. Донора нет на PyPI — ставится из репозитория
+  (git clone + pip install -r requirements.txt), путь переопределяется env
+  LINKFINDER_BIN.
+author: "community · wedra showcase (web security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; LinkFinder ставится отдельно (см. README)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # URL JS-файла, страницы или домена
+  crawl:
+    from: input.crawl
+    type: boolean
+    optional: true       # -d: обойти все JS домена, а не только указанный файл
+  regex:
+    from: input.regex
+    type: string
+    optional: true       # -r: фильтр находок, например "^/api/"
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true       # -t: таймаут запроса, секунды (default 10)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:   { type: string }
+  links: { type: array }   # найденные эндпоинты/ссылки, строки, без повторов
+  count: { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

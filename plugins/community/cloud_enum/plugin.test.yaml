@@ -1,0 +1,146 @@
+# Контракт-тесты cloud_enum (mock cloud_enum CLI, без сети и без пакета cloud_enum).
+tests:
+  - name: перебор по ключу → открытые и защищённые ресурсы
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { key: "acme" }
+    expect:
+      status: ok
+      output:
+        bucket_name: "acme-prod.s3.amazonaws.com"
+        provider: aws
+        open: true
+        services: [aws, gcp]
+        count: 2
+
+  - name: два ключевых слова (key + name) → те же находки
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { key: "acme", name: "acme-prod", quickscan: true }
+    expect:
+      status: ok
+      output:
+        bucket_name: { equals: "acme-prod.s3.amazonaws.com" }
+        provider: { equals: aws }
+        open: { equals: true }
+        count: { equals: 2 }
+
+  - name: только name → перебор по одному слову
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { name: "acme" }
+    expect:
+      status: ok
+      output:
+        services: { equals: [aws, gcp] }
+        count: { equals: 2 }
+
+  - name: ничего не нашлось → ok с пустым массивом
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_EMPTY: "1" }
+    input: { key: "acme" }
+    expect:
+      status: ok
+      output:
+        bucket_name: ""
+        provider: ""
+        open: false
+        services: []
+        count: 0
+
+  - name: без ключа и имени → доменная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { key: "  ", name: "" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input_args, retryable: false }
+
+  - name: совсем без входных ключей → доменная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { wall_timeout: 5 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_input_args }
+
+  - name: quickscan не boolean → доменная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { key: "acme", quickscan: { fast: true } }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_quickscan }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input: { key: "acme", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: cloud_enum не установлен (путь)
+    env: { CLOUD_ENUM_BIN: "/nonexistent/cloud_enum-bin" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: cloud_enum_not_installed, retryable: false }
+
+  - name: cloud_enum не установлен (имя из PATH)
+    env: { CLOUD_ENUM_BIN: "definitely_not_a_cloud_enum_bin_xyz" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: cloud_enum_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_SLEEP: "3" }
+    input: { key: "acme", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: список мутаций недоступен → лога нет
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_BAD_MUT: "1" }
+    input: { key: "acme", mutations: "/nonexistent/fuzz.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: лог не создан → доменная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_NO_REPORT: "1" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: без -k инструмент падает → tool_failed
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_NO_KEYWORD: "1" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: cloud_enum упал → tool_failed
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_FAIL: "1" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: нечитаемый лог → платформенная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_BAD_REPORT: "1" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

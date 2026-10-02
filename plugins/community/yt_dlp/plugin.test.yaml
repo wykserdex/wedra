@@ -1,0 +1,132 @@
+# Контракт-тесты yt_dlp (mock CLI yt-dlp, без сети и без пакета yt-dlp).
+tests:
+  - name: ролик → метаданные + число форматов (медиа не качается)
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "https://www.youtube.com/watch?v=demo" }
+    expect:
+      status: ok
+      output:
+        url: "https://www.youtube.com/watch?v=demo"
+        title: "Demo Video"
+        uploader: "Demo Channel"
+        duration: 212
+        extractor: youtube
+        formats: 3
+
+  - name: "playlist: true → метаданные плейлиста, formats/duration пустые"
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "https://www.youtube.com/playlist?list=demo", playlist: true }
+    expect:
+      status: ok
+      output:
+        title: "Demo Playlist"
+        uploader: ""
+        duration: 0
+        extractor: youtube
+        formats: { type: number }
+        url: "https://www.youtube.com/playlist?list=demo"
+
+  - name: минимальный info-репорт → пустые строки и нули
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_MINIMAL: "1" }
+    input: { url: "https://vimeo.com/12345" }
+    expect:
+      status: ok
+      output:
+        url: "https://vimeo.com/12345"
+        title: ""
+        uploader: ""
+        duration: 0
+        extractor: ""
+        formats: 0
+
+  - name: пустой url → доменная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url с пробелом/лишним дефисом → доменная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "--exec=какая-то дичь" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url, retryable: false }
+
+  - name: playlist не boolean → платформенная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "https://example.com/v", playlist: "yes" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_playlist }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input: { url: "https://example.com/v", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: yt-dlp не установлен (путь)
+    env: { YT_DLP_BIN: "/nonexistent/yt-dlp-bin" }
+    input: { url: "https://example.com/v" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: yt_dlp_not_installed, retryable: false }
+
+  - name: yt-dlp не установлен (имя из PATH)
+    env: { YT_DLP_BIN: "definitely_not_a_yt_dlp_bin_xyz" }
+    input: { url: "https://example.com/v" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: yt_dlp_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com/v", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: пустой stdout → доменная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://example.com/v" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: yt-dlp упал (Unsupported URL) → доменная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com/v" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: yt-dlp упал с 429 → tool_failed, retryable
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_FAIL_RETRY: "1" }
+    input: { url: "https://example.com/v" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: обрезанный JSON отчёта → платформенная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://example.com/v" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { YT_DLP_BIN: "mock_ytdlp.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

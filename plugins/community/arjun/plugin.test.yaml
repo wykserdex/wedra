@@ -1,0 +1,133 @@
+# Контракт-тесты arjun (mock arjun CLI, без сети и без пакета arjun).
+tests:
+  - name: фаззинг → найденные параметры
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "https://target.example/api/v1", chunks: 250, timeout: 10 }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api/v1"
+        count: 3
+        parameters: ["admin", "debug", "token"]
+
+  - name: stable=true передаётся как --stable (репорт тот же)
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "https://target.example/api", stable: true }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api"
+        parameters: { equals: ["admin", "debug", "token"] }
+        count: 3
+
+  - name: цель без схемы → нормализуется в https
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "target.example/api" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api"
+        count: { equals: 3 }
+
+  - name: параметров нет → ok с пустым массивом
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_EMPTY: "1" }
+    input: { url: "https://target.example/api" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/api"
+        parameters: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "file:///etc/passwd" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: chunks не число → доменная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "https://target.example", chunks: "много" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_chunks }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input: { url: "https://target.example", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: arjun не установлен (путь)
+    env: { ARJUN_BIN: "/nonexistent/arjun-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: arjun_not_installed, retryable: false }
+
+  - name: arjun не установлен (имя из PATH)
+    env: { ARJUN_BIN: "definitely_not_an_arjun_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: arjun_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: arjun без репорта → доменная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: цель пропущена инструментом → tool_failed
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_SKIP: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: arjun упал → tool_failed
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: нечитаемый репорт → платформенная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { ARJUN_BIN: "mock_arjun.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

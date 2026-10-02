@@ -1,0 +1,47 @@
+id: metafinder
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  MetaFinder (Josue87/MetaFinder, форк bulba8/metafinder) — поиск метаданных
+  в документах, которые домен отдаёт в выдаче поисковиков. Обёртка над CLI
+  metafinder: гоняет дорк по Google/Bing/Baidu, скачивает найденные файлы,
+  читает отчёт metadata_result.txt. Ставится отдельно: pip install metafinder.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет metafinder — отдельно (pip install metafinder)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен-цель
+  limit:
+    from: input.limit
+    type: number
+    optional: true      # максимум документов на поисковик, жёсткий потолок 250 (default 20)
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # потоки скачивания (default 4)
+  engines:
+    from: input.engines
+    type: array
+    optional: true      # ["google","bing","baidu"] -> -go/-bi/-ba; пусто = google
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:   { type: string }
+  results:  { type: array }
+  checked:  { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: поисковики (google/bing/baidu) и домен-цель" }
+  filesystem: none
+  secrets: []

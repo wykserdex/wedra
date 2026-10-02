@@ -1,0 +1,106 @@
+# Контракт-тесты sherlock (mock sherlock CLI, без сети и без пакета).
+tests:
+  - name: поиск → найденные профили + счётчик проверенных сайтов
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input: { username: "demo_user", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        username: demo_user
+        checked: 4
+        claimed: 2
+        found:
+          - { site: GitHub, url: "https://github.com/demo_user" }
+          - { site: GitLab, url: "https://gitlab.com/demo_user" }
+
+  - name: sites ограничивают список проверок
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input: { username: "demo_user", sites: ["github", "reddit"] }
+    expect:
+      status: ok
+      output:
+        username: demo_user
+        checked: 2
+        claimed: 1
+        found:
+          - { site: GitHub, url: "https://github.com/demo_user" }
+
+  - name: ник нигде не найден → ok с пустым массивом
+    env: { SHERLOCK_BIN: "mock_sherlock.py", MOCK_EMPTY: "1" }
+    input: { username: "nikto_ne_nayden_xyz" }
+    expect:
+      status: ok
+      output:
+        username: nikto_ne_nayden_xyz
+        found: []
+        checked: 4
+        claimed: 0
+
+  - name: пустой username → доменная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input: { username: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_username, retryable: false }
+
+  - name: sites не массив → платформенная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input: { username: "x", sites: "github" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_sites }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input: { username: "x", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: sherlock не установлен (путь)
+    env: { SHERLOCK_BIN: "/nonexistent/sherlock-bin" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sherlock_not_installed, retryable: false }
+
+  - name: sherlock не установлен (имя из PATH)
+    env: { SHERLOCK_BIN: "definitely_not_a_sherlock_bin_xyz" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sherlock_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SHERLOCK_BIN: "mock_sherlock.py", MOCK_SLEEP: "3" }
+    input: { username: "x", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: sherlock без репорта → доменная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py", MOCK_NO_REPORT: "1" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: sherlock упал → доменная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py", MOCK_FAIL: "1" }
+    input: { username: "x" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SHERLOCK_BIN: "mock_sherlock.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

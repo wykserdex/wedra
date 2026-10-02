@@ -1,0 +1,119 @@
+# Контракт-тесты dirsearch (mock dirsearch CLI, без сети и без пакета dirsearch).
+tests:
+  - name: скан → найденные пути со статусом и размером
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "https://target.example", extensions: "json,txt", threads: 20 }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: 3
+        found:
+          - { path: /admin/, status: 200, size: 5120 }
+          - { path: /api/config.json, status: 200, size: 128 }
+          - { path: /backup.zip, status: 403, size: 0 }
+
+  - name: без схемы цель нормализуется в https
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "target.example/app" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example/app"
+        count: { equals: 3 }
+
+  - name: ничего не нашлось → ok, пустой массив
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_EMPTY: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        found: []
+        count: 0
+
+  - name: пустой url → доменная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: не-http схема → доменная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "ssh://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url }
+
+  - name: своего словаря нет → доменная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "https://target.example", wordlist: "/nonexistent/words.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_wordlist }
+
+  - name: threads не число → доменная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input: { url: "https://target.example", threads: "быстро" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_threads }
+
+  - name: dirsearch не установлен (путь)
+    env: { DIRSEARCH_BIN: "/nonexistent/dirsearch-bin" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dirsearch_not_installed, retryable: false }
+
+  - name: dirsearch не установлен (имя из PATH)
+    env: { DIRSEARCH_BIN: "definitely_not_a_dirsearch_bin_xyz" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dirsearch_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_SLEEP: "3" }
+    input: { url: "https://target.example", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: dirsearch упал → tool_failed
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_FAIL: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: dirsearch без отчёта → доменная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON отчёта → платформенная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://target.example" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DIRSEARCH_BIN: "mock_dirsearch.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

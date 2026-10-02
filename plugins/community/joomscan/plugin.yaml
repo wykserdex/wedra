@@ -1,0 +1,46 @@
+id: joomscan
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  OWASP JoomScan — неинвазивный аудит Joomla-сайта: версия, известные уязвимости
+  и ошибки конфигурации, перечисление компонентов. Обёртка над CLI joomscan: одна
+  явно заданная цель, текстовый репорт reports/<host>/<host>_report_*.txt
+  разбирается в версию, находки и компоненты. JoomScan — инструмент на Perl,
+  ставится отдельно: apt install joomscan (Kali) или
+  git clone https://github.com/OWASP/joomscan.
+author: "community · wedra showcase (web security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; joomscan — Perl-скрипт, ставится отдельно
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель: её задаёт оператор
+  components:
+    from: input.components
+    type: boolean
+    optional: true      # --enumerate-components/-ec, перебор расширений (default false)
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # --timeout, таймаут HTTP-запроса, секунды (у joomscan 60)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  version:    { type: string }
+  vulns:      { type: array }
+  components: { type: array }
+  count:      { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

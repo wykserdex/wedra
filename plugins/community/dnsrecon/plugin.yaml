@@ -1,0 +1,43 @@
+id: dnsrecon
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  dnsrecon (darkoperator) — DNS-разведка домена: A/AAAA/NS/MX/SOA/SPF/SRV,
+  CNAME, зона-трансфер (AXFR), опционально брутфорс поддоменов по словарю.
+  Обёртка над CLI dnsrecon: гоняет перечисление и читает машинный JSON-репорт
+  (-j). dnsrecon ставится отдельно: pip install dnsrecon.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет dnsrecon — отдельно (pip install dnsrecon)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text
+  types:
+    from: input.types
+    type: array
+    optional: true      # std, brt, srv, axfr, spf, rvl, bing, yand, crt,
+                        # snoop, tld, zonewalk; без него — ["std"]
+  dictionary:
+    from: input.dictionary
+    type: string
+    optional: true      # путь к словарю для brt; сам добавляет тип brt
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:   { type: string }
+  records:  { type: array }   # [{type, name, value}]
+  total:    { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 53, note: "target: DNS-серверы домена" } ]
+  filesystem: none
+  secrets: []

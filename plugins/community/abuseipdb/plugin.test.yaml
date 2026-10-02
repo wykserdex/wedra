@@ -1,0 +1,121 @@
+# Контракт-тесты abuseipdb (mock SDK, без сети и без пакета abuseipdb).
+tests:
+  - name: IP с жалобами → score, отчёты, страна
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "185.220.101.1", days: 90 }
+    expect:
+      status: ok
+      output:
+        ip: "185.220.101.1"
+        abuse_score: 100
+        total_reports: 842
+        country: DE
+        found: true
+
+  - name: чистый IP → ok, found false, отчётов 0
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        ip: "8.8.8.8"
+        abuse_score: 0
+        total_reports: 0
+        country: US
+        found: false
+
+  - name: неизвестный IP без жалоб → ok, country пустая строка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "192.0.2.10" }
+    expect:
+      status: ok
+      output:
+        ip: "192.0.2.10"
+        found: false
+        total_reports: 0
+        country: ""
+
+  - name: пустой ip → доменная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_ip, retryable: false }
+
+  - name: не IP → доменная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "не-адрес" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_ip, retryable: false }
+
+  - name: days вне 1..180 → доменная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "8.8.8.8", days: 999 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_days }
+
+  - name: days не число → платформенная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "8.8.8.8", days: "много" }
+    expect:
+      exit_code: 1
+      error: { code: bad_days }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: abuseipdb не установлен (путь)
+    env: { ABUSEIPDB_BIN: "/nonexistent/abuseipdb-bin" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: abuseipdb_not_installed, retryable: false }
+
+  - name: abuseipdb не установлен (имя из PATH)
+    env: { ABUSEIPDB_BIN: "definitely_not_an_abuseipdb_bin_xyz" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: abuseipdb_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py", MOCK_SLEEP: "3" }
+    input: { ip: "8.8.8.8", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донора нет в stdout → no_report
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py", MOCK_NO_REPORT: "1" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый ответ донора → платформенная ошибка
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py", MOCK_BAD_REPORT: "1" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → tool_failed
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py", MOCK_FAIL: "1" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }

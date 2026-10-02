@@ -1,0 +1,44 @@
+id: yt_dlp
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  yt-dlp (yt-dlp/yt-dlp) — метаданные видео по URL, который дал пользователь.
+  Обёртка запускает инструмент в режиме «только метаданные»: -J/--dump-single-json
+  (печать JSON в stdout) + --skip-download + --no-playlist/--yes-playlist +
+  --ignore-config + --no-warnings/--no-progress. Медиа не скачивается. Из
+  многосоткибайтного info-репорта в выход уходят только title, uploader,
+  duration, extractor, webpage_url и число форматов.
+  Инструмент ставится отдельно: pip install yt-dlp.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет yt-dlp — отдельно (pip install yt-dlp)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # ролик или плейлист, ровно один аргумент
+  playlist:
+    from: input.playlist
+    type: boolean
+    optional: true       # false (по умолчанию) — только ролик, даже если в URL есть list=
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:       { type: string }   # webpage_url из отчёта, иначе исходный URL
+  title:     { type: string }
+  uploader:  { type: string }
+  duration:  { type: number }   # секунды; для плейлиста, где поля нет, 0
+  extractor: { type: string }
+  formats:   { type: number }   # сколько записей в formats (в playlist-репорте их нет → 0)
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: сайт-источник видео из url пользователя; точечный egress не enforce'ится, поэтому заявлен весь интернет" } ]
+  filesystem: none
+  secrets: []

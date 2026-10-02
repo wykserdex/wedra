@@ -1,0 +1,39 @@
+id: virustotal
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  VirusTotal — репутация файла/домена/IP. Донор — официальный клиент vt-py
+  (import vt, REST API v3, pip install vt-py): плагин идёт по паттерну C и
+  запускает `python -c <SNIPPET> <indicator> <kind>`, сниппет сам берёт
+  VT_API_KEY из os.environ и печатает нормализованный JSON. Одноимённый пакет
+  `virustotal` на PyPI — не он: это сторонний клиент 2012 года под API v2.0,
+  на Python 3 не импортируется (внутри httplib/urlparse), а API v2 давно
+  выведен из эксплуатации. Донор переопределяется env VIRUSTOTAL_BIN.
+author: "community · wedra showcase (threat intel)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; SDK ставится отдельно (pip install vt-py)
+
+input:
+  indicator:
+    from: input.indicator
+    type: string
+    format: text        # хэш MD5/SHA1/SHA256, домен или IP — что умеет донор
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 120)
+
+output:
+  indicator:  { type: string }
+  malicious:  { type: number }
+  total:      { type: number }
+  reputation: { type: number }
+  found:      { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: www.virustotal.com" } ]
+  filesystem: none
+  secrets: [VT_API_KEY]

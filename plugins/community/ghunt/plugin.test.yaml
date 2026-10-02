@@ -1,0 +1,108 @@
+# Контракт-тесты ghunt (mock ghunt CLI, без сети, без пакета и без токена).
+# GHUNT_TOKEN в тестах — заведомо не настоящий, мок его не читает.
+tests:
+  - name: email → записи из JSON-выгрузки
+    env: { GHUNT_BIN: "mock_ghunt.py", GHUNT_TOKEN: "mock-token-not-a-real-secret" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: ok
+      output:
+        target: "demo@example.com"
+        count: 7
+        records:
+          - { field: email, value: "demo@example.com" }
+          - { field: gaia_id, value: "112593685983678043110" }
+          - { field: name, value: "Mock Example" }
+          - { field: picture, value: "https://lh3.googleusercontent.com/mock/avatar" }
+          - { field: last_profile_edit, value: "2024-01-02T03:04:05Z" }
+          - { field: services, value: '["YouTube", "Maps", "Photos"]' }
+          - { field: possible_usernames, value: "[]" }
+
+  - name: пустая выгрузка → ok, count 0
+    env: { GHUNT_BIN: "mock_ghunt.py", MOCK_EMPTY: "1" }
+    input: { mode: "email", target: "nikto@example.com" }
+    expect:
+      status: ok
+      output:
+        target: "nikto@example.com"
+        count: 0
+        records: []
+
+  - name: mode=username пробрасывается как есть (у апстрима такой подкоманды нет)
+    env: { GHUNT_BIN: "mock_ghunt.py" }
+    input: { mode: "username", target: "demo" }
+    expect:
+      status: ok
+      output:
+        target: "demo"
+        count: 7
+
+  - name: неизвестный mode → доменная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py" }
+    input: { mode: "gaia", target: "demo" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_mode, retryable: false }
+
+  - name: пустой target → доменная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py" }
+    input: { mode: "email", target: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: ghunt не установлен (путь)
+    env: { GHUNT_BIN: "/nonexistent/ghunt-bin" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ghunt_not_installed, retryable: false }
+
+  - name: ghunt не установлен (имя из PATH)
+    env: { GHUNT_BIN: "definitely_not_a_ghunt_bin_xyz" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: ghunt_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GHUNT_BIN: "mock_ghunt.py", MOCK_SLEEP: "3" }
+    input: { mode: "email", target: "demo@example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: ghunt без выгрузки → доменная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py", MOCK_NO_REPORT: "1" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: ghunt упал (нет авторизации) → доменная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py", MOCK_FAIL: "1" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битая выгрузка → платформенная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py", MOCK_BAD_REPORT: "1" }
+    input: { mode: "email", target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GHUNT_BIN: "mock_ghunt.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,130 @@
+# Контракт-тесты gallery_dl (mock CLI gallery-dl, без сети и без пакета).
+tests:
+  - name: галерея → позиции из Message.Url + заголовок из Message.Directory
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py" }
+    input: { url: "https://example.com/gallery/demo" }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com/gallery/demo"
+        count: 3
+        title: "Demo Gallery"
+        items:
+          - { index: 1, url: "https://example.com/img1.jpg", category: "Demo Gallery", extension: "jpg" }
+          - { index: 2, url: "https://example.com/img2.jpg", category: "Demo Gallery", extension: "jpg" }
+          - { index: 3, url: "https://example.com/img3.png", category: "Demo Gallery", extension: "png" }
+
+  - name: вывод output.jsonl (по объекту на строку) → тот же разбор
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_JSONL: "1" }
+    input: { url: "https://example.com/gallery/demo" }
+    expect:
+      status: ok
+      output:
+        count: 3
+        title: "Demo Gallery"
+        items:
+          contains: { index: 1, url: "https://example.com/img1.jpg", category: "Demo Gallery", extension: "jpg" }
+
+  - name: галерея без картинок → ok с пустым items
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_EMPTY: "1" }
+    input: { url: "https://example.com/gallery/empty" }
+    expect:
+      status: ok
+      output:
+        count: 0
+        title: "Demo Gallery"
+        items: []
+
+  - name: нет Message.Directory → заголовок из метаданных первой позиции
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_NO_DIRECTORY: "1" }
+    input: { url: "https://example.com/gallery/demo" }
+    expect:
+      status: ok
+      output:
+        count: 3
+        title: "Demo Gallery"
+
+  - name: пустой url → доменная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url с пробелом/лишним дефисом → доменная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py" }
+    input: { url: "-j /tmp/что-то" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_url, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py" }
+    input: { url: "https://example.com/g", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: gallery-dl не установлен (путь)
+    env: { GALLERY_DL_BIN: "/nonexistent/gallery-dl-bin" }
+    input: { url: "https://example.com/g" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: gallery_dl_not_installed, retryable: false }
+
+  - name: gallery-dl не установлен (имя из PATH)
+    env: { GALLERY_DL_BIN: "definitely_not_a_gallery_dl_bin_xyz" }
+    input: { url: "https://example.com/g" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: gallery_dl_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com/g", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: пустой stdout → доменная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://example.com/g" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: gallery-dl упал (unsupported URL) → доменная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com/g" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: gallery-dl упал с 429 → tool_failed, retryable
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_FAIL_RETRY: "1" }
+    input: { url: "https://example.com/g" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: обрезанный JSON отчёта → платформенная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://example.com/g" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GALLERY_DL_BIN: "mock_gallerydl.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

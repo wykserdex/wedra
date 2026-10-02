@@ -1,0 +1,52 @@
+id: dirsearch
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  dirsearch (maurosoria/dirsearch) — брутфорс директорий и файлов веб-сервера.
+  Обёртка над CLI dirsearch: сканирует одну явно заданную цель, берёт машинный
+  JSON-отчёт (-o + --output-formats json) и отдаёт плоский список
+  path/status/size. Рекурсия (-r) не включается, stdin закрыт, вывод CLI
+  выключен — инструмент не может задать вопрос и зависнуть. Ставится отдельно:
+  pip install dirsearch.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет dirsearch — отдельно
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель скана; без схемы — https://
+  extensions:
+    from: input.extensions
+    type: string
+    optional: true      # -e, список расширений через запятую ("json,txt").
+                        # НЕ включает -f: без него %EXT% в словаре
+                        # разворачивается, а не дописывается к каждому слову
+  wordlist:
+    from: input.wordlist
+    type: string
+    optional: true      # -w, свой словарь (по умолчанию встроенный db/dicc.txt)
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # -t, потоков (default 25)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  url:        { type: string }
+  found:      { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель оператора)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель оператора)" }
+  filesystem: none
+  secrets: []

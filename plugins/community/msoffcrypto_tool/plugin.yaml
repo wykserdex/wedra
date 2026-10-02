@@ -1,0 +1,37 @@
+id: msoffcrypto_tool
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  msoffcrypto-tool (nolze/msoffcrypto-tool) — расшифровка офисных документов,
+  защищённых паролем. Обёртка зовёт CLI `msoffcrypto-tool <file> <out> -p <pass>`.
+  Пароль НЕ приходит из входа плагина: он читается из env MSOFFCRYPTO_PASSWORD
+  и передаётся аргументом; если переменной нет, плагин работает в режиме
+  проверки `msoffcrypto-tool -t -v <file>` и ничего не расшифровывает. Ставится
+  отдельно: pip install msoffcrypto-tool.
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет msoffcrypto-tool — отдельно
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к зашифрованному .doc/.xls/.ppt/... файлу
+  out:
+    from: input.out
+    type: string
+    optional: true      # куда положить расшифрованный файл (default: временный каталог ОС)
+
+output:
+  file:        { type: string }
+  decrypted:   { type: boolean }
+  output_path: { type: string }
+
+permissions:
+  network: []            # расшифровка локального файла, сеть не нужна
+  filesystem: write      # пишет только указанный пользователем out (или временный каталог ОС)
+  secrets:
+    - MSOFFCRYPTO_PASSWORD

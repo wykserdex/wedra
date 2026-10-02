@@ -1,0 +1,43 @@
+id: sherlock
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Sherlock (sherlock-project) — поиск username по 400+ соцсетям. Обёртка над
+  CLI sherlock: гоняет --print-all --no-color, разбирает текстовый репорт из
+  stdout (строки «[+] Сайт: url» / «[-] Сайт: …») и отдаёт нормализованный
+  список найденных профилей. Ставится отдельно: pip install sherlock-project.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет sherlock-project — отдельно
+
+input:
+  username:
+    from: input.username
+    type: string
+    format: text
+  sites:
+    from: input.sites
+    type: array
+    optional: true      # --site S (повторяется); без него — вся база (~400 сайтов)
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # таймаут на запрос к сайту, секунды (default 60)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  username: { type: string }
+  found:    { type: array }
+  checked:  { type: number }
+  claimed:  { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

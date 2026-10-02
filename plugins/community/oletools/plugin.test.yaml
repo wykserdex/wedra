@@ -1,0 +1,124 @@
+# Контракт-тесты oletools (mock CLI olevba, без пакета oletools и без сети).
+tests:
+  - name: документ с макросами → macros + findings
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: { contains: "oletools" }
+        count: 3
+        macros:
+          equals:
+            - { vba_filename: Module1, subfilename: main.py, ole_stream: "VBA/dir" }
+            - { vba_filename: ThisDocument, subfilename: main.py, ole_stream: "VBA/ThisDocument" }
+        findings:
+          equals:
+            - { type: AutoExec, keyword: AutoOpen, description: "Auto-executable macro" }
+            - { type: Suspicious, keyword: Shell, description: "May start a process" }
+            - { type: IOC, keyword: "http://malware.example.invalid/drop", description: URL }
+
+  - name: макросов нет → ok, пустые массивы
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_MACROS: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        count: 0
+        macros: []
+        findings: []
+
+  - name: пустой file → доменная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file }
+
+  - name: несуществующий файл → доменная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input: { file: "/nonexistent/olevba-sample.docm" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: на входе каталог, а не файл → доменная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input: { file: "." }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input: { file: "main.py", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: olevba не установлен (путь)
+    env: { OLETOOLS_BIN: "/nonexistent/olevba-bin" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: oletools_not_installed, retryable: false }
+
+  - name: olevba не установлен (имя из PATH)
+    env: { OLETOOLS_BIN: "definitely_not_an_olevba_bin_xyz" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: oletools_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_SLEEP: "3" }
+    input: { file: "main.py", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: olevba без репорта → доменная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_NO_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON-репорт → платформенная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: olevba не смог разобрать документ → платформенная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_BROKEN_FILE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: olevba упал → доменная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py", MOCK_FAIL: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { OLETOOLS_BIN: "mock_olevba.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

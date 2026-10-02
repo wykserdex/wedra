@@ -1,0 +1,121 @@
+# Контракт-тесты h8mail (mock CLI, без сети, без пакета и без единого ключа).
+tests:
+  - name: email → утечки из CSV-репорта + число сервисов
+    env: { H8MAIL_BIN: "mock_h8mail.py" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: ok
+      output:
+        target: demo@example.com
+        checked: 3
+        breaches:
+          - { type: EMAILREP_LEAKS, data: "103 leaked credentials" }
+          - { type: EMAILREP_SOCIAL, data: Twitter }
+          - { type: HIBP3, data: Adobe }
+          - { type: SCYLLA_SOURCE, data: exploit.in }
+          - { type: SCYLLA_PASSWORD, data: "sample********" }
+
+  - name: цель без утечек → ok с пустым массивом
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_EMPTY: "1" }
+    input: { target: "clean@example.com" }
+    expect:
+      status: ok
+      output:
+        target: clean@example.com
+        breaches: []
+        checked: 0
+
+  - name: без CSV отчёт читается из -j (JSON с парами [Type, Data])
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_JSON_ONLY: "1" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: ok
+      output:
+        target: demo@example.com
+        checked: 3
+        breaches:
+          - { type: EMAILREP_LEAKS, data: "103 leaked credentials" }
+          - { type: EMAILREP_SOCIAL, data: Twitter }
+          - { type: HIBP3, data: Adobe }
+          - { type: SCYLLA_SOURCE, data: exploit.in }
+          - { type: SCYLLA_PASSWORD, data: "sample********" }
+
+  - name: пустой target → доменная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py" }
+    input: { target: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py" }
+    input: { target: "demo@example.com", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: h8mail не установлен (путь)
+    env: { H8MAIL_BIN: "/nonexistent/h8mail-bin" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: h8mail_not_installed, retryable: false }
+
+  - name: h8mail не установлен (имя из PATH)
+    env: { H8MAIL_BIN: "definitely_not_an_h8mail_bin_xyz" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: h8mail_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_SLEEP: "3" }
+    input: { target: "demo@example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: h8mail без отчёта → доменная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_NO_REPORT: "1" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: h8mail упал → доменная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_FAIL: "1" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: отчёт без колонок Type/Data → платформенная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_BAD_REPORT: "1" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: конфиг всегда пишется как ini [h8mail] с полным набором ключей
+    env: { H8MAIL_BIN: "mock_h8mail.py", MOCK_STRICT_CONFIG: "1" }
+    input: { target: "demo@example.com" }
+    expect:
+      status: ok
+      output:
+        target: demo@example.com
+        checked: 3
+        breaches: { type: array }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { H8MAIL_BIN: "mock_h8mail.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

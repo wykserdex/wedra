@@ -1,0 +1,114 @@
+# Контракт-тесты wafw00f (mock wafw00f CLI, без сети и без пакета wafw00f).
+tests:
+  - name: WAF найден → имя и вендор из отчёта
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "https://example.com", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com"
+        waf: Cloudflare
+        manufacturer: "Cloudflare Inc."
+        detected: true
+
+  - name: общая детекция (Generic/Unknown)
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "https://generic.example.net" }
+    expect:
+      status: ok
+      output:
+        url: "https://generic.example.net"
+        waf: Generic
+        manufacturer: Unknown
+        detected: true
+
+  - name: WAF не найден → ok, detected false, пустые строки
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "https://no-waf.example.org" }
+    expect:
+      status: ok
+      output:
+        url: "https://no-waf.example.org"
+        waf: ""
+        manufacturer: ""
+        detected: false
+
+  - name: findall=true → первый отчёт всё равно первый
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "https://example.com", findall: true }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com"
+        waf: Cloudflare
+        manufacturer: "Cloudflare Inc."
+        detected: { equals: true }
+
+  - name: пустой url → доменная ошибка
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: findall не boolean → платформенная ошибка
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input: { url: "https://example.com", findall: "да" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_findall }
+
+  - name: wafw00f не установлен (путь)
+    env: { WAFW00F_BIN: "/nonexistent/wafw00f-bin" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wafw00f_not_installed, retryable: false }
+
+  - name: wafw00f не установлен (имя из PATH)
+    env: { WAFW00F_BIN: "definitely_not_a_wafw00f_bin_xyz" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wafw00f_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { WAFW00F_BIN: "mock_wafw00f.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: wafw00f упал → tool_failed
+    env: { WAFW00F_BIN: "mock_wafw00f.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: отчёта нет (сайт не отвечает) → no_report
+    env: { WAFW00F_BIN: "mock_wafw00f.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: битый JSON отчёта → платформенная ошибка
+    env: { WAFW00F_BIN: "mock_wafw00f.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { WAFW00F_BIN: "mock_wafw00f.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2

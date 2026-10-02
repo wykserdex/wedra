@@ -1,0 +1,91 @@
+# Контракт-тесты sublist3r (mock sublist3r CLI, без сети и без пакета Sublist3r).
+tests:
+  - name: пассивный сбор → поддомены из файла -o
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py" }
+    input: { domain: "example.com", threads: 20 }
+    expect:
+      status: ok
+      output:
+        domain: "example.com"
+        total: 4
+        subdomains:
+          equals: ["example.com", "www.example.com", "mail.example.com", "dev.example.com"]
+
+  - name: ничего не нашлось → ok с пустым массивом
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: "example.com"
+        subdomains: []
+        total: 0
+
+  - name: пустой domain → доменная ошибка
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: не домен, а URL → доменная ошибка
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py" }
+    input: { domain: "https://example.com/path" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_domain }
+
+  - name: threads не число → платформенная ошибка
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py" }
+    input: { domain: "example.com", threads: "много" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_threads }
+
+  - name: sublist3r не установлен (путь)
+    env: { SUBLIST3R_BIN: "/nonexistent/sublist3r-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sublist3r_not_installed, retryable: false }
+
+  - name: sublist3r не установлен (имя из PATH)
+    env: { SUBLIST3R_BIN: "definitely_not_a_sublist3r_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sublist3r_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: DNS-резолвер не ответил → tool_failed, retryable
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: артефакт отчёта нечитаем → платформенная ошибка
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SUBLIST3R_BIN: "mock_sublist3r.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

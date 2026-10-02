@@ -1,0 +1,114 @@
+# Контракт-тесты emailfinder (mock CLI, без сети, без пакета и без ключа Hunter).
+tests:
+  - name: домен → адреса на целевом домене + счётчик сырых находок
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        checked: 5
+        emails:
+          - "info@example.com"
+          - "admin@example.com"
+          - "sales@example.com"
+
+  - name: URL нормализуется до домена
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_EMPTY: "1" }
+    input: { domain: "https://www.example.com/contacts" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        emails: []
+        checked: 0
+
+  - name: адресов нет → ok с пустым массивом
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_EMPTY: "1" }
+    input: { domain: "nikto-ne-nayden-xyz.example" }
+    expect:
+      status: ok
+      output:
+        domain: nikto-ne-nayden-xyz.example
+        emails: []
+        checked: 0
+
+  - name: пустой domain → доменная ошибка
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py" }
+    input: { domain: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py" }
+    input: { domain: "example.com", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: emailfinder не установлен (путь)
+    env: { EMAILFINDER_BIN: "/nonexistent/emailfinder-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: emailfinder_not_installed, retryable: false }
+
+  - name: emailfinder не установлен (имя из PATH)
+    env: { EMAILFINDER_BIN: "definitely_not_an_emailfinder_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: emailfinder_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: emailfinder без вывода → доменная ошибка
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: emailfinder упал (поисковик отдал 503) → доменная ошибка
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: без ключа Hunter инструмент сам вернул ошибку → tool_failed
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_NO_KEY: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: обрезанный/мусорный вывод → ok с пустым массивом (универсальный разбор)
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        emails: []
+        checked: 0
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { EMAILFINDER_BIN: "mock_emailfinder.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

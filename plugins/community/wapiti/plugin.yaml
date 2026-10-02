@@ -1,0 +1,43 @@
+id: wapiti
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Wapiti (wapiti-scanner/wapiti) — чёрно-ящичный сканер уязвимостей веб-приложений.
+  Обёртка запускает сканирование ровно той цели, что задана во входе url
+  (--scope url — без обхода сайта и без доменного расширения), пишет JSON-отчёт
+  (-f json -o <файл>) и возвращает плоский список находок. Модуль по умолчанию —
+  xss,sql: неразрушающий аудит (дефолтный пресет wapiti common включает
+  разрушающие exec/file/upload). Wapiti ставится отдельно: pip install wapiti3.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет wapiti3 — отдельно (pip install wapiti3)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная сканируемая цель
+  module:
+    from: input.module
+    type: string
+    format: text         # список модулей через запятую (default "xss,sql")
+    optional: true
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 600)
+
+output:
+  url:            { type: string }
+  vulnerabilities: { type: array }
+  count:          { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель пользователя)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель пользователя)" }
+  filesystem: none
+  secrets: []

@@ -1,0 +1,42 @@
+id: pocsuite3
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  PoC Suite3 (poc-suite/pocsuite3) — проверка явно заданного URL на известные
+  уязвимости из своего набора PoC. Обёртка над CLI pocsuite: неинтерактивный
+  прогон (-u, --verify, --batch), машинный вывод — JSON Lines (-o). PoC Suite3
+  ставится отдельно: pip install pocsuite3.
+author: "community · wedra showcase (web security)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет pocsuite3 — отдельно (pip install pocsuite3)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель: её задаёт оператор
+  keyword:
+    from: input.keyword
+    type: string
+    optional: true      # -k, фильтр PoC по ключевому слову (напр. joomla)
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # --timeout, таймаут запроса, секунды (default 10)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:   { type: string }
+  vulns: { type: array }
+  count: { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

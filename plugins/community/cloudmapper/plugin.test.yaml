@@ -1,0 +1,109 @@
+# Контракт-тесты cloudmapper (mock CloudMapper CLI, без сети, без пакета и без ключей AWS).
+tests:
+  - name: карта аккаунта → узлы и рёбра из web/data.json
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py" }
+    input: { account: "prod", regions: "us-east-1" }
+    expect:
+      status: ok
+      output:
+        account: prod
+        count: 4
+        nodes:
+          - { id: "arn:aws:::123456789012:", name: prod, type: account, parent: "" }
+          - { id: "arn:aws::us-east-1:123456789012:", name: us-east-1, type: region, parent: "arn:aws:::123456789012:" }
+          - { id: "arn:aws:ec2:us-east-1:123456789012:instance/i-0demo", name: i-0demo, type: ec2, parent: "arn:aws::us-east-1:123456789012:" }
+        edges:
+          - { source: 0.0.0.0/0, target: "arn:aws:ec2:us-east-1:123456789012:instance/i-0demo", reasons: 1 }
+
+  - name: пустой граф → ok с пустыми массивами
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_EMPTY: "1" }
+    input: { account: "empty-account" }
+    expect:
+      status: ok
+      output:
+        account: empty-account
+        count: 0
+        nodes: []
+        edges: []
+
+  - name: config.json и флаги --config/--account всегда передаются дону
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_STRICT_CONFIG: "1", MOCK_STRICT_ARGS: "1" }
+    input: { account: "staging", profile: "audit-profile", regions: "us-east-1,eu-west-1" }
+    expect:
+      status: ok
+      output:
+        account: staging
+        count: 4
+        nodes: { type: array }
+
+  - name: пустой account → доменная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py" }
+    input: { account: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_account, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py" }
+    input: { account: "prod", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: cloudmapper не установлен (путь)
+    env: { CLOUDMAPPER_BIN: "/nonexistent/cloudmapper-bin" }
+    input: { account: "prod" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: cloudmapper_not_installed, retryable: false }
+
+  - name: cloudmapper не установлен (имя из PATH)
+    env: { CLOUDMAPPER_BIN: "definitely_not_a_cloudmapper_bin_xyz" }
+    input: { account: "prod" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: cloudmapper_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_SLEEP: "3" }
+    input: { account: "prod", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: cloudmapper без web/data.json → доменная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_NO_REPORT: "1" }
+    input: { account: "prod" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: cloudmapper упал → доменная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_FAIL: "1" }
+    input: { account: "prod" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый web/data.json → платформенная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py", MOCK_BAD_REPORT: "1" }
+    input: { account: "prod" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { CLOUDMAPPER_BIN: "mock_cloudmapper.py" }
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

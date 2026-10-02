@@ -1,0 +1,119 @@
+# Контракт-тесты wfuzz (mock CLI wfuzz, без сети и без пакета wfuzz).
+tests:
+  - name: фаззинг → отфильтрованные ответы
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input:
+      url: "https://demo.invalid/site/FUZZ"
+      wordlist: "wordlist.txt"
+      matcher: "c=200"
+      wall_timeout: 20
+    timeout: 30s
+    expect:
+      status: ok
+      output:
+        url: "https://demo.invalid/site/FUZZ"
+        count: 3
+        results:
+          contains:
+            url: "https://demo.invalid/site/admin"
+            payload: admin
+            code: 200
+            lines: 45
+            words: 120
+            chars: 1256
+
+  - name: пустой результат (словарь ничего не дал) → ok, count 0
+    env: { WFUZZ_BIN: "mock_wfuzz.py", MOCK_EMPTY: "1" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: ok
+      output:
+        count: 0
+        results: []
+
+  - name: пустой url → доменная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input: { url: "   ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: пустой wordlist → доменная ошибка (wfuzz не запускается без payload)
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input: { url: "https://demo.invalid/FUZZ" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_wordlist, retryable: false }
+
+  - name: wordlist не найден → доменная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "no_such_wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt", wall_timeout: "soon" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: wfuzz не установлен (путь)
+    env: { WFUZZ_BIN: "/nonexistent/wfuzz-bin" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wfuzz_not_installed, retryable: false }
+
+  - name: wfuzz не установлен (имя из PATH)
+    env: { WFUZZ_BIN: "definitely_not_a_wfuzz_bin_xyz" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wfuzz_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { WFUZZ_BIN: "mock_wfuzz.py", MOCK_SLEEP: "3" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: wfuzz упал → tool_failed
+    env: { WFUZZ_BIN: "mock_wfuzz.py", MOCK_FAIL: "1" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: wfuzz без репорта → доменная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON-репорт → платформенная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://demo.invalid/FUZZ", wordlist: "wordlist.txt" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { WFUZZ_BIN: "mock_wfuzz.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

@@ -1,0 +1,119 @@
+# Контракт-тесты exifread (mock вместо сниппета, без пакета exifread и без сети).
+# Файл на входе — README.md плагина: настоящий файл с каталога плагина,
+# содержимое мок не разбирает.
+tests:
+  - name: EXIF-теги читаются в объект tags
+    env: { EXIFREAD_BIN: "mock_exifread.py" }
+    input: { file: "README.md" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 4 }
+        tags:
+          equals:
+            Image Make: Canon
+            Image Model: "Canon EOS 5D Mark IV"
+            EXIF DateTimeOriginal: "2024:05:17 11:38:32"
+            GPS GPSLatitudeRef: N
+
+  - name: файл без EXIF → ok, tags пустой
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_NO_TAGS: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 0 }
+        tags: { equals: {} }
+
+  - name: пустое поле file → доменная ошибка
+    env: { EXIFREAD_BIN: "mock_exifread.py" }
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: file не строка → платформенная ошибка
+    env: { EXIFREAD_BIN: "mock_exifread.py" }
+    input: { file: 42 }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_file }
+
+  - name: файла нет → доменная ошибка missing_file
+    env: { EXIFREAD_BIN: "mock_exifread.py" }
+    input: { file: "no_such_image_xyz.jpg" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: exifread не установлен (путь)
+    env: { EXIFREAD_BIN: "/nonexistent/exifread-bin" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: exifread_not_installed, retryable: false }
+
+  - name: exifread не установлен (имя из PATH)
+    env: { EXIFREAD_BIN: "definitely_not_an_exifread_bin_xyz" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: exifread_not_installed }
+
+  - name: указан несуществующий скрипт → exifread_not_installed
+    env: { EXIFREAD_BIN: "no_such_exifread_script_xyz.py" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: exifread_not_installed }
+
+  - name: нет модуля exifread → exifread_not_installed
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_NO_MODULE: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: exifread_not_installed, retryable: false }
+
+  - name: wall timeout → доменная, retryable
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_SLEEP: "3" }
+    input: { file: "README.md", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: отчёта нет → no_report
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_NO_REPORT: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: чтение упало → tool_failed
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_FAIL: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON отчёта → платформенная ошибка
+    env: { EXIFREAD_BIN: "mock_exifread.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { EXIFREAD_BIN: "mock_exifread.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

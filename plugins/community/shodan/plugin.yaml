@@ -1,0 +1,39 @@
+id: shodan
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Shodan (официальный Python SDK shodan-python) — открытые порты, хостнеймы и
+  известные CVE по IP. Донор не имеет пригодного CLI, поэтому обёртка идёт по
+  паттерну C: плагин запускает тот же интерпретатор с `python -c <SNIPPET>`,
+  сниппет сам импортирует shodan, берёт ключ из env SHODAN_API_KEY и печатает
+  нормализованный JSON. Ключ читает сниппет, не плагин. Ставится отдельно:
+  pip install shodan. Путь к донору переопределяется env SHODAN_BIN.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; SDK ставится отдельно (pip install shodan)
+
+input:
+  ip:
+    from: input.ip
+    type: string
+    format: ip          # Shodan /shodan/host/{ip} ждёт именно адрес хоста
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 120)
+
+output:
+  ip:         { type: string }
+  ports:      { type: array }
+  hostnames:  { type: array }
+  vulns:      { type: array }
+  org:        { type: string }
+  found:      { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: api.shodan.io" } ]
+  filesystem: none
+  secrets: [SHODAN_API_KEY]

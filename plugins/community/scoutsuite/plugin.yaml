@@ -1,0 +1,48 @@
+id: scoutsuite
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  ScoutSuite (nccgroup) — аудит безопасности и конфигурации облачного аккаунта
+  из его собственных API. Обёртка над CLI `scout` (или `python -m ScoutSuite`):
+  запускает скан во временном каталоге с --report-dir/--report-name и читает
+  scoutsuite-results/scoutsuite_results_<name>.js — файл, где первая строка это
+  JS-объявление, а дальше идёт JSON-отчёт. Возвращает provider, findings, count.
+  Учётные данные читает САМ инструмент (AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_DEFAULT_REGION); main.py ключей
+  не требует и в сеть не ходит. Ставится отдельно: pip install scoutsuite.
+author: "community · wedra showcase (cloud audit)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет scoutsuite — отдельно
+
+input:
+  provider:
+    from: input.provider
+    type: string
+    format: text        # провайдер scout: aws (default), azure, gcp, aliyun, do
+    optional: true
+  account:
+    from: input.account
+    type: string
+    optional: true      # имя AWS-профиля (scout aws --profile); только для aws
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 1800)
+
+output:
+  provider: { type: string }
+  findings: { type: array }
+  count:    { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: API облачного провайдера, чьи ключи уже есть" }
+  filesystem: none
+  secrets:               # читает донор (boto3 и его env-стратегия), не main.py
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_SESSION_TOKEN
+    - AWS_DEFAULT_REGION

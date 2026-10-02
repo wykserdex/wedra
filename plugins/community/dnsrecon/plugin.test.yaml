@@ -1,0 +1,143 @@
+# Контракт-тесты dnsrecon (mock dnsrecon CLI, без сети и без пакета dnsrecon).
+tests:
+  - name: std → нормализованные записи A/NS/MX/SOA/SPF/CNAME
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", types: ["std"] }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 7
+        records:
+          - { type: SOA, name: ns1.example.com, value: 192.0.2.1 }
+          - { type: NS, name: ns1.example.com, value: 192.0.2.1 }
+          - { type: NS, name: ns2.example.com, value: 192.0.2.2 }
+          - { type: A, name: example.com, value: 192.0.2.10 }
+          - { type: CNAME, name: www.example.com, value: example.com }
+          - { type: MX, name: example.com, value: mail.example.com }
+          - { type: SPF, name: "", value: "v=spf1 include:_spf.example.net ~all" }
+
+  - name: без types — дефолт std
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 7
+        records: { type: array }
+
+  - name: brt по словарю → записи найденных субдоменов
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", dictionary: "mock_dnsrecon.py" }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 9
+        records:
+          contains: { type: A, name: dev.example.com, value: 192.0.2.30 }
+
+  - name: axfr → служебная запись о зоне-трансфере
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", types: ["std", "axfr"] }
+    expect:
+      status: ok
+      output:
+        domain: example.com
+        total: 9
+        records:
+          contains: { type: info, name: "", value: "" }
+
+  - name: пустой репорт → ok, records []
+    env: { DNSRECON_BIN: "mock_dnsrecon.py", MOCK_EMPTY: "1" }
+    input: { domain: "nikogdenet.example" }
+    expect:
+      status: ok
+      output:
+        domain: nikogdenet.example
+        total: 0
+        records: []
+
+  - name: пустой domain → доменная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_domain, retryable: false }
+
+  - name: types не массив → платформенная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", types: "std" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_types }
+
+  - name: неизвестный тип перечисления → платформенная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", types: ["std", "нет-такого"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_types, retryable: false }
+
+  - name: словарь не найден на диске → доменная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input: { domain: "example.com", dictionary: "/nonexistent/words.txt" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file }
+
+  - name: dnsrecon не установлен (путь)
+    env: { DNSRECON_BIN: "/nonexistent/dnsrecon-bin" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dnsrecon_not_installed, retryable: false }
+
+  - name: dnsrecon не установлен (имя из PATH)
+    env: { DNSRECON_BIN: "definitely_not_a_dnsrecon_bin_xyz" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: dnsrecon_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { DNSRECON_BIN: "mock_dnsrecon.py", MOCK_SLEEP: "3" }
+    input: { domain: "example.com", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: dnsrecon без репорта → доменная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py", MOCK_NO_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: dnsrecon упал → tool_failed
+    env: { DNSRECON_BIN: "mock_dnsrecon.py", MOCK_FAIL: "1" }
+    input: { domain: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON репорта → платформенная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py", MOCK_BAD_REPORT: "1" }
+    input: { domain: "example.com" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { DNSRECON_BIN: "mock_dnsrecon.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

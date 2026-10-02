@@ -1,0 +1,48 @@
+id: altdns
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  altdns (infosec-au, CaptainHammy) — генерация перестановок/мутаций поддоменов
+  по словарю слов: из известных субдоменов строит кандидатов вида dev-www,
+  dev.www, www-dev для последующего брутфорса. Обёртка над CLI altdns, отчёт —
+  текстовый файл со списком перестановок, резолв (-r) не включается, поэтому
+  плагин полностью офлайн. Ставится отдельно: pip install py-altdns (пакет
+  «altdns» на PyPI — пустая заглушка 0.0.1, не он).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет altdns — отдельно (pip install py-altdns)
+
+input:
+  host:
+    from: input.host
+    type: string
+    format: text        # известный субдомен, из которого строятся перестановки
+  words:
+    from: input.words
+    type: array
+    optional: true      # слова для подстановки; без него — короткий дефолт
+  number_suffix:
+    from: input.number_suffix
+    type: boolean
+    optional: true      # ещё и варианты sub0..sub9 (флаг -n донора)
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # -t донора; на генерацию не влияет, ограничивает резолвер
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  host:         { type: string }
+  permutations: { type: array }
+  total:        { type: number }
+
+permissions:
+  network: []           # altdns без -r только перебирает строки, сети не нужно
+  filesystem: none
+  secrets: []

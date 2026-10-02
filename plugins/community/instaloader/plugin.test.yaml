@@ -1,0 +1,135 @@
+# Контракт-тесты instaloader (mock публичного API, без сети, без пакета,
+# без логина — INSTALOADER_BIN подменяет и сам инструмент, и сниппет).
+tests:
+  - name: публичный профиль → подписчики/посты/полное имя
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input: { profile: "demo_person" }
+    expect:
+      status: ok
+      output:
+        profile: demo_person
+        username: demo_person
+        followers: 12345
+        posts: 678
+        is_private: false
+        full_name: "Demo Person"
+
+  - name: закрытый профиль → нули и is_private (логин не используется)
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_PRIVATE: "1" }
+    input: { profile: "closed_demo" }
+    expect:
+      status: ok
+      output:
+        profile: closed_demo
+        username: closed_demo
+        followers: 0
+        posts: 0
+        is_private: true
+        full_name: ""
+
+  - name: профиль без полей → пустые строки и нули
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_MISSING_FIELDS: "1" }
+    input: { profile: "sparse_demo" }
+    expect:
+      status: ok
+      output:
+        profile: sparse_demo
+        username: sparse_demo
+        followers: 0
+        posts: 0
+        is_private: false
+        full_name: ""
+
+  - name: ведущий @ убирается
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input: { profile: "@demo_person" }
+    expect:
+      status: ok
+      output:
+        profile: demo_person
+        username: demo_person
+
+  - name: пустой profile → доменная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input: { profile: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_profile, retryable: false }
+
+  - name: profile не похож на имя профиля → доменная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input: { profile: "не_профиль/../../etc" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_profile, retryable: false }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input: { profile: "demo", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: instaloader не установлен (путь)
+    env: { INSTALOADER_BIN: "/nonexistent/instaloader-bin" }
+    input: { profile: "demo" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: instaloader_not_installed, retryable: false }
+
+  - name: instaloader не установлен (имя из PATH)
+    env: { INSTALOADER_BIN: "definitely_not_an_instaloader_bin_xyz" }
+    input: { profile: "demo" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: instaloader_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_SLEEP: "3" }
+    input: { profile: "demo", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: пустой stdout → доменная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_NO_REPORT: "1" }
+    input: { profile: "demo" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: профиля не существует → доменная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_FAIL: "1" }
+    input: { profile: "nikto_net" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: instaloader упал с 429 → tool_failed, retryable
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_FAIL_RETRY: "1" }
+    input: { profile: "demo" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: обрезанный JSON ответа → платформенная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py", MOCK_BAD_REPORT: "1" }
+    input: { profile: "demo" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { INSTALOADER_BIN: "mock_instaloader.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

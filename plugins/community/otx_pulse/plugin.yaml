@@ -1,0 +1,36 @@
+id: otx_pulse
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  AlienVault OTX (Open Threat Exchange) — публичные пульсы по индикатору
+  (домен, IP, URL, md5/sha1/sha256): сколько пульсов и какие. Обёртка паттерном C:
+  сеть делает дочерний процесс со сниппетом на stdlib-urllib, GET
+  https://otx.alienvault.com/api/v1/indicators/<type>/<indicator>/general.
+  Публичные пульсы отдаются без ключа, поэтому secrets пуст.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; внешнего пакета нет
+
+input:
+  indicator:
+    from: input.indicator
+    type: string
+    format: text        # домен/хост, IP, URL или md5/sha1/sha256
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 60)
+
+output:
+  indicator:  { type: string }
+  pulses:     { type: array }   # [{id, name, created}]
+  count:      { type: number }
+  found:      { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: otx.alienvault.com:443" } ]
+  filesystem: none
+  secrets: []

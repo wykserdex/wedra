@@ -1,0 +1,143 @@
+# Контракт-тесты geoiplookup (mock CLI, без сети, без базы и без geoiplookup).
+# db_path указывает на реальный файл/каталог внутри каталога плагина: mock
+# содержимое базы не читает, проверяется только факт, что путь разрешился.
+tests:
+  - name: db_path-файл (-f) → страна из строки ответа, found true
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        ip: "8.8.8.8"
+        country: "US, United States"
+        region: ""
+        city: ""
+        found: true
+
+  - name: db_path-каталог (-d) → тот же результат
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "8.8.8.8", db_path: "." }
+    expect:
+      status: ok
+      output:
+        ip: "8.8.8.8"
+        country: "US, United States"
+        found: true
+
+  - name: путь к базе из env GEOIP_DB_PATH
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", GEOIP_DB_PATH: "plugin.yaml" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        ip: "8.8.8.8"
+        country: "US, United States"
+        found: true
+
+  - name: помеченные строки (сборка с City-базой) → region и city
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_CITY: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        country: "United States"
+        region: "California"
+        city: "Mountain View"
+        found: true
+
+  - name: мусорный вывод → ok, found false, поля пустые
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_BAD_REPORT: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        country: ""
+        region: ""
+        city: ""
+        found: false
+
+  - name: без db_path и без GEOIP_DB_PATH → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_db, retryable: false }
+
+  - name: базы по пути нет → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "8.8.8.8", db_path: "/nonexistent/GeoLite2-City.mmdb" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_db }
+
+  - name: пустой ip → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "  ", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_ip }
+
+  - name: не IP → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "не-адрес", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_ip }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: geoiplookup не установлен (путь)
+    env: { GEOIPLOOKUP_BIN: "/nonexistent/geoiplookup-bin" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: geoiplookup_not_installed, retryable: false }
+
+  - name: geoiplookup не установлен (имя из PATH)
+    env: { GEOIPLOOKUP_BIN: "definitely_not_a_geoiplookup_bin_xyz" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: geoiplookup_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_SLEEP: "3" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: geoiplookup упал → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_FAIL: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: адрес не найден (пустой stdout) → доменная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_NO_REPORT: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

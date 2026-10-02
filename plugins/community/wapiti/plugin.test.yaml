@@ -1,0 +1,118 @@
+# Контракт-тесты wapiti (mock CLI wapiti, без сети и без пакета wapiti3).
+tests:
+  - name: сканирование цели → плоский список находок
+    env: { WAPITI_BIN: "mock_wapiti.py" }
+    input: { url: "https://demo.invalid/index.php", module: "xss,sql", wall_timeout: 60 }
+    timeout: 60s
+    expect:
+      status: ok
+      output:
+        url: "https://demo.invalid/index.php"
+        count: 2
+        vulnerabilities:
+          contains:
+            category: "SQL Injection"
+            method: POST
+            path: /login
+            parameter: user
+            info: "SQL injection"
+            module: sql
+            level: 0
+
+  - name: дефолтный модуль (неразрушающий аудит) → ok
+    env: { WAPITI_BIN: "mock_wapiti.py" }
+    input: { url: "https://demo.invalid/" }
+    timeout: 60s
+    expect:
+      status: ok
+      output:
+        url: "https://demo.invalid/"
+        count: 2
+
+  - name: находок нет (пустой отчёт) → ok, count 0
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_EMPTY: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: ok
+      output:
+        count: 0
+        vulnerabilities: []
+
+  - name: пустой url → доменная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py" }
+    input: { url: "https://demo.invalid/", wall_timeout: "long" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: wapiti не установлен (путь)
+    env: { WAPITI_BIN: "/nonexistent/wapiti-bin" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wapiti_not_installed, retryable: false }
+
+  - name: wapiti не установлен (имя из PATH)
+    env: { WAPITI_BIN: "definitely_not_a_wapiti_bin_xyz" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: wapiti_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_SLEEP: "3" }
+    input: { url: "https://demo.invalid/", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: wapiti упал → tool_failed
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_FAIL: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: wapiti без отчёта → доменная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый JSON-отчёт → платформенная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: отчёт неожиданной формы → платформенная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py", MOCK_BAD_SHAPE: "1" }
+    input: { url: "https://demo.invalid/" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { WAPITI_BIN: "mock_wapiti.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

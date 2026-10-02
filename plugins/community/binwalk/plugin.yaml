@@ -1,0 +1,40 @@
+id: binwalk
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Binwalk (ReFirmLabs/binwalk) — поиск и извлечение встроенных данных из
+  бинарников (прошивки, образы, дампы). Обёртка над CLI binwalk v3: сканирование
+  с JSON-отчётом (--log), опционально извлечение в каталог плагина
+  (--extract --directory). Требуется binwalk v3 — у v2 нет JSON-вывода.
+  Ставится отдельно: pip install binwalk.
+author: "community · wedra showcase (reverse engineering)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; binwalk v3 — отдельно (pip install binwalk)
+
+input:
+  file:
+    from: input.file
+    type: string
+    format: text        # путь к бинарнику; относительный — от каталога плагина
+  extract:
+    from: input.extract
+    type: boolean
+    optional: true      # --extract: разбирать найденное в каталог плагина
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  file:       { type: string }
+  signatures: { type: array }   # [{offset, size, name, description, confidence, extracted}]
+  extracted:  { type: array }   # пути извлечённых файлов относительно каталога извлечения
+  count:      { type: number }  # сколько сигнатур найдено
+
+permissions:
+  network: []           # анализ локального файла, сеть не нужна
+  filesystem: none
+  secrets: []

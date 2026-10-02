@@ -1,0 +1,83 @@
+# Контракт-тесты exiftool (mock exiftool CLI, без сети и без пакета exiftool).
+# Входной файл — main.py самого плагина: cwd плагина = его каталог, файл
+# существует. Все значения тегов в тегах — мок-данные, никаких реальных EXIF.
+tests:
+  - name: чтение метаданных → tags
+    env: { EXIFTOOL_BIN: "mock_exiftool.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: "main.py"
+        count: 7
+        tags: { type: "object" }
+
+  - name: пустой file → доменная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py" }
+    input: { file: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: несуществующий файл → доменная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py" }
+    input: { file: "no_such_file_here.jpg" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: file не строка → платформенная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py" }
+    input: { file: 42 }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_file }
+
+  - name: exiftool не установлен (путь)
+    env: { EXIFTOOL_BIN: "/nonexistent/exiftool-bin" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: exiftool_not_installed, retryable: false }
+
+  - name: wall timeout → доменная, retryable
+    env: { EXIFTOOL_BIN: "mock_exiftool.py", MOCK_SLEEP: "3" }
+    input: { file: "main.py", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: exiftool без вывода → доменная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py", MOCK_NO_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: exiftool упал → доменная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py", MOCK_FAIL: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый репорт → платформенная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { EXIFTOOL_BIN: "mock_exiftool.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

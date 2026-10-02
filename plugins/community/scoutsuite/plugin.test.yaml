@@ -1,0 +1,115 @@
+# Контракт-тесты scoutsuite (mock CLI scout, без сети, без пакета и без ключей AWS).
+tests:
+  - name: скан aws → находки из scoutsuite_results_wedra.js
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py" }
+    input: { provider: "aws", account: "audit-profile" }
+    expect:
+      status: ok
+      output:
+        provider: aws
+        count: 4
+        findings:
+          - { service: ec2, id: defaultSecurityGroup, level: warning, description: "Default security group in use", count: 1 }
+          - { service: ec2, id: instancesWithPublicIp, level: danger, description: "EC2 instances with public IP", count: 2 }
+          - { service: ec2, id: unusedSecurityGroups, level: info, description: "Unused security groups", count: 0 }
+          - { service: iam, id: rootAccount, level: danger, description: "Root account active", count: 1 }
+
+  - name: дефолтный provider aws и обязательные флаги отчёта
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_STRICT_ARGS: "1" }
+    input: {}
+    expect:
+      status: ok
+      output:
+        provider: aws
+        count: 4
+        findings: { type: array }
+
+  - name: скан без находок → ok с пустым массивом
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_EMPTY: "1" }
+    input: { provider: "gcp" }
+    expect:
+      status: ok
+      output:
+        provider: gcp
+        count: 0
+        findings: []
+
+  - name: неизвестный provider → доменная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py" }
+    input: { provider: "digitalocean" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_provider, retryable: false }
+
+  - name: account не в aws → доменная ошибка (--profile только у aws)
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py" }
+    input: { provider: "azure", account: "my-profile" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_account }
+
+  - name: нечисловой wall_timeout → платформенная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py" }
+    input: { provider: "aws", wall_timeout: "быстро" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: scout не установлен (путь)
+    env: { SCOUTSUITE_BIN: "/nonexistent/scout-bin" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: scoutsuite_not_installed, retryable: false }
+
+  - name: scout не установлен (имя из PATH)
+    env: { SCOUTSUITE_BIN: "definitely_not_a_scout_bin_xyz" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: scoutsuite_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_SLEEP: "3" }
+    input: { provider: "aws", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: scout без файла отчёта → доменная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_NO_REPORT: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: scout упал → доменная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_FAIL: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый отчёт scout → платформенная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py", MOCK_BAD_REPORT: "1" }
+    input: { provider: "aws" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SCOUTSUITE_BIN: "mock_scoutsuite.py" }
+    input_raw: "{не json"
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_input }

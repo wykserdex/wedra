@@ -1,0 +1,39 @@
+id: xsstrike
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  XSStrike (s0md3v/XSStrike) — поиск XSS по явно заданной цели. Обёртка запускает
+  разбор одной страницы (--skip — без интерактивных вопросов) и разбирает текстовый
+  вывод консервативно: маркеры «Payload:» (XSStrike 3.x), «Vulnerable webpage:» и
+  «Vector for <param>:» (старый формат), «Potentially vulnerable objects found»
+  (DOM XSS). Никакого краулинга и никаких чужих хостов — только URL из входа.
+  XSStrike ставится отдельно: pip install xsstrike (или git-клон, см. README).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; XSStrike — отдельно (pip install xsstrike)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url          # единственная проверяемая цель
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true       # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  vulnerable: { type: boolean }
+  payloads:   { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель пользователя)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель пользователя)" }
+  filesystem: none
+  secrets: []

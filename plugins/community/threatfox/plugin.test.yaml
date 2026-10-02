@@ -1,0 +1,120 @@
+# Контракт-тесты threatfox (mock донора, без сети и без ключа ThreatFox).
+tests:
+  - name: IOC в базе → threat_type, малварь, confidence
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: ok
+      output:
+        indicator: "139.180.203.104"
+        threat_type: botnet_cc
+        malware: win.cobalt_strike
+        confidence: 75
+        found: true
+
+  - name: IOC не найден → ok с found false (не ошибка)
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input: { indicator: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        indicator: "8.8.8.8"
+        threat_type: ""
+        malware: ""
+        confidence: 0
+        found: false
+
+  - name: URL-IOC нормализованный
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input: { indicator: "http://auto.lambolero.com/f1nygync/" }
+    expect:
+      status: ok
+      output:
+        indicator: "http://auto.lambolero.com/f1nygync/"
+        found: false
+
+  - name: пустой indicator → доменная ошибка
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input: { indicator: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_indicator, retryable: false }
+
+  - name: IOC с пробелом → доменная ошибка
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input: { indicator: "139.180.203.104 и ещё" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_indicator, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { THREATFOX_BIN: "mock_threatfox.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }
+
+  - name: донор не найден (путь)
+    env: { THREATFOX_BIN: "/nonexistent/threatfox-bin" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: threatfox_not_installed, retryable: false }
+
+  - name: донор не найден (имя из PATH)
+    env: { THREATFOX_BIN: "definitely_not_a_threatfox_bin_xyz" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: threatfox_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_SLEEP: "3" }
+    input: { indicator: "139.180.203.104", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донора нет в stdout → no_report
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_NO_REPORT: "1" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый ответ донора → платформенная ошибка
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_BAD_REPORT: "1" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → tool_failed
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_FAIL: "1" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: abuse.ch отклонил без Auth-Key → tool_failed с подсказкой
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_HTTP_STATUS: "401" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: abuse.ch вернул 5xx → tool_failed retryable
+    env: { THREATFOX_BIN: "mock_threatfox.py", MOCK_HTTP_STATUS: "503" }
+    input: { indicator: "139.180.203.104" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }

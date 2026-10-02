@@ -1,0 +1,35 @@
+id: detect_secrets
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  detect-secrets (Yelp/detect-secrets) — поиск секретов в коде и конфигах
+  (AWS-ключи, приватные ключи, строки высокой энтропии и т.п.). Обёртка запускает
+  `detect-secrets scan <path> --all-files`, читает baseline-JSON со stdout и
+  отдаёт список мест (тип, файл, строка) — без значений секретов и без их хэшей.
+  Ставится отдельно: pip install detect-secrets.
+author: "community · wedra showcase (AppSec)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет detect-secrets — отдельно (pip install detect-secrets)
+
+input:
+  path:
+    from: input.path
+    type: string
+    format: text        # каталог или файл для сканирования
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  path:    { type: string }
+  secrets: { type: array }   # [{type, filename, line_number}]
+  count:   { type: number }
+
+permissions:
+  network: []            # сканирование локальных файлов, сеть не нужна
+  filesystem: read       # читает только указанный пользователем путь
+  secrets: []

@@ -1,0 +1,45 @@
+id: volatility3
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Volatility 3 (VolatilityFoundation/volatility3) — анализ дампа памяти.
+  Обёртка над CLI vol: запускает плагин volatility3 на локальном дампе, берёт
+  JSON-рендерер (-r json) и отдаёт плоские строки репорта. По умолчанию
+  banners.Banners, например windows.pslist или windows.cmdline. Ставится
+  отдельно: pip install volatility3.
+author: "community · wedra showcase (forensics)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет volatility3 — отдельно (pip install volatility3)
+
+input:
+  image:
+    from: input.image
+    type: string
+    format: text        # путь к дампу памяти (raw/aff4/vmem/…); должен существовать
+  module:
+    from: input.module
+    type: string
+    optional: true      # имя плагина vol (default banners.Banners)
+  volatility_config:
+    from: input.volatility_config
+    type: string
+    optional: true      # путь к JSON-конфигу vol (-c) либо сам JSON-объект
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  image:  { type: string }
+  module: { type: string }
+  rows:   { type: array }
+  count:  { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: ISF-символы volatility3 (github.com/VolatilityFoundation)" }
+  filesystem: read      # читает только указанный пользователем дамп
+  secrets: []

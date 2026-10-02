@@ -1,0 +1,137 @@
+# Контракт-тесты lief (mock сниппета донора, без пакета lief и без сети).
+# Входной файл — заглушка (main.py в каталоге плагина): бинарник разбирает мок,
+# плагин проверяет оркестрацию и нормализацию JSON.
+tests:
+  - name: PE → format, header, секции
+    env: { LIEF_BIN: "mock_lief.py" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        file: "main.py"
+        format: "PE"
+        count: 2
+        sections: { contains: { name: ".text", size: 4198400, offset: 1024, virtual_address: 4198400 } }
+        header:
+          architecture: "X86_64"
+          object_type: "EXECUTABLE"
+          endianness: "LITTLE"
+          is_64: true
+          entrypoint: 4198400
+
+  - name: ELF тем же парсером LIEF
+    env: { LIEF_BIN: "mock_lief.py", MOCK_ALT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        format: "ELF"
+        count: 0
+        sections: []
+        header:
+          architecture: "X86_64"
+          object_type: "LIBRARY"
+          endianness: "LITTLE"
+          is_64: true
+          entrypoint: 10506752
+
+  - name: старый LIEF без абстрактного header → пустые поля, не падение
+    env: { LIEF_BIN: "mock_lief.py", MOCK_LEGACY: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: ok
+      output:
+        format: "PE"
+        count: 0
+        header:
+          architecture: ""
+          object_type: ""
+          endianness: ""
+          is_64: false
+          entrypoint: 0
+
+  - name: пустой file → доменная ошибка
+    env: { LIEF_BIN: "mock_lief.py" }
+    input: { file: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_file, retryable: false }
+
+  - name: несуществующий файл → missing_file
+    env: { LIEF_BIN: "mock_lief.py" }
+    input: { file: "нет-такого-файла" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: missing_file, retryable: false }
+
+  - name: формат не поддерживается → unsupported_format
+    env: { LIEF_BIN: "mock_lief.py", MOCK_UNSUPPORTED: "1" }
+    input: { file: "README.md" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: unsupported_format, retryable: false }
+
+  - name: формат опознан, но файл битый → bad_file
+    env: { LIEF_BIN: "mock_lief.py", MOCK_BAD_FILE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_file, retryable: false }
+
+  - name: lief не установлен (донор переопределён на путь)
+    env: { LIEF_BIN: "/nonexistent/lief-bin" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: lief_not_installed, retryable: false }
+
+  - name: lief не установлен (донор не импортируется)
+    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_MODULE: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: lief_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { LIEF_BIN: "mock_lief.py", MOCK_SLEEP: "3" }
+    input: { file: "main.py", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: сниппет без вывода → no_report
+    env: { LIEF_BIN: "mock_lief.py", MOCK_NO_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: донор упал → tool_failed
+    env: { LIEF_BIN: "mock_lief.py", MOCK_FAIL: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON донора → платформенная ошибка
+    env: { LIEF_BIN: "mock_lief.py", MOCK_BAD_REPORT: "1" }
+    input: { file: "main.py" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: "platform:bad_report" }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { LIEF_BIN: "mock_lief.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,38 @@
+id: threatfox
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  abuse.ch ThreatFox — поиск IOC (ip:port, домен, URL, хэш) в базе заражений:
+  threat_type, семейство малвари, confidence_level. Обёртка паттерном C: сеть
+  делает дочерний процесс со сниппетом на stdlib-urllib, POST search_ioc на
+  публичный API threatfox-api.abuse.ch; надёжного pip-пакета нет, ключ в коде
+  не вшит (необязательный env THREATFOX_AUTH_KEY — abuse.ch требует Auth-Key
+  для Community API).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; внешнего пакета нет
+
+input:
+  indicator:
+    from: input.indicator
+    type: string
+    format: text        # IOC: ip, ip:port, домен, URL, md5/sha1/sha256
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 60)
+
+output:
+  indicator:    { type: string }
+  threat_type:  { type: string }
+  malware:      { type: string }
+  confidence:   { type: number }
+  found:        { type: boolean }
+
+permissions:
+  network: [ { any_host: true, port: 443, note: "target: threatfox-api.abuse.ch:443" } ]
+  filesystem: none
+  secrets: [THREATFOX_AUTH_KEY]

@@ -1,0 +1,131 @@
+# Контракт-тесты linkfinder (mock linkfinder.py, без сети и без пакета).
+tests:
+  - name: JS-файл → эндпоинты из stdout
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "https://example.com/static/app.js", timeout: 5 }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com/static/app.js"
+        count: { equals: 5 }
+        links:
+          equals:
+            - "https://api.example.com/v1/users"
+            - "/api/login"
+            - "/static/app.js"
+            - "../admin/panel.php"
+            - "/uploads/shell.php"
+
+  - name: crawl (-d) → служебные строки отброшены, ссылки собраны
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "https://example.com", crawl: true }
+    expect:
+      status: ok
+      output:
+        url: "https://example.com"
+        count: { equals: 5 }
+        links:
+          type: array
+          contains: "/uploads/shell.php"
+
+  - name: regex (-r) → только отфильтрованные находки
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "https://example.com/app.js", regex: "^/api/" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 1 }
+        links: { equals: ["/api/login"] }
+
+  - name: находок нет → ok с пустым массивом
+    env: { LINKFINDER_BIN: "mock_linkfinder.py", MOCK_NO_LINKS: "1" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 0 }
+        links: { equals: [] }
+
+  - name: мусорные строки в выводе отброшены
+    env: { LINKFINDER_BIN: "mock_linkfinder.py", MOCK_BAD_LINKS: "1" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: ok
+      output:
+        count: { equals: 5 }
+
+  - name: пустой url → доменная ошибка
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "  " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: crawl не boolean → платформенная ошибка
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "https://example.com/app.js", crawl: "да" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_crawl }
+
+  - name: regex не строка → платформенная ошибка
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input: { url: "https://example.com/app.js", regex: 7 }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_regex }
+
+  - name: linkfinder.py не найден (путь)
+    env: { LINKFINDER_BIN: "/nonexistent/linkfinder-bin" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: linkfinder_not_installed, retryable: false }
+
+  - name: linkfinder.py не найден (имя из PATH)
+    env: { LINKFINDER_BIN: "definitely_not_a_linkfinder_bin_xyz" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: linkfinder_not_installed }
+
+  - name: указан несуществующий скрипт → linkfinder_not_installed
+    env: { LINKFINDER_BIN: "no_such_linkfinder_script_xyz.py" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: linkfinder_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { LINKFINDER_BIN: "mock_linkfinder.py", MOCK_SLEEP: "3" }
+    input: { url: "https://example.com/app.js", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: linkfinder упал → tool_failed
+    env: { LINKFINDER_BIN: "mock_linkfinder.py", MOCK_FAIL: "1" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: linkfinder сам сообщил об ошибке (код выхода 0) → tool_failed
+    env: { LINKFINDER_BIN: "mock_linkfinder.py", MOCK_ERROR: "1" }
+    input: { url: "https://example.com/app.js" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { LINKFINDER_BIN: "mock_linkfinder.py" }
+    input_raw: "[не json"
+    expect:
+      exit_code: 2

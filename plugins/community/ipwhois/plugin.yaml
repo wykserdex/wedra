@@ -1,0 +1,46 @@
+id: ipwhois
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  ipwhois (Philip Hane) — WHOIS/RDAP по IP-адресу v4/v6: сеть, диапазоны, RIR,
+  ASN, контакты. Обёртка над CLI ipwhois: гоняет `ipwhois_cli --addr <ip> --json`
+  и отдаёт разобранный ответ инструмента. Инструмент ставится отдельно:
+  pip install ipwhois (скрипт ipwhois_cli кладётся в Scripts вашего окружения).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет ipwhois — отдельно (pip install ipwhois)
+
+input:
+  ip:
+    from: input.ip
+    type: string
+    format: ip          # IPv4 или IPv6; проверяется через stdlib ipaddress
+  protocol:
+    from: input.protocol
+    type: string
+    optional: true      # rdap (по умолчанию, HTTPS) или whois (порт 43)
+  timeout:
+    from: input.timeout
+    type: number
+    optional: true      # таймаут сокета инструмента, секунды (default 5)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  ip:      { type: string }
+  record:  { type: object }   # ответ ipwhois как есть: network/objects (RDAP)
+                              # или nets/referral (legacy whois)
+  found:   { type: boolean }  # инструмент вернул сеть для адреса
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: rdap.org и RIR-серверы (RDAP/HTTPS)" }
+    - { any_host: true, port: 53, note: "target: DNS-резолверы (поиск ASN, --asn_methods dns)" }
+    - { any_host: true, port: 43, note: "target: whois-серверы RIR, только при protocol=whois" }
+  filesystem: none
+  secrets: []

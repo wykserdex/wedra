@@ -1,0 +1,39 @@
+id: social_analyzer
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Social Analyzer (qeeqbox, репозиторий okandemirci/social-analyzer) — поиск
+  username по 400+ соцсетям с обходом простой антибот-защиты. Обёртка над CLI:
+  гоняет --output json, разбирает машинный JSON из stdout, а если он не
+  распознан — текстовые строки «[*] Found: …». Ставится отдельно:
+  pip install social-analyzer.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет social-analyzer — отдельно
+
+input:
+  username:
+    from: input.username
+    type: string
+    format: text
+  websites:
+    from: input.websites
+    type: array
+    optional: true      # --websites "a b c" (пробелом); без него — вся база
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  username: { type: string }
+  found:    { type: array }
+  checked:  { type: number }
+
+permissions:
+  network: [ { any_host: true, port: 443 }, { any_host: true, port: 80 } ]
+  filesystem: none
+  secrets: []

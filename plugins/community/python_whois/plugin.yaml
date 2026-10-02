@@ -1,0 +1,37 @@
+id: python_whois
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  python-whois (richardpenman/whois) — WHOIS по домену с разбором ответа на
+  поля (домен, регистратор, даты, NS, статус). Пакет библиотечный: CLI у него
+  нет (в setup.py 0.9.6 нет ни scripts, ни console_scripts), поэтому обёртка
+  работает паттерном C — гоняет тот же интерпретатор с фиксированным сниппетом,
+  который импортирует whois и печатает JSON в stdout. Бинарь переопределяется
+  env PYTHON_WHOIS_BIN. Ставится отдельно: pip install python-whois.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет python-whois — отдельно
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен или URL; схема, путь и ведущий www. отбрасываются
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:  { type: string }
+  record:  { type: object }   # распознанные поля whois без сырого text
+  found:   { type: boolean }  # в ответе есть данные о домене
+
+permissions:
+  network:
+    - { any_host: true, port: 43, note: "target: whois-серверы TLD и регистраторов" }
+  filesystem: none
+  secrets: [ SOCKS ]    # опциональный прокси для whois; читает сам python-whois

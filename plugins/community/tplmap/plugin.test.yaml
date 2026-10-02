@@ -1,0 +1,108 @@
+# Контракт-тесты tplmap (mock tplmap CLI, без сети и без пакета tplmap).
+tests:
+  - name: SSTI подтверждена → движок и payloads из stdout-репорта
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "http://target.example/page?name=John" }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example/page?name=John"
+        vulnerable: true
+        engine: Jinja2
+        payloads: ["{{*}}"]
+
+  - name: ограничение движка (-e) — цель из входа, отчёт тот же
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "http://target.example/page?name=John", engine: "jinja2" }
+    expect:
+      status: ok
+      output:
+        vulnerable: true
+        engine: Jinja2
+        payloads: ["{{*}}"]
+
+  - name: SSTI не найдена → ok, vulnerable false
+    env: { TPLMAP_BIN: "mock_tplmap.py", MOCK_CLEAN: "1" }
+    input: { url: "http://target.example/safe?name=John" }
+    expect:
+      status: ok
+      output:
+        url: "http://target.example/safe?name=John"
+        vulnerable: false
+        engine: ""
+        payloads: []
+
+  - name: пустой url → доменная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: url без схемы → платформенная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "target.example/page" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_url }
+
+  - name: engine не строка → платформенная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "http://target.example/page?name=1", engine: ["jinja2"] }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_engine }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input: { url: "http://target.example/page?name=1", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: wall timeout → доменная, retryable
+    env: { TPLMAP_BIN: "mock_tplmap.py", MOCK_SLEEP: "3" }
+    input: { url: "http://target.example/page?name=John", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: tplmap не установлен (путь)
+    env: { TPLMAP_BIN: "/nonexistent/tplmap-bin" }
+    input: { url: "http://target.example/page?name=John" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tplmap_not_installed, retryable: false }
+
+  - name: tplmap не установлен (имя из PATH)
+    env: { TPLMAP_BIN: "definitely_not_a_tplmap_bin_xyz" }
+    input: { url: "http://target.example/page?name=John" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tplmap_not_installed }
+
+  - name: tplmap без отчёта (пустой stdout) → доменная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py", MOCK_NO_REPORT: "1" }
+    input: { url: "http://target.example/page?name=John" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report, retryable: false }
+
+  - name: tplmap упал → доменная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py", MOCK_FAIL: "1" }
+    input: { url: "http://target.example/page?name=John" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { TPLMAP_BIN: "mock_tplmap.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

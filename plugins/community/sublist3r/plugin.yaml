@@ -1,0 +1,40 @@
+id: sublist3r
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  Sublist3r (aboul3la/Sublist3r) — пассивный сбор поддоменов через поисковики,
+  Netcraft, DNSdumpster и опциональный brute-force. Обёртка над CLI sublist3r:
+  отдаёт домен инструменту и разбирает список найденных поддоменов. Ставится
+  отдельно: pip install Sublist3r.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет Sublist3r — отдельно (pip install Sublist3r)
+
+input:
+  domain:
+    from: input.domain
+    type: string
+    format: text        # домен-цель
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # потоков для brute-force (default 30 у донора)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  domain:     { type: string }
+  subdomains: { type: array }
+  total:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: поисковики и пассивные OSINT-источники" }
+    - { any_host: true, port: 53, note: "target: DNS-резолверы на проверку найденных поддоменов" }
+  filesystem: none
+  secrets: []

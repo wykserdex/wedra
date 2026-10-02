@@ -1,0 +1,64 @@
+id: gospider
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  gospider (jaeles-project) — быстрый краулер с извлечением эндпоинтов из
+  JavaScript (linkfinder), robots.txt и sitemap.xml. Обёртка над CLI gospider
+  v1.1.6: гоняет краулер по одной явно заданной цели, читает JSON-вывод
+  (--json) из папки -o и отдаёт плоский список url / javascript / linkfinder /
+  form / subdomain. Ставится отдельно: go install
+  github.com/jaeles-project/gospider@latest (на PyPI «gospider» — это другой,
+  заброшенный питоновский инструмент, не он).
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; бинарь gospider — отдельно (go install)
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель краула; без схемы — https://
+  depth:
+    from: input.depth
+    type: number
+    optional: true      # -d, глубина рекурсии (default 1; 0 — бесконечно)
+  concurrent:
+    from: input.concurrent
+    type: number
+    optional: true      # -c, параллельных запросов на домен (default 5).
+                        # ВНИМАНИЕ: -c у gospider — это НЕ cookie
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # -t, сайтов параллельно; у нас цель одна (default 1)
+  sitemap:
+    from: input.sitemap
+    type: boolean
+    optional: true      # --sitemap, обходить sitemap.xml (default false)
+  js:
+    from: input.js
+    type: boolean
+    optional: true      # --js, linkfinder по JS-файлам (default true)
+  cookie:
+    from: input.cookie
+    type: string
+    optional: true      # --cookie "a=b; c=d" для краула своей авторизации
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:        { type: string }
+  endpoints:  { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель оператора)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель оператора)" }
+  filesystem: none
+  secrets: []

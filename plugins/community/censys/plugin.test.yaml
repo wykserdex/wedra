@@ -1,0 +1,144 @@
+# Контракт-тесты censys (mock донора, без сети, без ключа, без пакета censys).
+tests:
+  - name: хост по IP → сервисы и гео
+    env: { CENSYS_BIN: "mock_censys.py" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: ok
+      output:
+        target: "8.8.8.8"
+        services:
+          - { port: 53, service_name: DNS, transport_protocol: UDP, observed_at: "2021-02-28T23:58:55Z" }
+          - { port: 443, service_name: HTTP, transport_protocol: TCP, observed_at: "2021-02-28T23:58:55Z" }
+        location:
+          continent: North America
+          country: United States
+          country_code: US
+          postal_code: ""
+          timezone: America/Chicago
+          coordinates: { latitude: 37.751, longitude: -97.822 }
+          registered_country: United States
+          registered_country_code: US
+        found: true
+
+  - name: домен нормализуется (FQDN с точкой, разный регистр) → ok
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_EMPTY: "1" }
+    input: { target: "Example.COM." }
+    expect:
+      status: ok
+      output:
+        target: "example.com"
+        services: []
+        location: {}
+        found: true
+
+  - name: хоста нет в индексе → ok, found false (не ошибка)
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_NOT_FOUND: "1" }
+    input: { target: "203.0.113.7" }
+    expect:
+      status: ok
+      output:
+        target: "203.0.113.7"
+        services: []
+        location: {}
+        found: false
+
+  - name: пустой target → доменная ошибка
+    env: { CENSYS_BIN: "mock_censys.py" }
+    input: { target: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_target, retryable: false }
+
+  - name: не IP и не домен → доменная ошибка
+    env: { CENSYS_BIN: "mock_censys.py" }
+    input: { target: "не_домен" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_target }
+
+  - name: донор не установлен (путь)
+    env: { CENSYS_BIN: "/nonexistent/censys-bin" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: censys_not_installed, retryable: false }
+
+  - name: донор не установлен (имя из PATH)
+    env: { CENSYS_BIN: "definitely_not_a_censys_bin_xyz" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: censys_not_installed }
+
+  - name: ключи не заданы → tool_failed, не retryable
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_NO_KEY: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: неверный API ID → tool_failed, не retryable
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_AUTH_ERR: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: лимит запросов → tool_failed, retryable
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_RATE_LIMIT: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: wall timeout → доменная, retryable
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_SLEEP: "3" }
+    input: { target: "8.8.8.8", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донор без отчёта → доменная ошибка
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_NO_REPORT: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый отчёт донора → платформенная ошибка
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_BAD_REPORT: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → доменная ошибка
+    env: { CENSYS_BIN: "mock_censys.py", MOCK_FAIL: "1" }
+    input: { target: "8.8.8.8" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { CENSYS_BIN: "mock_censys.py" }
+    input: { target: "8.8.8.8", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { CENSYS_BIN: "mock_censys.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

@@ -1,0 +1,116 @@
+# Контракт-тесты sqlmap (mock CLI sqlmap, без сети и без клона sqlmap).
+tests:
+  - name: аудит цели → две точки инъекции
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input: { url: "https://demo.invalid/item?id=1", wall_timeout: 120 }
+    timeout: 120s
+    expect:
+      status: ok
+      output:
+        url: "https://demo.invalid/item?id=1"
+        vulnerable: true
+        parameter: id
+        injections:
+          contains:
+            parameter: id
+            place: GET
+            technique: "boolean-based blind"
+            payload: "id=1' OR '1'='1"
+
+  - name: неразрушающие техники задаются явно
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input: { url: "https://demo.invalid/item?id=1", technique: "BEU" }
+    timeout: 120s
+    expect:
+      status: ok
+      output:
+        vulnerable: true
+
+  - name: уязвимых параметров нет → ok, vulnerable false
+    env: { SQLMAP_BIN: "mock_sqlmap.py", MOCK_CLEAN: "1" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: ok
+      output:
+        vulnerable: false
+        parameter: ""
+        injections: []
+
+  - name: пустой url → доменная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input: { url: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_url, retryable: false }
+
+  - name: разрушающая техника S → доменная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input: { url: "https://demo.invalid/item?id=1", technique: "S" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_technique, retryable: false }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input: { url: "https://demo.invalid/item?id=1", wall_timeout: "never" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: sqlmap не установлен (путь)
+    env: { SQLMAP_BIN: "/nonexistent/sqlmap-bin" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sqlmap_not_installed, retryable: false }
+
+  - name: sqlmap не установлен (имя из PATH)
+    env: { SQLMAP_BIN: "definitely_not_a_sqlmap_bin_xyz" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: sqlmap_not_installed }
+
+  - name: wall timeout → доменная, retryable
+    env: { SQLMAP_BIN: "mock_sqlmap.py", MOCK_SLEEP: "3" }
+    input: { url: "https://demo.invalid/item?id=1", wall_timeout: 1 }
+    timeout: 20s
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: sqlmap упал → tool_failed
+    env: { SQLMAP_BIN: "mock_sqlmap.py", MOCK_FAIL: "1" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: sqlmap без лога и без строк → доменная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py", MOCK_NO_REPORT: "1" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: нечитаемый вывод → платформенная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py", MOCK_BAD_REPORT: "1" }
+    input: { url: "https://demo.invalid/item?id=1" }
+    expect:
+      status: error
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SQLMAP_BIN: "mock_sqlmap.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_input }

@@ -1,0 +1,127 @@
+# Контракт-тесты shodan (mock донора, без сети, без ключа, без пакета shodan).
+tests:
+  - name: хост найден → порты, хостнеймы, CVE, организация
+    env: { SHODAN_BIN: "mock_shodan.py" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: ok
+      output:
+        ip: "93.184.216.34"
+        ports: [80, 443]
+        hostnames: ["example.com", "www.example.com"]
+        vulns: ["CVE-2021-41773", "CVE-2021-42013"]
+        org: EXAMPLE-CORP
+        found: true
+
+  - name: хоста нет в базе → ok, found false (не ошибка)
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_NOT_FOUND: "1" }
+    input: { ip: "203.0.113.7" }
+    expect:
+      status: ok
+      output:
+        ip: "203.0.113.7"
+        ports: []
+        hostnames: []
+        vulns: []
+        org: ""
+        found: false
+
+  - name: пустой ip → доменная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py" }
+    input: { ip: "   " }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: empty_ip, retryable: false }
+
+  - name: не IP-адрес → доменная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py" }
+    input: { ip: "example.com" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: bad_ip }
+
+  - name: донор не установлен (путь)
+    env: { SHODAN_BIN: "/nonexistent/shodan-bin" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: shodan_not_installed, retryable: false }
+
+  - name: донор не установлен (имя из PATH)
+    env: { SHODAN_BIN: "definitely_not_a_shodan_bin_xyz" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: shodan_not_installed }
+
+  - name: ключ не задан → tool_failed, не retryable
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_NO_KEY: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: отказ API по ключу → tool_failed, не retryable
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_AUTH_ERR: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: false }
+
+  - name: лимит запросов → tool_failed, retryable
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_RATE_LIMIT: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed, retryable: true }
+
+  - name: wall timeout → доменная, retryable
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_SLEEP: "3" }
+    input: { ip: "93.184.216.34", wall_timeout: 1 }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: timeout, retryable: true }
+
+  - name: донор без отчёта → доменная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_NO_REPORT: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
+  - name: битый отчёт донора → платформенная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_BAD_REPORT: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_report }
+
+  - name: донор упал → доменная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py", MOCK_FAIL: "1" }
+    input: { ip: "93.184.216.34" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: tool_failed }
+
+  - name: wall_timeout не число → платформенная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py" }
+    input: { ip: "93.184.216.34", wall_timeout: "быстро" }
+    expect:
+      exit_code: 2
+      error: { code: platform:bad_wall_timeout }
+
+  - name: битый JSON входа → платформенная ошибка
+    env: { SHODAN_BIN: "mock_shodan.py" }
+    input_raw: "{не json"
+    expect:
+      exit_code: 2

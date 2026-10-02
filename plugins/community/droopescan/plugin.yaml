@@ -1,0 +1,62 @@
+id: droopescan
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  DroopeScan (SamJoan/droopescan) — плагиновый сканер CMS (Drupal, WordPress,
+  Silverstripe, частично Joomla и Moodle). Обёртка над CLI droopescan: гоняет
+  подкоманду scan по одной явно заданной цели и разбирает её машинный вывод
+  --output json (версия, найденные модули и темы). Ставится отдельно:
+  pip install droopescan. ВНИМАНИЕ: droopescan не перечисляет уязвимости —
+  поле vulns в выходе всегда пустое, сопоставление версии с CVE делает
+  пользователь.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; пакет droopescan — отдельно
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # единственная цель скана; без схемы — https://
+  cms:
+    from: input.cms
+    type: string
+    optional: true      # позиционный аргумент scan (drupal, wordpress,
+                        # silverstripe, ...); без него droopescan сам
+                        # определяет CMS. Пусто = автоопределение
+  enumerate:
+    from: input.enumerate
+    type: string
+    optional: true      # -e: что именно проверять. argparse у droopescan
+                        # принимает РОВНО одну букву: a (всё, default),
+                        # p (плагины), t (темы), v (версии), i (интересные URL)
+  words:
+    from: input.words
+    type: number
+    optional: true      # -n, сколько слов проверять из словаря (default 1000)
+  threads:
+    from: input.threads
+    type: number
+    optional: true      # -t, потоков (default 4)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 600)
+
+output:
+  url:        { type: string }
+  version:    { type: string }
+  modules:    { type: array }
+  vulns:      { type: array }
+  count:      { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: URL из входа (явная цель оператора)" }
+    - { any_host: true, port: 80,  note: "target: URL из входа (явная цель оператора)" }
+  filesystem: none
+  secrets: []           # droopescan читает .netrc и http_proxy из окружения
+                        # сам, env-ключей плагином не запрашивается

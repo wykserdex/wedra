@@ -1,0 +1,46 @@
+id: webanalyze
+version: 0.1.0
+platform_api: "^0.1"
+description: >
+  WebAnalyze (rverton/webanalyze) — порт Wappalyzer: отпечаток технологий сайта
+  (CMS, фреймворки, CDN, аналитика, веб-серверы) по заголовкам, HTML и
+  cookie. Это Go-программа, а не pip-пакет: `pip install webanalyze` на PyPI
+  нет (404), ставится `go install github.com/rverton/webanalyze/cmd/webanalyze@latest`.
+  Обёртка гоняет `-host <host> -output json -silent` и разбирает JSON из stdout.
+author: "community · wedra showcase (OSINT)"
+
+runtime:
+  type: python
+  entry: main.py
+  requires: []          # только stdlib; webanalyze — отдельная Go-программа
+
+input:
+  url:
+    from: input.url
+    type: string
+    format: url         # полный URL или голый хост; схема в -host не передаётся
+  apps_file:
+    from: input.apps_file
+    type: string
+    optional: true      # путь к technologies.json; без него инструмент ищет
+                        # файл сам (cwd, домашний каталог, /usr/local/share)
+  crawl:
+    from: input.crawl
+    type: number
+    optional: true      # сколько ссылок Follow на отдать (default 0)
+  wall_timeout:
+    from: input.wall_timeout
+    type: number
+    optional: true      # общий лимит рана, секунды (default 300)
+
+output:
+  url:          { type: string }
+  technologies: { type: array }   # [{name, version}]
+  count:        { type: number }
+
+permissions:
+  network:
+    - { any_host: true, port: 443, note: "target: исследуемый сайт по HTTPS" }
+    - { any_host: true, port: 80, note: "target: исследуемый сайт по HTTP" }
+  filesystem: read       # читается technologies.json, путь задаёт оператор
+  secrets: []
