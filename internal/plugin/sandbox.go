@@ -1,3 +1,10 @@
+//lint:file-ignore SA4023 Проверка «сравнение всегда истинно» срабатывает здесь
+// только на платформе без изолятора: sandboxArgs на ней отказывает всегда, и
+// `if err != nil` в sandboxCommand выглядит тождественно истинным. В сборке с
+// изолятором (Linux) nil-ошибка — штатный путь, и проверка обязательна. Подавлено
+// на уровне файла, а не строки: директива //lint:ignore обязана что-то подавлять
+// и на Linux ругается «didn't match anything», то есть роняет CI на зелёном коде.
+
 package plugin
 
 import (
@@ -73,9 +80,6 @@ func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, sc
 		return nil, nil, errors.New("пустая команда плагина")
 	}
 	launcher, args, net, err := sandboxArgs(m, argv, scratch)
-	//lint:ignore SA4023 На платформе без изолятора sandboxArgs отказывает всегда,
-	// поэтому здесь сравнение выглядит тождественно истинным. В сборке с
-	// изолятором (Linux) nil-ошибка — штатный путь, и проверка обязательна.
 	if err != nil {
 		return nil, nil, err
 	}
