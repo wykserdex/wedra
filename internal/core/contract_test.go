@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // Плагин врёт тип (фикстура type_drifter: обещает string, возвращает 42).

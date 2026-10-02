@@ -128,3 +128,90 @@ func TestSafeRunDir(t *testing.T) {
 		}
 	}
 }
+
+// Каталог прогонов по умолчанию выбирается по одному правилу everywhere: раньше
+// `pipeline run` при отсутствии var/runs писал в runs/, а `runs list/show` искали
+// строго var/runs — и только что записанный ран становился невидимым.
+func TestDefaultRunsDirAt(t *testing.T) {
+	t.Run("var/runs есть — выбирается он", func(t *testing.T) {
+		base := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(base, "var", "runs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := DefaultRunsDirAt(base), filepath.Join(base, "var", "runs"); got != want {
+			t.Fatalf("DefaultRunsDirAt = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("var/runs нет — фолбэк на runs", func(t *testing.T) {
+		base := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(base, "runs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := DefaultRunsDirAt(base), filepath.Join(base, "runs"); got != want {
+			t.Fatalf("DefaultRunsDirAt = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("пусто на диске — фолбэк всё равно runs", func(t *testing.T) {
+		base := t.TempDir()
+		if got, want := DefaultRunsDirAt(base), filepath.Join(base, "runs"); got != want {
+			t.Fatalf("DefaultRunsDirAt = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("var/runs — файл, а не каталог", func(t *testing.T) {
+		base := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(base, "var"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, "var", "runs"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := DefaultRunsDirAt(base); got != filepath.Join(base, "runs") {
+			t.Fatalf("DefaultRunsDirAt = %q: не-каталог не должен выигрывать", got)
+		}
+	})
+}
+
+// Хранилище без явного baseDir обязано писать туда же, куда смотрит чтение:
+// иначе прогон, созданный ядром, не находится командой чтения.
+func TestStoreDefaultBaseDirMatchesReader(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "var", "runs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := chdirTemp(t, base)
+	defer restore()
+
+	if got, want := NewFilesystemStore("").BaseDir, DefaultRunsDir(); got != want {
+		t.Fatalf("FilesystemStore.BaseDir = %q, want %q", got, want)
+	}
+	js := NewJsonStore("", "")
+	if got, want := js.BaseDir, DefaultRunsDir(); got != want {
+		t.Fatalf("JsonStore.BaseDir = %q, want %q", got, want)
+	}
+	if got, want := js.DBPath, filepath.Join(DefaultRunsDir(), "runs.db"); got != want {
+		t.Fatalf("JsonStore.DBPath = %q, want %q", got, want)
+	}
+	if _, err := SafeRunDir("", "run-x"); err != nil {
+		t.Fatalf("SafeRunDir(\"\") вернул ошибку на пустом baseDir: %v", err)
+	}
+}
+
+// chdirTemp переводит процесс во временный каталог на время теста.
+func chdirTemp(t *testing.T, dir string) func() {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Chdir(old); err != nil {
+			t.Fatalf("вернуть рабочий каталог: %v", err)
+		}
+	}
+}

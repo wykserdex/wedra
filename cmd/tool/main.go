@@ -7,13 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	"wedra/internal/api"
-	"wedra/internal/core"
-	"wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "wedra tool v%s — инструмент плагинов (контракт: PROTOCOL.md)\n", api.Version)
+	fmt.Fprintf(os.Stderr, "wedra tool v%s — инструмент плагинов (контракт: PROTOCOL.md)\n", buildinfo.Resolve())
 	fmt.Fprintln(os.Stderr, `
   tool run <pipeline.yaml> [--yes] [--runs <dir>] [--resume <run_id>]   запуск цепочки
                                                      --yes: auto-accept human_gate (CI/демо)

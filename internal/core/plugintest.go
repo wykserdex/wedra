@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wykserdex/wedra/internal/plugin"
 	"gopkg.in/yaml.v3"
-	"wedra/internal/plugin"
 )
 
 // ── Схема plugin.test.yaml ──────────────────────────────────────────────
@@ -141,25 +141,6 @@ func mapToEnv(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k, v := range m {
 		out = append(out, k+"="+v)
-	}
-	return out
-}
-
-func mergeEnv(base, extra []string) []string {
-	out := append([]string(nil), base...)
-	idx := map[string]int{}
-	for i, kv := range out {
-		k, _, _ := strings.Cut(kv, "=")
-		idx[k] = i
-	}
-	for _, kv := range extra {
-		k, _, _ := strings.Cut(kv, "=")
-		if i, ok := idx[k]; ok {
-			out[i] = kv
-		} else {
-			idx[k] = len(out)
-			out = append(out, kv)
-		}
 	}
 	return out
 }

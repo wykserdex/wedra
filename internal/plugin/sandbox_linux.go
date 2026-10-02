@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // Linux backend: bubblewrap. Требует непривилегированных user namespaces.

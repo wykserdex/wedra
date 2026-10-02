@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // requirePython пропускает интеграционные тесты без интерпретатора.

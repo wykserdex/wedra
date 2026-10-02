@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 func gateTestStep(t *testing.T) *pipeline.Step {
@@ -21,21 +21,6 @@ func gateTestStep(t *testing.T) *pipeline.Step {
 		Actions:  []string{"accept", "reject"},
 		OnReject: "stop",
 	}
-}
-
-func eventsOfType(t *testing.T, dir string, typ string) []map[string]interface{} {
-	t.Helper()
-	events, err := journal.NewReader(dir).Events()
-	if err != nil {
-		t.Fatalf("journal: %v", err)
-	}
-	var out []map[string]interface{}
-	for _, e := range events {
-		if e["type"] == typ {
-			out = append(out, e)
-		}
-	}
-	return out
 }
 
 func TestChannelGateAcceptWithEdits(t *testing.T) {

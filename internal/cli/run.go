@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"wedra/internal/core"
-	"wedra/internal/execution"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 func runIDFromDir(runDir string) string {
@@ -186,10 +187,7 @@ func RunPipelineRun(args []string) {
 		os.Exit(2)
 	}
 	if runsDir == "" {
-		runsDir = "var/runs"
-		if _, err := os.Stat(runsDir); os.IsNotExist(err) {
-			runsDir = "runs"
-		}
+		runsDir = journal.DefaultRunsDir()
 	}
 
 	eng := core.NewEngine()

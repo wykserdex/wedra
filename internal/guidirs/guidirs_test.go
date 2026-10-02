@@ -4,12 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 func TestDefaultAndParse(t *testing.T) {
 	defaults := Default()
-	if defaults.Plugins != "plugins" || defaults.Pipelines != "examples" || defaults.Runs != "var/runs" {
+	// Runs не константа, а следствие общего правила выбора каталога прогонов:
+	// GUI обязан читать оттуда же, откуда пишет ран.
+	if defaults.Plugins != "plugins" || defaults.Pipelines != "examples" {
 		t.Fatalf("unexpected defaults: %+v", defaults)
+	}
+	if defaults.Runs != journal.DefaultRunsDir() {
+		t.Fatalf("Runs = %q, а правило выбора каталога даёт %q",
+			defaults.Runs, journal.DefaultRunsDir())
 	}
 	got, rest, err := Parse([]string{
 		"--plugins=custom/plugins",

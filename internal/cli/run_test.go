@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/execution"
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 func TestRunIDFromDir(t *testing.T) {

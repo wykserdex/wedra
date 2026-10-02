@@ -18,19 +18,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/registry"
 	"gopkg.in/yaml.v3"
-	"wedra/internal/common"
-	"wedra/internal/core"
-	"wedra/internal/execution"
-	"wedra/internal/gate"
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
-	"wedra/internal/registry"
 )
-
-// Version — версия сервера в initialize (cli проставляет из VERSION).
-var Version = "dev"
 
 const (
 	// defaultProtocolVersion — ревизия, которую сервер выбирает, когда клиент
@@ -218,7 +216,7 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	runsDir := opts.RunsDir
 	if runsDir == "" {
-		runsDir = filepath.Join(absWork, "var", "runs")
+		runsDir = journal.DefaultRunsDirAt(absWork)
 	} else if !filepath.IsAbs(runsDir) {
 		runsDir = filepath.Join(absWork, runsDir)
 	}
@@ -954,7 +952,7 @@ func (s *Server) handleCall(call *inflightCall, req *Request) *Response {
 		return &Response{Result: map[string]interface{}{
 			"protocolVersion": version,
 			"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-			"serverInfo":      map[string]interface{}{"name": "wedra", "version": Version},
+			"serverInfo":      map[string]interface{}{"name": "wedra", "version": buildinfo.Resolve()},
 		}}
 	case "ping":
 		return &Response{Result: map[string]interface{}{}}

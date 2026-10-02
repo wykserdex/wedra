@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // blockSnapshots — кладёт каталог на место context.json.tmp в каталоге рана:

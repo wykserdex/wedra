@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func TestKindOf(t *testing.T) {

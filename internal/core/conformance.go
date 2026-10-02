@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // ConformanceCheck — одна проверка ядра/протокола.
@@ -348,11 +348,21 @@ func RunConformance(fixturesDir string) ConformanceReport {
 	if found {
 		checks = append(checks, confPass("error_codes"))
 	} else {
-		codes := []string{}
+		// Коды собираются не для красоты: без них в отчёте видно только
+		// «ожидаемого кода нет», и непонятно, что пришло вместо него. Раньше
+		// срез заполнялся и выбрасывался — ровно тот случай, когда проверка
+		// знает ответ и молчит.
+		codes := make([]string, 0, len(issues))
 		for _, is := range issues {
 			codes = append(codes, is.Code)
 		}
-		checks = append(checks, confFail("error_codes", "нет E_PLUGIN_LOAD/E_PORT_SOURCE"))
+		msg := "нет E_PLUGIN_LOAD/E_PORT_SOURCE"
+		if len(codes) == 0 {
+			msg += "; валидатор не выдал ни одного кода"
+		} else {
+			msg += "; получено: " + strings.Join(codes, ", ")
+		}
+		checks = append(checks, confFail("error_codes", msg))
 	}
 
 	// Покрытие фикстур — отдельная проверка, потому что отчёт обязан отличать

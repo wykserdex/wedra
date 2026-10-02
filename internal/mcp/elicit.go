@@ -35,9 +35,9 @@ import (
 	"sync"
 	"time"
 
-	"wedra/internal/gate"
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // elicitTimeout — сколько ждать ответа человека. Гейт — это не запрос к API:

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/gate"
 )
 
 const fxPlugins = "testdata/plugins/"

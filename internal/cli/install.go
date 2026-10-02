@@ -15,9 +15,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wedra/internal/core"
-	"wedra/internal/pipeline"
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 // ── plugin install ─────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // agentServer — сервер с ЯВНО разрешённым exec_plugin. Тесты ниже проверяют
@@ -41,7 +41,9 @@ func TestToolExecPluginRequiresPlugin(t *testing.T) {
 	s := agentServer()
 	_, _, rpcErr := s.toolExecPlugin(nil, map[string]interface{}{})
 	if rpcErr == nil {
-		t.Error("exec_plugin без plugin должен вернуть ошибку")
+		// Fatal, а не Error: следующая строка читает rpcErr.Message, и при
+		// nil-ошибке тест падал бы паникой вместо отчёта.
+		t.Fatal("exec_plugin без plugin должен вернуть ошибку")
 	}
 	if !strings.Contains(rpcErr.Message, "нужен plugin") {
 		t.Error("Ожидается сообщение 'нужен plugin', получено: " + rpcErr.Message)
@@ -55,7 +57,7 @@ func TestToolExecPluginRejectsOutsideRoot(t *testing.T) {
 		"plugin": "../outside",
 	})
 	if rpcErr == nil {
-		t.Error("exec_plugin с .. должен вернуть ошибку")
+		t.Fatal("exec_plugin с .. должен вернуть ошибку")
 	}
 	if !strings.Contains(rpcErr.Message, "E_PLUGIN_OUTSIDE_ROOT") {
 		t.Error("Ожидается E_PLUGIN_OUTSIDE_ROOT, получено: " + rpcErr.Message)

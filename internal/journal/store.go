@@ -10,6 +10,28 @@ import (
 	"sync"
 )
 
+// DefaultRunsDir — каталог прогонов по умолчанию (см. DefaultRunsDirAt).
+func DefaultRunsDir() string {
+	return DefaultRunsDirAt("")
+}
+
+// DefaultRunsDirAt — каталог прогонов по умолчанию относительно base: это
+// base/var/runs, а если такого каталога нет — base/runs. Вне репозитория WEDRA
+// каталога var/ обычно не существует, и без фолбэка ран писался в runs/, пока
+// команды чтения искали строго var/runs.
+//
+// Правило живёт здесь, а не в каждой команде CLI: `pipeline run` знал про
+// фолбэк, а `runs list`/`runs show` — нет, и только что записанный ран был не
+// виден для чтения. Кто пишет, тот и читает — из одного места. base="" —
+// текущий каталог.
+func DefaultRunsDirAt(base string) string {
+	primary := filepath.Join(base, "var", "runs")
+	if info, err := os.Stat(primary); err == nil && info.IsDir() {
+		return primary
+	}
+	return filepath.Join(base, "runs")
+}
+
 type RunStore interface {
 	Create(runID string) (*Journal, error)
 	OpenAppend(runID string) (*Journal, error)
@@ -27,7 +49,7 @@ type FilesystemStore struct {
 
 func NewFilesystemStore(baseDir string) *FilesystemStore {
 	if baseDir == "" {
-		baseDir = "var/runs"
+		baseDir = DefaultRunsDir()
 	}
 	return &FilesystemStore{BaseDir: baseDir}
 }
@@ -76,7 +98,7 @@ func SafeRunDir(baseDir, runID string) (string, error) {
 		return "", err
 	}
 	if baseDir == "" {
-		baseDir = "var/runs"
+		baseDir = DefaultRunsDir()
 	}
 	root, err := filepath.Abs(baseDir)
 	if err != nil {
@@ -360,7 +382,7 @@ type JsonStore struct {
 
 func NewJsonStore(baseDir, dbPath string) *JsonStore {
 	if baseDir == "" {
-		baseDir = "var/runs"
+		baseDir = DefaultRunsDir()
 	}
 	if dbPath == "" {
 		dbPath = filepath.Join(baseDir, "runs.db")

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 func requirePython(t *testing.T) {
@@ -97,9 +97,8 @@ func writeSleeper(t *testing.T, dir string) string {
 	return d
 }
 
-type mapEngine struct {
-	dirs map[string]string
-}
+// mapEngine — движок тестов: манифест читается из каталога плагина на диске.
+type mapEngine struct{}
 
 type permissiveEngine struct{}
 

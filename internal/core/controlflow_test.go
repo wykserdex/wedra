@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // ── when: условие истинно → шаг выполняется ────────────────────────────

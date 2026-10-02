@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func perm(host string, port int, anyHost bool) []pipeline.NetworkPermission {

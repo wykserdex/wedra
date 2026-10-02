@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 
 	"gopkg.in/yaml.v3"
 )
@@ -138,7 +138,7 @@ func isInputTypeDeclaration(value interface{}) bool {
 
 func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Error(w, "POST yaml", 405)
+		http.Error(w, "POST yaml", http.StatusMethodNotAllowed)
 		return
 	}
 	data, err := io.ReadAll(r.Body)
@@ -279,7 +279,7 @@ type outFile struct {
 
 func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Error(w, "POST editor-doc json", 405)
+		http.Error(w, "POST editor-doc json", http.StatusMethodNotAllowed)
 		return
 	}
 	data, err := io.ReadAll(r.Body)
@@ -294,7 +294,7 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 	}
 	if len(doc.Unsupported) > 0 {
 		http.Error(w, "пайплайн содержит поля, которые редактор не управляет: "+strings.Join(doc.Unsupported, ", ")+
-			" — редактируй в YAML (вкладка Пайплайны), не из редактора", 409)
+			" — редактируй в YAML (вкладка Пайплайны), не из редактора", http.StatusConflict)
 		return
 	}
 	// документ → схема ядра

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // Конфиг доверия не должен молча приходить из рабочего каталога: этот каталог

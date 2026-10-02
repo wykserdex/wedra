@@ -8,7 +8,7 @@ point for gated actions.
 
 ## Current contract
 
-- Product version: `0.33c` from [`VERSION`](VERSION)
+- Product version: `0.34.0-lite` from [`VERSION`](VERSION)
 - Pipeline/plugin protocol: `0.2` from [`protocol/VERSION`](protocol/VERSION)
 - Primary CLI: `wedra`
 - Compatibility CLI: `tool` (legacy surface; do not add new behavior there)
@@ -77,8 +77,8 @@ the run and is the recommended flag for CI. On Linux the backend is `bwrap`
 that is always its own - egress comes from a userspace stack, `slirp4netns`, and
 without it a plugin that declared `permissions.network` is refused rather than
 run). On macOS and Windows there is no isolation backend, so untrusted code is
-refused outright; the former `sandbox-exec` implementation is kept at
-`attic/sandbox_darwin.go.archived` and is not built. A backend that is installed
+refused outright; the former `sandbox-exec` implementation was archived out of
+the tree (it is in git history at commit 9d17120) and is not built. A backend that is installed
 but cannot isolate on the host (for example, user namespaces are blocked) counts
 as absent. The sandbox restricts writes but not reads, and does not filter egress
 by destination for a plugin that declares `permissions.network` - it gets

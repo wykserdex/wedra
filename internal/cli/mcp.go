@@ -11,10 +11,11 @@ import (
 	"strings"
 	"sync"
 
-	"wedra/internal/api"
-	"wedra/internal/gate"
-	"wedra/internal/mcp"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/api"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/mcp"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // RunMCP — wedra mcp --plugins=<dir>... [--workdir=<dir>] [--runs-dir=<dir>]
@@ -106,10 +107,7 @@ func RunMCP(args []string) {
 	}
 	absWork, _ := filepath.Abs(workdir)
 	if runsdir == "" {
-		runsdir = filepath.Join(absWork, "var", "runs")
-	}
-	if raw, err := os.ReadFile(filepath.Join(absWork, "VERSION")); err == nil {
-		mcp.Version = strings.TrimSpace(string(raw))
+		runsdir = journal.DefaultRunsDirAt(absWork)
 	}
 
 	// Изоляция stdout: JSON-RPC — только в исходный stdout, всё остальное — в stderr.

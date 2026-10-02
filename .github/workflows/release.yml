@@ -27,6 +27,11 @@ jobs:
         run: |
           set -eu
           file_version=$(tr -d '\r\n' < VERSION)
+          # SemVer, а не буквенный суффикс: Go принимает как версию модуля только
+          # SemVer, поэтому тег вроде v0.33c закрывал `go install` молча — тег
+          # существует на GitHub и «не существует» для тулинга.
+          printf '%s' "$file_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
+            || { echo "VERSION=$file_version не SemVer: нужен вид X.Y.Z" >&2; exit 1; }
           test "${GITHUB_REF_NAME#v}" = "$file_version"
       - name: dependency integrity
         run: go mod verify
@@ -48,7 +53,7 @@ jobs:
         run: |
           mkdir -p dist
           VER="${GITHUB_REF_NAME#v}"
-          LDFLAGS="-s -w -X wedra/internal/api.Version=${VER} -X wedra/internal/mcp.Version=${VER}"
+          LDFLAGS="-s -w -X github.com/wykserdex/wedra/internal/buildinfo.Version=${VER}"
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
               ext=""

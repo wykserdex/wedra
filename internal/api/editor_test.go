@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 func postBytes(t *testing.T, url string, body []byte) (int, map[string]interface{}) {

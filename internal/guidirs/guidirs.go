@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/wykserdex/wedra/internal/journal"
 )
 
 type Dirs struct {
@@ -12,8 +14,11 @@ type Dirs struct {
 	Runs      string
 }
 
+// Default — каталоги по умолчанию. Runs вычисляется тем же правилом, что и в
+// CLI: каталог, который создаст ран, должен быть тем же, из которого GUI и
+// лаунчер его прочитают.
 func Default() Dirs {
-	return Dirs{Plugins: "plugins", Pipelines: "examples", Runs: "var/runs"}
+	return Dirs{Plugins: "plugins", Pipelines: "examples", Runs: journal.DefaultRunsDir()}
 }
 
 func (d Dirs) Ensure() error {

@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // trustDirIn — внести в allow-list сервера плагины из каталога dir

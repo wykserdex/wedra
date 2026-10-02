@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"wedra/internal/common"
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 type Manifest = pipeline.Manifest

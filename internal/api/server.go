@@ -15,18 +15,18 @@ import (
 	"sync"
 	"time"
 
-	"wedra/internal/core"
-	"wedra/internal/execution"
-	"wedra/internal/gate"
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
-	"wedra/web"
+	"github.com/wykserdex/wedra/internal/buildinfo"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/gate"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/web"
 )
 
 // Version — версия бинарника. var (не const): release-воркфлоу переопределяет
 // через ldflags -X из тега сборки; фолбэк — текущая версия для локальных сборок.
-var Version = "dev" // фолбэк без VERSION-файла (реальный — из CWD)/tag
 
 const maxRequestBodySize = 8 << 20
 
@@ -68,6 +68,14 @@ type Server struct {
 	// PairingCode — сессия не требуется (--no-session, встраивание, тесты).
 	// Только в памяти процесса; в cookie — токен с TTL, не секрет.
 	PairingCode string
+
+	// StaticDir — каталог с фронтендом (index.html, app.js, editor/).
+	// Пусто = встроенный (go:embed) фронтенд. Раньше каталог web/static
+	// подхватывался автоматически, если был виден ИЗ ТЕКУЩЕГО КАТАЛОГА, и это
+	// делало отдаваемый фронтенд свойством места запуска: подложенный
+	// ./web/static/index.html подменял GUI, а после входа этот JS жил в origin
+	// с полной сессией. Теперь dev-режим включается только явным флагом.
+	StaticDir string
 
 	// H4: чем сервер объявляет себя наружу (allow-list Host, внешняя схема,
 	// доверие к прокси, имя cookie и TTL сессии). Наполняется ConfigureListen;
@@ -260,22 +268,22 @@ func (s *Server) csrfGuard(w http.ResponseWriter, r *http.Request) bool {
 	switch site {
 	case "", "same-origin", "none":
 	case "cross-site", "same-site":
-		http.Error(w, "cross-site request запрещён (CSRF)", 403)
+		http.Error(w, "cross-site request запрещён (CSRF)", http.StatusForbidden)
 		return false
 	default:
-		http.Error(w, "неизвестный Sec-Fetch-Site (CSRF)", 403)
+		http.Error(w, "неизвестный Sec-Fetch-Site (CSRF)", http.StatusForbidden)
 		return false
 	}
 
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
 		if !s.policy.originAllowed(origin) {
-			http.Error(w, "Origin не совпадает с объявленным адресом (CSRF)", 403)
+			http.Error(w, "Origin не совпадает с объявленным адресом (CSRF)", http.StatusForbidden)
 			return false
 		}
 		return true
 	}
 	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" && !s.policy.originAllowed(referer) {
-		http.Error(w, "Referer не совпадает с объявленным адресом (CSRF)", 403)
+		http.Error(w, "Referer не совпадает с объявленным адресом (CSRF)", http.StatusForbidden)
 		return false
 	}
 	return true
@@ -309,11 +317,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/parse/pipeline", s.handleParsePipeline)
 	mux.HandleFunc("/api/serialize/pipeline", s.handleSerializePipeline)
 	// static frontend — v0.7: GUI вшит в бинарник (go:embed, package web).
-	// Если web/static виден из CWD (dev-режим: запуск из checkout репо) —
-	// отдаём с диска (горячая правка JS без пересборки); иначе — из
-	// встроенного FS: release-бинарник работает без репо на любой ОС.
-	if _, err := os.Stat("web/static"); err == nil {
-		mux.Handle("/", http.FileServer(http.Dir("web/static")))
+	// Frontend с диска отдаётся ТОЛЬКО когда каталог назван явно (StaticDir,
+	// флаг `wedra gui --static=<dir>`): иначе отдаваемое содержимое зависело бы
+	// от места запуска, а не от того, что собрано в бинарник.
+	if s.StaticDir != "" {
+		mux.Handle("/", http.FileServer(http.Dir(s.StaticDir)))
 	} else {
 		static, err := fs.Sub(web.FS, "static")
 		if err != nil {
@@ -365,11 +373,7 @@ func (s *Server) Routes() http.Handler {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	// v0.12 fix: читаем VERSION файл, а не хардкод 0.11
-	ver := Version
-	if raw, err := os.ReadFile("VERSION"); err == nil {
-		ver = strings.TrimSpace(string(raw))
-	}
+	ver := buildinfo.Resolve()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": ver, "protocol": "0.2"})
 }
@@ -596,7 +600,7 @@ func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "saved", "file": name})
 		return
 	}
-	http.Error(w, "method not allowed", 405)
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 }
 
 func summarizeRun(dir string, events []map[string]interface{}) map[string]interface{} {
@@ -893,7 +897,7 @@ func (s *Server) resolvePipelineFile(name string) (string, error) {
 // кроме publicAPI. Проверка в обработчике была бы второй копией одного правила.
 func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Error(w, "POST {file, yes}", 405)
+		http.Error(w, "POST {file, yes}", http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct {
@@ -1000,7 +1004,7 @@ func (s *Server) handleRunCancel(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	if r.Method != "POST" {
-		http.Error(w, "POST", 405)
+		http.Error(w, "POST", http.StatusMethodNotAllowed)
 		return
 	}
 	cancel := s.cancelFor(id)
@@ -1086,13 +1090,13 @@ func (s *Server) handleRunGate(w http.ResponseWriter, r *http.Request, id string
 		w.WriteHeader(202)
 		json.NewEncoder(w).Encode(map[string]string{"status": "queued"})
 	default:
-		http.Error(w, "GET or POST", 405)
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 	}
 }
 
 func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Error(w, "POST yaml", 405)
+		http.Error(w, "POST yaml", http.StatusMethodNotAllowed)
 		return
 	}
 	data, err := io.ReadAll(r.Body)
@@ -1115,7 +1119,7 @@ func (s *Server) handlePlanPipeline(w http.ResponseWriter, r *http.Request) {
 	// v0.12 fix: раньше был алиас на validate, никакого DAG
 	// теперь строит DAG: узлы + рёбра по bind/form зависимостям
 	if r.Method != "POST" {
-		http.Error(w, "POST yaml", 405)
+		http.Error(w, "POST yaml", http.StatusMethodNotAllowed)
 		return
 	}
 	data, err := io.ReadAll(r.Body)

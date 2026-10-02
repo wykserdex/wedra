@@ -1,7 +1,7 @@
 package verdoc
 
 // Тесты проверки версий. Ключевой сценарий — расхождение: именно его эта
-// проверка и поймала (VERSION 0.33a против 0.32c в README), поэтому тест без
+// проверка и поймала (VERSION 0.34.0 против 0.33.0 в README), поэтому тест без
 // расхождения ничего не проверял бы.
 
 import (
@@ -165,12 +165,12 @@ func (r *repoFixture) patch(t *testing.T, rel, old, new string) {
 
 // Главный сценарий: сходится.
 func TestCheckRepoPassesOnConsistentRepo(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	out, err := CheckRepo(r.dir)
 	if err != nil {
 		t.Fatalf("согласованный репозиторий не прошёл: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "0.33a") {
+	if !strings.Contains(out, "0.34.0") {
 		t.Fatalf("в сводке нет версии: %q", out)
 	}
 }
@@ -193,7 +193,7 @@ func TestCheckRepoPassesOnRealRepository(t *testing.T) {
 // зелёной — а объявления в tools/list у него не было, то есть агент не мог его
 // открыть через discovery. Проверка обязана ловить это сама.
 func TestCheckRepoFailsOnUnpublishedTool(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.patch(t, mcpSchemasFile, "\t\t{Name: \"exec_plugin\", Description: \"d\"},\n", "")
 
 	out, err := CheckRepo(r.dir)
@@ -208,7 +208,7 @@ func TestCheckRepoFailsOnUnpublishedTool(t *testing.T) {
 // Обратное расхождение опаснее: tools/list обещает инструмент, которого сервер
 // не принимает. Агент строит план на шаге, которого не существует.
 func TestCheckRepoFailsOnPhantomTool(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.patch(t, mcpSchemasFile, "\t\t{Name: \"exec_plugin\", Description: \"d\"},\n",
 		"\t\t{Name: \"exec_plugin\", Description: \"d\"},\n\t\t{Name: \"ghost_tool\", Description: \"d\"},\n")
 
@@ -224,7 +224,7 @@ func TestCheckRepoFailsOnPhantomTool(t *testing.T) {
 // Проверка не должна выродиться в «всё зелёное» на пустом разборе: если
 // разобрать объявления не удалось, это поломка проверки, а не успех.
 func TestCheckRepoFailsWhenToolDefsUnparseable(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.write(t, mcpSchemasFile, "package mcp\n\nfunc toolDefs() []Tool { return nil }\n")
 
 	out, err := CheckRepo(r.dir)
@@ -239,17 +239,17 @@ func TestCheckRepoFailsWhenToolDefsUnparseable(t *testing.T) {
 	}
 }
 
-// Расхождение, которое проверка и ловила: VERSION 0.33a, README 0.32c.
+// Расхождение, которое проверка и ловила: VERSION 0.34.0, README 0.33.0.
 func TestCheckRepoFailsOnReadmeVersionDrift(t *testing.T) {
-	r := newRepo(t, "0.33a")
-	r.patch(t, "README.md", "сейчас `0.33a`", "сейчас `0.32c`")
-	r.patch(t, "README.en.md", "Product version: `0.33a`", "Product version: `0.32c`")
+	r := newRepo(t, "0.34.0")
+	r.patch(t, "README.md", "сейчас `0.34.0`", "сейчас `0.33.0`")
+	r.patch(t, "README.en.md", "Product version: `0.34.0`", "Product version: `0.33.0`")
 
 	out, err := CheckRepo(r.dir)
 	if err == nil {
 		t.Fatalf("расхождение версий не поймано:\n%s", out)
 	}
-	if !strings.Contains(out, "0.32c") || !strings.Contains(out, "0.33a") {
+	if !strings.Contains(out, "0.33.0") || !strings.Contains(out, "0.34.0") {
 		t.Fatalf("в отчёте нет ни одной из версий:\n%s", out)
 	}
 	for _, rel := range []string{"README.md", "README.en.md"} {
@@ -261,9 +261,9 @@ func TestCheckRepoFailsOnReadmeVersionDrift(t *testing.T) {
 
 // Расхождение в docs/ — того же класса, что и в README.
 func TestCheckRepoFailsOnDocsVersionDrift(t *testing.T) {
-	r := newRepo(t, "0.33a")
-	r.patch(t, "docs/versioning.md", "| `VERSION` | `0.33a` |", "| `VERSION` | `0.32c` |")
-	r.patch(t, "docs/architecture.md", "  `0.33a`,", "  `0.32c`,")
+	r := newRepo(t, "0.34.0")
+	r.patch(t, "docs/versioning.md", "| `VERSION` | `0.34.0` |", "| `VERSION` | `0.33.0` |")
+	r.patch(t, "docs/architecture.md", "  `0.34.0`,", "  `0.33.0`,")
 
 	out, err := CheckRepo(r.dir)
 	if err == nil {
@@ -274,12 +274,12 @@ func TestCheckRepoFailsOnDocsVersionDrift(t *testing.T) {
 	}
 }
 
-// Примеры в правилах нумерации — не расхождение: `0.32a`/`0.32b` в том же
+// Примеры предыдущих релизов в том же блоке — не расхождение:
 // блоке про VERSION обязаны оставаться в покое.
 func TestCheckRepoIgnoresNumberingExamples(t *testing.T) {
-	r := newRepo(t, "0.33a")
-	r.patch(t, "docs/versioning.md", "| `VERSION` | `0.33a` |",
-		"| `VERSION` | `0.33a` | инкременты `0.32a`, `0.32b`, `0.32c`; тег `v0.32a` |")
+	r := newRepo(t, "0.34.0")
+	r.patch(t, "docs/versioning.md", "| `VERSION` | `0.34.0` |",
+		"| `VERSION` | `0.34.0` | предыдущие релизы `0.32.0`, `0.33.0`; тег `v0.33.0` |")
 	if out, err := CheckRepo(r.dir); err != nil {
 		t.Fatalf("примеры нумерации приняты за расхождение: %v\n%s", err, out)
 	}
@@ -287,7 +287,7 @@ func TestCheckRepoIgnoresNumberingExamples(t *testing.T) {
 
 // Минимум Go: README обещает 1.22, go.mod требует 1.26.
 func TestCheckRepoFailsOnGoFloorDrift(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.patch(t, "README.md", "Go 1.26+", "Go 1.22+")
 	r.patch(t, "README.en.md", "Go 1.26 or newer", "Go 1.22 or newer")
 	r.patch(t, "CONTRIBUTING.md", "Go 1.26 or newer", "Go 1.22 or newer")
@@ -304,7 +304,7 @@ func TestCheckRepoFailsOnGoFloorDrift(t *testing.T) {
 // Отсутствие директивы `go` — поломка проверки, а не успех: иначе «зелёный CI"
 // означал бы «проверка не нашла чего сравнивать».
 func TestCheckRepoFailsWhenGoDirectiveMissing(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.write(t, "go.mod", "module wedra\n")
 	out, err := CheckRepo(r.dir)
 	if err == nil || !strings.Contains(err.Error(), "директива `go X.Y`") {
@@ -314,7 +314,7 @@ func TestCheckRepoFailsWhenGoDirectiveMissing(t *testing.T) {
 
 // Число инструментов MCP в README против dispatch-таблицы callTool.
 func TestCheckRepoFailsOnMCPToolCountDrift(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	// Та самая ошибка, что была в репозитории: восьмой инструмент принимается,
 	// но не назван.
 	r.patch(t, "README.md", ", `cancel_run`, `exec_plugin` |", ", `cancel_run` |")
@@ -331,7 +331,7 @@ func TestCheckRepoFailsOnMCPToolCountDrift(t *testing.T) {
 // Лишний инструмент в README — тоже расхождение: README обещает то, чего
 // вызов не принимает.
 func TestCheckRepoFailsOnUnknownReadmeTool(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.patch(t, "README.md", "`cancel_run`", "`cancel_run`, `teleport_run`")
 
 	out, err := CheckRepo(r.dir)
@@ -346,7 +346,7 @@ func TestCheckRepoFailsOnUnknownReadmeTool(t *testing.T) {
 // Строка таблицы MCP исчезла — проверка обязана это заметить, а не молча
 // признать, что сверять нечего.
 func TestCheckRepoFailsWhenMCPRowRemoved(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.patch(t, "README.md", "| Агенты (MCP) | 8 инструментов: `list_plugins`, `describe_plugin`, `validate_pipeline`, `plan_pipeline`, `run_pipeline`, `get_run`, `cancel_run`, `exec_plugin` |\n", "")
 
 	out, err := CheckRepo(r.dir)
@@ -358,7 +358,7 @@ func TestCheckRepoFailsWhenMCPRowRemoved(t *testing.T) {
 // callTool исчез или потерял switch — проверка не должна превращаться в
 // вакуумно-зелёную.
 func TestCheckRepoFailsWhenDispatchTableEmpty(t *testing.T) {
-	r := newRepo(t, "0.33a")
+	r := newRepo(t, "0.34.0")
 	r.write(t, mcpServerFile, "package mcp\n\ntype Server struct{}\n")
 
 	out, err := CheckRepo(r.dir)
@@ -382,5 +382,19 @@ func findRepoRoot() (string, error) {
 			return "", os.ErrNotExist
 		}
 		dir = parent
+	}
+}
+
+// Буквенная схема отвергается. Она выглядела совместимой — свой же код её и
+// породил, — но тег `v0.33c` для Go не версия модуля, поэтому `go install`
+// молча не работал. Инвариант теперь проверяется, а не описывается в прозе.
+func TestCheckRepoRejectsLetteredProductVersion(t *testing.T) {
+	r := newRepo(t, "0.33c")
+	out, err := CheckRepo(r.dir)
+	if err == nil {
+		t.Fatalf("буквенная версия прошла проверку:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "SemVer") {
+		t.Fatalf("отказ обязан объяснять причину (SemVer), а не просто констатировать: %v", err)
 	}
 }

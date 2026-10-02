@@ -14,11 +14,11 @@ import (
 	"sort"
 	"strings"
 
-	"wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/common"
 
-	"wedra/internal/core"
-	"wedra/internal/pipeline"
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 // RunRegistryValidate — wedra registry validate [--registry=<url|path>] [--local-source=<dir>]

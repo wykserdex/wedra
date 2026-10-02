@@ -76,9 +76,7 @@ func PlanPipeline(pf *PipelineFile, eng Engine) (*Plan, error) {
 				parts := strings.Split(from, ".")
 				if len(parts) >= 2 {
 					dep := parts[1]
-					if strings.HasSuffix(dep, "_all") {
-						dep = strings.TrimSuffix(dep, "_all")
-					}
+					dep = strings.TrimSuffix(dep, "_all")
 					edges = append(edges, DAGEdge{From: dep, To: st.ID, Via: from})
 				}
 			}
@@ -98,9 +96,7 @@ func PlanPipeline(pf *PipelineFile, eng Engine) (*Plan, error) {
 				parts := strings.Split(f.Field, ".")
 				if len(parts) >= 2 {
 					dep := parts[1]
-					if strings.HasSuffix(dep, "_all") {
-						dep = strings.TrimSuffix(dep, "_all")
-					}
+					dep = strings.TrimSuffix(dep, "_all")
 					edges = append(edges, DAGEdge{From: dep, To: st.ID, Via: f.Field})
 				}
 			}

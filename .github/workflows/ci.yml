@@ -30,6 +30,19 @@ jobs:
           grep -Fq "## v${protocol_version} " protocol/CHANGELOG.md
           grep -Fq "\"protocol\": \"${protocol_version}\"" conformance/manifest.json
           test -z "$(git ls-files var/runs)"
+      # Внутренние заметки (переписка по аутричу, инструкции агента, исторические
+      # разборы, некомпилируемый архив кода) не публикуются. Проверка стоит здесь,
+      # потому что цена ошибки — не сломанная сборка, а опубликованный документ,
+      # который читают раньше кода. Разбор — docs/repo-hygiene.md.
+      - name: internal notes stay out of the public tree
+        run: |
+          set -eu
+          for p in AGENTS.md OUTREACH_TRACKER.md OUTREACH_ROUND2.md archive attic; do
+            if git ls-files --error-unmatch "$p" >/dev/null 2>&1; then
+              echo "внутренний путь $p попал в индекс: ему здесь не место (docs/repo-hygiene.md)" >&2
+              exit 1
+            fi
+          done
       - name: vulnerability scan
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
@@ -70,7 +83,13 @@ jobs:
       # поднять его выше, `go test ./...` пройдёт без изолятора, и sandbox-тесты
       # начнут SKIP вместо PASS — покрытие молча уедет вниз, и никто этого
       # не заметит по зелёной галке.
-      - name: wedra check (fmt, vet, mod, build, test, conformance, pipelines, plugins, registry)
+      # staticcheck нужен шагу lint внутри wedra check, и шаг этот fail-closed:
+      # без линтера в PATH проверка падает, а не молча проходит без него.
+      - name: staticcheck (шаг lint в wedra check)
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: wedra check (fmt, vet, lint, mod, build, test, conformance, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
       - name: build legacy tool
         run: go build -o tool ./cmd/tool

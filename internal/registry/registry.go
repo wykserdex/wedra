@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/common"
 )
 
 // Registry v0.1 — формат заморозить как протокол.

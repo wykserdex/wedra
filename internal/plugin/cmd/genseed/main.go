@@ -44,8 +44,8 @@ import (
 	"sort"
 	"strings"
 
-	"wedra/internal/plugin"
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 const outPath = "internal/plugin/trustseed_gen.go"

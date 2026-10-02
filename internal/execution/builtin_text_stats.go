@@ -5,10 +5,10 @@ import (
 	"regexp"
 	"strings"
 
-	"wedra/internal/journal"
-	"wedra/internal/pipeline"
-	"wedra/internal/plugin"
-	"wedra/internal/runctx"
+	"github.com/wykserdex/wedra/internal/journal"
+	"github.com/wykserdex/wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/runctx"
 )
 
 // core/text_stats — встроенный модуль: метрики текста.

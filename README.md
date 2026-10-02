@@ -336,7 +336,7 @@ var/runs/             runtime output; ignored by git
 Стабильные сборки — в [GitHub Releases](https://github.com/wykserdex/wedra/releases):
 `wedra-{linux,darwin,windows}-{amd64,arm64}`, legacy `tool-*`, `wedragui-windows-*.exe`,
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
-Тег релиза совпадает с [`VERSION`](VERSION) — сейчас `0.33c`;
+Тег релиза (`vX.Y.Z`) совпадает с [`VERSION`](VERSION) — сейчас `0.34.0-lite`;
 protocol version — [`protocol/VERSION`](protocol/VERSION) (`0.2`), версии независимы.
 
 ## Документация

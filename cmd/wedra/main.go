@@ -1,7 +1,7 @@
 package main
 
 import (
-	"wedra/internal/cli"
+	"github.com/wykserdex/wedra/internal/cli"
 )
 
 func main() {

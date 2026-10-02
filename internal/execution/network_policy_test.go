@@ -3,12 +3,11 @@ package execution
 import (
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // netEngine отдаёт фиксированный манифест с заданным сетевым объявлением.
 type netEngine struct {
-	permissiveEngine
 	net []pipeline.NetworkPermission
 }
 

@@ -46,7 +46,10 @@ var (
 	// versionLiteral — формат product-версии: `X.Y` плюс необязательная
 	// буква. Именно он, а не произвольный SemVer: версия продукта по
 	// docs/versioning.md НЕ является SemVer (там же про 0.32a).
-	versionLiteral = regexp.MustCompile("`([0-9]+\\.[0-9]+[a-z]?)`")
+	// versionLiteral — версия, названная в документе в бэктиках. Двухкомпонентный
+	// вид оставлен ради protocol/VERSION (`0.2`) и исторических записей; три
+	// компонента — product version по SemVer.
+	versionLiteral = regexp.MustCompile("`([0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:-[0-9A-Za-z.-]+)?)`")
 
 	// goDirectiveRe — директива `go` в go.mod. Якорь на начало строки:
 	// `toolchain go1.27.0` не должен подменять собой `go 1.26`.
@@ -170,6 +173,13 @@ func CheckRepo(repo string) (string, error) {
 	return strings.Join(notes, "\n"), nil
 }
 
+// semverPattern — версия продукта. Схема закреплена здесь, а не в документации,
+// потому что цена нарушения — не косметика: Go принимает как версию модуля
+// только SemVer, поэтому тег вида `v0.33c` не существует для `go install`, а
+// `VERSION` — то, с чем тег обязан совпадать. Пока проверка жила только в
+// прозе, буквенная схема тихо держала установку закрытой.
+var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+
 func readVersionFile(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -178,6 +188,11 @@ func readVersionFile(path string) (string, error) {
 	v := strings.TrimSpace(string(raw))
 	if v == "" {
 		return "", fmt.Errorf("VERSION пуст")
+	}
+	if !semverPattern.MatchString(v) {
+		return "", fmt.Errorf("VERSION %q не SemVer: тег с таким номером не существует для "+
+			"go install (Go принимает только SemVer), а совпадение VERSION и тега — правило релиза. "+
+			"Нужен вид X.Y.Z (например, 0.34.0), а не 0.33c", v)
 	}
 	return v, nil
 }

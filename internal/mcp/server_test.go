@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 func TestPruneRunsKeepsBoundedCompletedState(t *testing.T) {
@@ -486,9 +486,12 @@ func TestMCPCancelRun(t *testing.T) {
 	}
 	_ = json.Unmarshal([]byte(res), &runOut)
 	time.Sleep(500 * time.Millisecond)
-	res, _, rpcErr = srv.callTool(nil, "cancel_run", map[string]interface{}{"run_id": runOut.RunID})
+	cancelRes, _, rpcErr := srv.callTool(nil, "cancel_run", map[string]interface{}{"run_id": runOut.RunID})
 	if rpcErr != nil {
 		t.Fatalf("cancel: %v", rpcErr)
+	}
+	if !strings.Contains(cancelRes, "cancel") && !strings.Contains(cancelRes, "cancelled") {
+		t.Errorf("cancel_run вернул неожиданное: %q", cancelRes)
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for {

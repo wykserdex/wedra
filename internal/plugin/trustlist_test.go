@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/registry"
+	"github.com/wykserdex/wedra/internal/registry"
 )
 
 // Запись allow-list обязана иметь вид id@sha256:<64 hex>. Каждая проверка

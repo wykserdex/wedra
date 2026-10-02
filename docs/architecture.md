@@ -48,7 +48,6 @@ conformance/fixtures/ # public conformance corpus
 protocol/             # VERSION (0.2), changelog, v0.2/
 schemas/              # pipeline and plugin schemas
 docs/                 # architecture, versioning, guides
-archive/              # historical documents, not current policy
 var/runs/             # runtime output, ignored by git
 ```
 
@@ -102,8 +101,9 @@ validate (статика) → run:
 ## Версии
 
 - `VERSION` (корень) — единственная версия приложения; текущий релиз —
-  `0.33c`, а release tag обязан точно совпадать с `VERSION`. Инкременты внутри
-  базовой версии нумеруются буквенными суффиксами: `0.32a`, `0.32b`, и так далее.
+  `0.34.0-lite`, а release tag (`vX.Y.Z`) обязан точно совпадать с `VERSION`.
+  Схема — SemVer: она же требуется, чтобы модуль ставился через `go install`
+  (Go не считает версией модуля тег вида `v0.33c`).
 - `protocol/VERSION` — отдельная версия протокола (`0.2`).
 - `format_version` в `pipeline.yaml` и `platform_api` в `plugin.yaml` — поля
   совместимости, не product version.

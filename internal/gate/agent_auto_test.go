@@ -3,7 +3,7 @@ package gate
 import (
 	"testing"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func TestAgentAutoAllowedRejectsHumanApproval(t *testing.T) {

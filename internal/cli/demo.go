@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"strings"
 
-	"wedra/internal/core"
-	"wedra/internal/execution"
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/execution"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // RunDemo — автономная демонстрация: одна цепочка, ноль prerequisites.

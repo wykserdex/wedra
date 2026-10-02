@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wykserdex/wedra/internal/pipeline"
 	"gopkg.in/yaml.v3"
-	"wedra/internal/pipeline"
 )
 
 func requirePythonT(t *testing.T) {

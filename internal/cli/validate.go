@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"wedra/internal/core"
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/core"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 func RunPipelineValidate(args []string) {

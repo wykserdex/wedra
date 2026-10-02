@@ -33,7 +33,7 @@ import (
 	"os"
 	"os/exec"
 
-	"wedra/internal/common"
+	"github.com/wykserdex/wedra/internal/common"
 )
 
 // gitHarden — префикс аргументов: протоколы, которых не назвали, запрещены.

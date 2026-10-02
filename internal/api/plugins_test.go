@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
 
 // writePluginDir кладёт каталог с манифестом. Пустой plugin.yaml достаточно:

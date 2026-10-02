@@ -507,7 +507,7 @@ func TestOnePageScenarioStillWorks(t *testing.T) {
 	body, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
-		t.Fatalf("GET /editor/ без сессии: code=%d", resp.StatusCode)
+		t.Fatalf("GET /editor/ без сессии: code=%d, тело=%q", resp.StatusCode, truncate(string(body)))
 	}
 
 	// 2) страница спрашивает «есть ли сессия» — открытый путь, отвечает честно

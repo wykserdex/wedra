@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"wedra/internal/api"
+	"github.com/wykserdex/wedra/internal/buildinfo"
 )
 
 func Run() {
@@ -51,11 +51,7 @@ func Run() {
 		}
 		RunGUI(os.Args[2:])
 	case "version", "--version", "-v":
-		ver := api.Version
-		if raw, err := os.ReadFile("VERSION"); err == nil {
-			ver = strings.TrimSpace(string(raw))
-		}
-		fmt.Printf("wedra v%s, protocol v0.2\n", ver)
+		fmt.Printf("wedra v%s, protocol v0.2\n", buildinfo.Resolve())
 	case "registry":
 		if helpRequested(os.Args[2:]) {
 			printHelp()
@@ -101,10 +97,7 @@ func Run() {
 }
 
 func printHelp() {
-	ver := api.Version
-	if raw, err := os.ReadFile("VERSION"); err == nil {
-		ver = strings.TrimSpace(string(raw))
-	}
+	ver := buildinfo.Resolve()
 	fmt.Printf(`WEDRA — контрактный исполнитель цепочек с человеком в петле (v%s)
 
 Команды (мясо, не косметика):

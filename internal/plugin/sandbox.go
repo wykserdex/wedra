@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"wedra/internal/pipeline"
+	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
 // ErrSandboxUnsupported — на этой платформе/хосте нет рабочей изоляции.
@@ -65,13 +65,17 @@ type sandboxNetwork interface {
 
 // sandboxCommand — обёртка для запуска внешнего кода. Launcher и его аргументы
 // собираются платформенной реализацией sandboxArgs (bubblewrap на Linux; на
-// macOS бэкенд отключён и лежит в attic/, поэтому и изолятора там нет),
+// macOS бэкенд отключён и вынесен из дерева в историю git, поэтому изолятора
+// там нет),
 // и процесс не создаётся вовсе.
 func sandboxCommand(ctx context.Context, argv []string, m *pipeline.Manifest, scratch string) (*exec.Cmd, sandboxNetwork, error) {
 	if len(argv) == 0 {
 		return nil, nil, errors.New("пустая команда плагина")
 	}
 	launcher, args, net, err := sandboxArgs(m, argv, scratch)
+	//lint:ignore SA4023 На платформе без изолятора sandboxArgs отказывает всегда,
+	// поэтому здесь сравнение выглядит тождественно истинным. В сборке с
+	// изолятором (Linux) nil-ошибка — штатный путь, и проверка обязательна.
 	if err != nil {
 		return nil, nil, err
 	}
