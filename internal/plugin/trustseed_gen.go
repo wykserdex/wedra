@@ -15,8 +15,38 @@ package plugin
 // wedra-trust.yaml.
 
 var builtinTrusted = map[string][]string{
+	"abuseipdb": {
+		"sha256:8331609c5569909db85d4a9c18a0cb142638c7f78d86eee9b7a0bf6c26cf8137",
+	},
+	"altdns": {
+		"sha256:b60367d5498fb8ff721892742f8ac65c94ee86661f8c20c47318127ffefa9fe1",
+	},
+	"arjun": {
+		"sha256:87f207deb135861fec364490c7cb5be9ab26b439f9ef230f1af880581e47ea78",
+	},
 	"batch_email_triage": {
 		"sha256:6147a5d3793947967e2c891187472d7a54dd8a5bf3e3e5cc0c80bbaf9a2d85d2",
+	},
+	"binwalk": {
+		"sha256:b8a403512c477211b19281f492e289e1d99a8c0f17955c31a9f262ec8d51f93b",
+	},
+	"buckethacker": {
+		"sha256:13d170bc8c01d3f592ada58c1996aff3a82ceaaddbfd4ad15782a4d56a5fa812",
+	},
+	"censys": {
+		"sha256:d292ddff91b04a046c534fad7e75cc428ae4afb5c43c6c5df3ac7acbe92bb9c8",
+	},
+	"cloud_enum": {
+		"sha256:893dc13faf189f8b403f1e27d9a957277cf6ed03d0533ded96309ab662730263",
+	},
+	"cloudmapper": {
+		"sha256:5ace1408364083bc38f24fe89c5f5cb7fdb5d0e74a7124d50c4ef77ed1de7f51",
+	},
+	"commix": {
+		"sha256:c088bf110139c02d0e0abb3efecd21f7c64eb43988f7f2836b0c0ecf899cccba",
+	},
+	"corsy": {
+		"sha256:cde3e2ffdaab51c43f3849e13ab4571b6f2735728244c4dfa51326aab313ee23",
 	},
 	"crtsh": {
 		"sha256:fdd0ab01187e0eb6b3412c7ada11401f8584023826ecafa168eca3a42a00295a",
@@ -27,14 +57,68 @@ var builtinTrusted = map[string][]string{
 	"date_parser": {
 		"sha256:3c4cf503c2cceab61d828f8825bec5c04cd7b6feeb2a024fb4bf9f94ba26d153",
 	},
+	"degoogle": {
+		"sha256:a899edc42f77775814ac4a0f54acfe3ad8cbf49d0c77156bc4bfc1b081e6d1ed",
+	},
+	"detect_secrets": {
+		"sha256:87fc383cddd079c67308c92a3fbe2d0f118541dc7582a2b4420c04c8a5cfe48b",
+	},
 	"dir_lister": {
 		"sha256:d9a679dad037a4c5de762a4f5522229ccf7e6435813d8e038f163efb72b9949d",
+	},
+	"dirsearch": {
+		"sha256:d0c25eef85035f85d44aa8a209ebf0dc186b8d64adbe25747f478b6fd164a3a2",
 	},
 	"disposable_checker": {
 		"sha256:84cc805f04d72deb42db0757f2ec3e92b83dab130af52cff53cdba3f402bce49",
 	},
+	"dnsrecon": {
+		"sha256:e47835fa1ebb5af9099d87b7833824021b1848a9ab49cb856b0db858130a28d6",
+	},
+	"dnstwist": {
+		"sha256:8d90ee2897cf872e3601ea785ef424427e18893eb61ee0d60b679e3cbc9befa4",
+	},
+	"droopescan": {
+		"sha256:290fe4f136d4d806bcb5d47aba57506a6aaa5f961acc46e7a124e9b7c08efb61",
+	},
 	"email_triage": {
 		"sha256:fabb3381b8123d587f34eb4bb04fe8ca381309e36390b8a80d93f3660e41749f",
+	},
+	"emailfinder": {
+		"sha256:9d517177eef0438e3d103deb5e9331d4536089a0913a9e77916f7245ec793fa6",
+	},
+	"exifread": {
+		"sha256:810ab1f887d60e0760453e0d4bf69e7fcb438c162c11d92f1ea55ff349b483ef",
+	},
+	"exiftool": {
+		"sha256:837f60e628394e55cde8c6cac16f02277f08d931d894aa95c2c77a9081f5de22",
+	},
+	"fierce": {
+		"sha256:29b0f629ba416b79ecfe233b2d4edb9492ed22b564a2cdd0c5a4b2c7b2d2d97b",
+	},
+	"gallery_dl": {
+		"sha256:023500b124e7ac376dba314dabef125344189368aa2429b3df35d5cc2eaa2d7c",
+	},
+	"geoiplookup": {
+		"sha256:2debdb6e60ca5b012688cfa1c1a1486ef2e292b35f899bdff9f399c0b03e55d4",
+	},
+	"ghauri": {
+		"sha256:91d6699017621a5232f8d9dc589c5e1a62f24a78eb9f2405f59965c90589d747",
+	},
+	"ghunt": {
+		"sha256:c6e04d9637db78fec261741d653602e142a3ce07803d006bde0781f2e26b53c3",
+	},
+	"git_dumper": {
+		"sha256:da6c4afff8157b62c18ec1e18b7f8cf526c3227b7623459ecbbb22cff1f7dfc1",
+	},
+	"gospider": {
+		"sha256:4f7b79ddc7c510c18121e4b200baa84964884f81830dd3369bd7071d2e266951",
+	},
+	"h8mail": {
+		"sha256:04704ff1a67c0525d26ff9a8407113400823dfd2d89a8b368a3524a8fcd0b2b5",
+	},
+	"hakrawler": {
+		"sha256:3f3957b8a820b9b99512a7108f573f7f15a51f6d0376ea28b11083c5a4bcd1a2",
 	},
 	"holehe": {
 		"sha256:b27b6bce65484831e1e4c3245f9b5a9851a4a1f29e04e9ea7644912720a8f855",
@@ -42,11 +126,26 @@ var builtinTrusted = map[string][]string{
 	"iban_validator": {
 		"sha256:e1baaf7ec196416d3eba97e3b83b97a7d9313f8ed7ad1ae8e44a1c23b40fab73",
 	},
+	"instaloader": {
+		"sha256:e950e842bdf82a2d114e0dedb5caf4424f74b30100290eed2d60777bbdd77cf9",
+	},
+	"ipwhois": {
+		"sha256:09e1b36946d23124c9e8fa3bd19c26d4ecbbc1087a0019da500c9357025683dc",
+	},
+	"joomscan": {
+		"sha256:73ca902779ec9886095c747ba48bd6bf8e14e105ecc8b8765208bd3e16a7997c",
+	},
 	"json_diff": {
 		"sha256:7c546414dca3d9a9f8a36382026f683366a9f9e68e4ea27e6cbd2bc72a4f92c4",
 	},
 	"json_flatten": {
 		"sha256:96d2d7ed71545820452da5f19b129f673f06c012923d610498eec004d82deadf",
+	},
+	"lief": {
+		"sha256:c363857ddd654c01143010e95dd6b6b8a3230c29dea8b54bd5fbb5531036c4b8",
+	},
+	"linkfinder": {
+		"sha256:4221e871b01458d947864a304b989e96263d03288a0ab57e779f417ea2792a38",
 	},
 	"llm_anthropic": {
 		"sha256:cedfa2fcae9698d3d004b358b1efea438de0174f9a4d4006fcd96a43cacbf3e0",
@@ -60,14 +159,71 @@ var builtinTrusted = map[string][]string{
 	"maigret": {
 		"sha256:9843ac42ae0559ad3f50f7eca46ec752a0d646996be7c60cb2b01d2325183a35",
 	},
+	"metafinder": {
+		"sha256:266e4ab92115a7b8bab1b75edf8b4340dc911d5a14723bf02bc5bb53d2360300",
+	},
+	"msoffcrypto_tool": {
+		"sha256:53a7ad4c06d114bae5159c418ee73e39b841d79f1bffb1e77f446f275a495ebf",
+	},
+	"nosqlmap": {
+		"sha256:8cd9942d60f8bf5b9a270ccc05145d16257292fced889cae1cadbffa2590050d",
+	},
+	"oletools": {
+		"sha256:ebc9e2c5387e85d42443b94eaabd46dfcc2367ab1a9eaad9c054187ce02a6503",
+	},
+	"otx_pulse": {
+		"sha256:00348f922dccc1f50ee587a375b13776a326ab75d9a89852006889292b339f6b",
+	},
+	"pefile": {
+		"sha256:657ba1304110261e98c861d29c8d1d98b49b0191b884b2fb1dadaa9126a0b9ad",
+	},
 	"phone_check": {
 		"sha256:5c60667d490ba6662dad8438f1f7e8374161c78122c9522bbd6323211b30544d",
 	},
 	"phone_normalizer": {
 		"sha256:92d91fa9e20547390089a99c8d3c92d95326808ecdcac0e0d7f627e38123c68d",
 	},
+	"pocsuite3": {
+		"sha256:59a81465fd2751aee096cff8784dc5b47688b3e4ea26017996a4c26f8f01c371",
+	},
+	"prowler": {
+		"sha256:47ca21eee85e663498067fbb6c2fe0abf51e35a4deada6bd7577e698b2281914",
+	},
+	"pyelftools": {
+		"sha256:80cf5d09d242d8e606030249221897e5321bf822ed4ef6fcd26d192dcca256c7",
+	},
+	"python_whois": {
+		"sha256:f9e517b6fcd97b3b885093ffe9a1177e8b3adcb50ef85ef4bf7a77af7dd492f1",
+	},
+	"recon_ng": {
+		"sha256:3402cf7c4d81200c02c633cd49de6814cf8958e25d5098a7d6bd20b403ccff1f",
+	},
 	"report_formatter": {
 		"sha256:018973a616b432e49cf0e0c8ce4d438b87fb109c371790710a43d6d1ff17351e",
+	},
+	"scoutsuite": {
+		"sha256:4ec007d27525309ee763ad71c7b635a8b3440e09777c18e9f7bf34f7664bc107",
+	},
+	"sherlock": {
+		"sha256:d1e50e0a2cb908be1202752bb6d3a321e07498aa5d68cc6746baab952b41d726",
+	},
+	"shodan": {
+		"sha256:5e77dc0ef794a823349287012ff9399dea95310de8b0da52d75611aec5e6e72e",
+	},
+	"social_analyzer": {
+		"sha256:d5a61b639126d2334af86eb8d2c5c4f06f8c7f54a96c5afcd7e02d313009966c",
+	},
+	"spiderfoot": {
+		"sha256:237ee0604268daf57f92a7a3a154e3bbcbd26c823f7ea2fcaabb3ed2d8da934e",
+	},
+	"sqlmap": {
+		"sha256:86207e6a0fe7f36c1746e4ac963b5b146d6161c933fa51f60e69be32c65ac419",
+	},
+	"sslyze": {
+		"sha256:3d99c5fd880f5cd483216f684515ed179550b828551d7d0e08561760ae193a8e",
+	},
+	"sublist3r": {
+		"sha256:514f6c854314a0f2ed1498880f640a0cdc9407137b3ffd2ac5b3a93ba2a3cc7d",
 	},
 	"syntax_mx_checker": {
 		"sha256:48c1cb0adcf2d6ebe9e98e01589ba4a8f60b4a4c9fada691389e2057d6af0c59",
@@ -81,7 +237,40 @@ var builtinTrusted = map[string][]string{
 	"the_harvester": {
 		"sha256:c8e670cd18a3d9293e18baaa643bf5c851e70e5dd06591a84a8397db42c5175f",
 	},
+	"threatfox": {
+		"sha256:347c086d713db10ac28f1dde729a2cd777c570ba85d7a7a9d81049396d6e5808",
+	},
+	"tplmap": {
+		"sha256:c7b571f8036d67e6a322b525fb8c239b075919acf2aa313243c3e083636fca57",
+	},
+	"virustotal": {
+		"sha256:806ea64e886132f5737b8096c497dea540173728731be7015468aa673df80bb1",
+	},
+	"volatility3": {
+		"sha256:5fd68ee1b2c9b8557add801739c11b6e8b12696646cc0d9daae7d324c7b7e5d2",
+	},
+	"wafw00f": {
+		"sha256:ffa91c536ebc42276abc2ecafdcb7ecf3cc0def08dc309f365cc5b0c435a9a1b",
+	},
+	"wapiti": {
+		"sha256:4c8042a12a0892c270a458d86fc22598eb235cf3b9bec81a2d457a4fba3cf852",
+	},
+	"webanalyze": {
+		"sha256:704f237ff584cb426bfbdb6026f90bff217e87f690d4970b3084a9d04223e1b9",
+	},
+	"wfuzz": {
+		"sha256:a0090e1ddb8ec136da97ea372511682997ded219b125925aa1e597e6d0b5cb0a",
+	},
 	"word_freq": {
 		"sha256:40a2d2ebf959818dfb6a97336236d87261e4748f18984a2b0ed48aa9485fefe5",
+	},
+	"xsstrike": {
+		"sha256:749a2536fa01da7c7455f3ea75771eeda8ed0c93890b79b2f49c6d7e601cf0e7",
+	},
+	"you_get": {
+		"sha256:15b98a4701a6544c5cbb774fcd3d9da558317d11caf4fd84de102966c3bb0822",
+	},
+	"yt_dlp": {
+		"sha256:f88de520a315032c37d632c65832f4229a550d729c02f0d46af4250f25467fda",
 	},
 }
