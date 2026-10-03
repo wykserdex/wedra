@@ -7,12 +7,14 @@
 Вызов: <BINWALK_BIN|binwalk> --log <tmp>/binwalk_report.json --quiet
        [--extract --directory <tmp>/extractions] <файл>  (cwd = временная папка).
 
-Флаги сверены с src/cliparser.rs binwalk v3 (clap): -l/--log — JSON-отчёт в файл
-('-' — stdout), -q/--quiet — не печатать таблицу, -e/--extract — извлекать,
--d/--directory — каталог извлечения (дефолт v3 "extractions" относительно CWD),
--M/--matryoshka — рекурсия. Каталог извлечения всегда под temp-CWD, рядом с
-исходным файлом binwalk ничего не пишет. В v2 флагов --log/--directory нет —
-плагин требует именно v3.
+Флаги сверены с src/cliparser.rs binwalk v3.1.0 (clap): -l/--log — JSON-отчёт в
+файл ('-' — stdout), -q/--quiet — не печатать таблицу, -e/--extract — извлекать,
+-C/--directory — каталог извлечения (дефолт v3 "extractions" относительно CWD),
+-M/--matryoshka — рекурсия. Плагин зовёт длинные имена, поэтому короткий `-C`
+не используется. Каталог извлечения всегда под temp-CWD, рядом с исходным
+файлом binwalk ничего не пишет. В v2 флагов --log/--directory нет — плагин
+требует именно v3, а `pip install binwalk` ставит нерабочий sdist 2.1.0 от
+2015 года (в нём нет пакета binwalk.core), v3 — это Rust-бинарь из cargo/Docker.
 
 Формат отчёта сверен с src/json.rs и src/binwalk.rs: JSON-массив объектов
 {"Analysis": {file_path, file_map[...], extractions{id: {...}}}}, где запись
@@ -181,8 +183,9 @@ def main():
                                   cwd=td, timeout=wall)
         except FileNotFoundError:
             return fail("binwalk_not_installed",
-                        "binwalk не найден: pip install binwalk "
-                        "(или укажите BINWALK_BIN)")
+                        "binwalk не найден: нужен binwalk v3 (--log/--directory), "
+                        "это Rust-бинарь — cargo install binwalk или Docker-образ, "
+                        "pip даёт нерабочий sdist 2.1.0; путь — в BINWALK_BIN")
         except subprocess.TimeoutExpired:
             return fail("timeout",
                         f"binwalk не уложился в {wall:.0f}s: увеличьте "
@@ -196,7 +199,8 @@ def main():
         if NOT_MODULE_RE.search(blob):
             return fail("binwalk_not_installed",
                         "binwalk не установлен: pip install binwalk "
-                        "(или укажите BINWALK_BIN)")
+                        "не годится (на PyPI только нерабочий sdist 2.1.0), "
+                        "нужен v3 из cargo/Docker (или укажите BINWALK_BIN)")
         if proc.returncode != 0:
             return fail("tool_failed",
                         f"binwalk упал (exit {proc.returncode}): {last}")

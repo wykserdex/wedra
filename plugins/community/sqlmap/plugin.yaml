@@ -6,9 +6,9 @@ description: >
   Обёртка запускает только безопасный аудит: --batch --flush-session --level=1
   --risk=1, техники ограничены неразрушающими B/E/U/T (stacked-queries и inline
   запрещены), разрушающие --os-shell/--file-write/--sql-shell не применяются.
-  Лог sqlmap пишется во временный каталог запуска, --output-dir тоже внутри него.
-  У sqlmap нет стабильного машинного отчёта, поэтому вывод разбирается консервативно
-  по stdout. Sqlmap НЕ на PyPI: ставится из git —
+  --output-dir (а вместе с ним и лог sqlmap) уходит во временный каталог запуска.
+  Стабильный машинный отчёт есть только в dev-ветке (--report-json), поэтому
+  вывод разбирается консервативно по stdout. Sqlmap НЕ на PyPI: ставится из git —
   git clone https://github.com/sqlmapproject/sqlmap (подробности в README).
 author: "community · wedra showcase (OSINT)"
 

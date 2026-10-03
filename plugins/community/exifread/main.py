@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """exifread — EXIF-метаданные изображения (обёртка над библиотекой exifread).
 
-У донора (lexiflex/exifread) нет пригодного CLI — это библиотека, поэтому
+У донора (lexiflex/exifread) CLI с машинным выводом нет: с 3.1.0 есть exifread.cli
+(console_scripts `EXIF.py`, плюс `python -m exifread`), но он печатает через
+logger человекочитаемые строки `поле (ТИП): значение`, а не JSON. Поэтому
 работаем паттерном C: продакшн-путь — `python -c <SNIPPET> <файл>`, где
 сниппет импортирует exifread и печатает JSON в stdout. Отчёт — stdout
 дочернего процесса. main.py остаётся stdlib-only и сам exifread не импортирует.
@@ -11,10 +13,13 @@
 Вызов: если задан EXIFREAD_BIN — <EXIFREAD_BIN> <файл>, иначе
        [python, -c, SNIPPET, <файл>]  (cwd = временная папка).
 
-Сниппет зовёт exifread.process_file(fh, details=False, extract_thumbnail=False):
+Сниппет сверен с exifread/__init__.py 3.5.1: process_file(fh, stop_tag='UNDEF',
+details=True, strict=False, debug=False, truncate_tags=True, auto_seek=True,
+extract_thumbnail=True, builtin_types=False) -> Dict[str, Any].
 details=False — без разбора MakerNote, extract_thumbnail=False — без выгрузки
-JPEG/TIFF-превью в память. Значение берётся из IfdTag.printable (при его отсутствии
-— str(tag)), всё приводится к строкам: JSON без bytes и вложенных объектов.
+JPEG/TIFF-превью (они в hdr.tags кладутся сырыми bytes, а не IfdTag).
+Значение берётся из IfdTag.printable (при его отсутствии — str(tag)), всё
+приводится к строкам: JSON без bytes и вложенных объектов.
 Валидный, но пустой отчёт — это ok с пустым tags; «не изображение» даёт пустой
 dict от exifread. Доменные ошибки: empty_file, missing_file, exifread_not_installed,
 timeout (retryable), no_report, tool_failed. Платформенные (exit 2): битый JSON

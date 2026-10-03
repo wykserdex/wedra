@@ -1,6 +1,8 @@
 # Контракт-тесты geoiplookup (mock CLI, без сети, без базы и без geoiplookup).
 # db_path указывает на реальный файл/каталог внутри каталога плагина: mock
 # содержимое базы не читает, проверяется только факт, что путь разрешился.
+# mock печатает строки в реальном виде MaxMind (apps/geoiplookup.c): ответ
+# всегда с подписью базы из GeoIPDBDescription — `GeoIP Country Edition: ...`.
 tests:
   - name: db_path-файл (-f) → страна из строки ответа, found true
     env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py" }
@@ -34,8 +36,30 @@ tests:
         country: "US, United States"
         found: true
 
-  - name: помеченные строки (сборка с City-базой) → region и city
+  - name: строка City-базы (GeoIP City Edition, Rev 1) → регион и город
     env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_CITY: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        country: "US"
+        region: "California"
+        city: "Mountain View"
+        found: true
+
+  - name: строка Region-базы (GeoIP Region Edition, Rev 1) → регион
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_REGION: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        country: "US"
+        region: "CA"
+        city: ""
+        found: true
+
+  - name: "строки Country:/Region:/City: без подписи базы → region и city"
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_LABELED: "1" }
     input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
     expect:
       status: ok
@@ -44,6 +68,17 @@ tests:
         region: "California"
         city: "Mountain View"
         found: true
+
+  - name: "GeoIP Country Edition: IP Address not found → ok, found false"
+    env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_NOT_FOUND: "1" }
+    input: { ip: "8.8.8.8", db_path: "plugin.yaml" }
+    expect:
+      status: ok
+      output:
+        country: ""
+        region: ""
+        city: ""
+        found: false
 
   - name: мусорный вывод → ok, found false, поля пустые
     env: { GEOIPLOOKUP_BIN: "mock_geoiplookup.py", MOCK_BAD_REPORT: "1" }

@@ -1,26 +1,41 @@
 #!/usr/bin/env python3
 """cloud_enum — поиск облачных хранилищ по ключу/имени (обёртка над CLI cloud_enum).
 
-Вход (stdin JSON): key (опц.), name (опц.), mutations (опц., путь к -m),
+Вход (stdin JSON): key (опц.), name (опц.), mutations (опц., путь к -m и -b),
 quickscan (опц., bool), wall_timeout (опц., общий лимит, 300). Ключевые слова
 берутся ИЗ ВХОДА, не из env, поэтому секретов плагин не читает (secrets: []).
 Обязателен хотя бы один из key/name — иначе инструмент падает на argparse:
 доменная ошибка empty_input_args.
 
 Вызов: <CLOUD_ENUM_BIN|cloud_enum|python3 -m cloud_enum> -k <key> [-k <name>]
-       -l cloud_enum.json -f json [-m <mutations>] [-qs]  (cwd = временная папка).
+       -l cloud_enum.json -f json [-m <mutations> -b <mutations>] [-qs]
+       (cwd = временная папка).
 
-Точка входа. PyPI-пакет cloud_enum (репозиторий RHISAC/cloud_enum, ныне
-initstring/cloud_enum) — верхнеуровневый модуль cloud_enum.py с
+Точка входа. Donor — репозиторий RHISAC/cloud_enum, ныне initstring/cloud_enum
+(версия 0.8 в pyproject.toml), верхнеуровневый модуль cloud_enum.py с
 [project.scripts] cloud_enum = "cloud_enum:main", поэтому работают и консольный
-скрипт `cloud_enum`, и `python -m cloud_enum`. Флаги сверены с
-parse_arguments() (initstring/cloud_enum 0.8): -k/--keyword (action='append',
-группа required и mutually exclusive с -kf/--keyfile — поэтому два наших слова
-идут двумя -k, это документированный способ «provide multiple keywords»),
--l/--logfile, -f/--format (text|json|csv), -m/--mutations, -qs/--quickscan,
---disable-aws/-azure/-gcp. Флага DigitalOcean у текущего донора нет: апстрим
-проверяет AWS/Azure/GCP; provider берётся из platform самого инструмента, так что
-сборка с DigitalOcean пройдёт как есть.
+скрипт `cloud_enum`, и `python -m cloud_enum`. Флаги сверены с parse_arguments()
+(0.8): -k/--keyword (action='append', группа required и mutually exclusive с
+-kf/--keyfile — поэтому два наших слова идут двумя -k, это документированный
+способ «provide multiple keywords»), -l/--logfile, -f/--format (text|json|csv),
+-m/--mutations, -qs/--quickscan, --disable-aws/-azure/-gcp. Флага DigitalOcean у
+текущего донора нет: апстрим проверяет AWS/Azure/GCP; provider берётся из platform
+самого инструмента, так что сборка с DigitalOcean пройдёт как есть.
+
+Список мутаций. parse_arguments() ДО любой работы проверяет os.access() на ДВА
+файла: mutations (-m) и brute (-b), оба по умолчанию
+script_path + '/enum_tools/fuzz.txt', где script_path — каталог argv[0]. У
+консольного скрипта это venv/bin (venv/Scripts), а не site-packages, поэтому оба
+дефолта недоступны и cloud_enum выходит с кодом 0 ДО создания лога: «[!] Cannot
+access mutations file» / «[!] Cannot read brute-force file, exiting». Отсюда два
+правила: (1) если оператор дал mutations, мы отдаём его и в -m, и в -b — список
+мутаций годится и как brute-лист (ровно этим же файлом донора заполняются оба
+дефолта), иначе прогон умирает на проверке -b; (2) mutations стоит задавать
+всегда: wheel из pip вообще не везёт fuzz.txt (в [tool.setuptools] нет
+package-data, в site-packages лежат только .py), так что `pip install
+cloud_enum` нерабочий ещё и без этого. На PyPI имя cloud-enum помечено
+quarantined и файлов не содержит — ставят из git: pip install
+git+https://github.com/initstring/cloud_enum (или клон и запуск из корня).
 
 Отчёт: enum_tools/utils.py init_logfile пишет заголовок "\n\n#### CLOUD_ENUM
 <дата> ####\n", дальше fmt_output при LOGFILE_FMT=json дописывает по строке
@@ -174,7 +189,7 @@ def main():
                 cmd += ["-k", word]
         cmd += ["-l", report_path, "-f", "json"]
         if mutations:
-            cmd += ["-m", mutations]
+            cmd += ["-m", mutations, "-b", mutations]
         if quickscan:
             cmd.append("-qs")
 
@@ -200,11 +215,14 @@ def main():
             if proc.returncode != 0:
                 return fail("tool_failed",
                             f"cloud_enum упал (exit {proc.returncode}): {last}")
-            if "cannot access" in combined.lower():
+            low = combined.lower()
+            if "cannot access" in low or "brute-force file" in low:
                 return fail("no_report",
-                            f"cloud_enum не начал перебор ({last}); укажите "
-                            "mutations (путь к enum_tools/fuzz.txt из пакета) "
-                            "или запустите как python -m cloud_enum")
+                            f"cloud_enum не начал перебор ({last}); нужен "
+                            "список мутаций — передайте вход mutations "
+                            "(путь к enum_tools/fuzz.txt из клона "
+                            "github.com/initstring/cloud_enum: в wheel из "
+                            "pip этого файла нет)")
             return fail("no_report", f"cloud_enum не дал лог -l: {last}")
         try:
             with open(report_path, encoding="utf-8") as f:

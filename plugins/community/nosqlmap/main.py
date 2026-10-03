@@ -12,10 +12,17 @@ wall_timeout (опц., общий лимит, 300).
 
 Вызов: <NOSQLMAP_BIN|nosqlmap.py> --attack 2 --victim <host> --webPort <port>
        --uri <path?query> --https ON|OFF --httpMethod GET --params <1,2>
-       --injectSize 4 --injectFormat 2 --savePath report.txt (cwd = временная
-       папка). Флагов -u/--report/--technique у nosqlmap нет; --params ждёт
-       НОМЕРА (с единицы) query-параметров, поэтому имена из входа
-       переводятся в номера по разбору url.
+       --injectSize 4 --injectFormat 2 --doTimeAttack y --savePath report.txt
+       (cwd = временная папка, stdin = /dev/null). Флагов -u/--report/
+       --technique у nosqlmap нет; --params ждёт НОМЕРА (с единицы)
+       query-параметров, поэтому имена из входа переводятся в номера по разбору
+       url. --doTimeAttack передаётся обязательно: nsmweb.getApps() читает
+       args.doTimeAttack и сразу зовёт .lower() без проверки на None, поэтому
+       без флага донор падает с AttributeError ДО nsmweb.save_to() и файла
+       отчёта не бывает. --params тоже обязателен по той же причине (иначе
+       None.split() в buildUri()). stdin закрыт потому, что на успешной
+       инъекции донор доходит до безусловного raw_input() («MongoDB < 2.4
+       detected…») и иначе висит до wall_timeout.
 
 Отчёт — текстовый файл, который пишет nsmweb.save_to():
   Vulnerable URLs:
@@ -165,14 +172,19 @@ def main():
                 "--params", indexes,
                 "--injectSize", str(INJECT_SIZE),
                 "--injectFormat", str(INJECT_FORMAT),
+                "--doTimeAttack", "y",
                 "--savePath", report_path]
         try:
+            # stdin в DEVNULL: донор на успешной инъекции зовёт raw_input()
+            # без всякой проверки — с унаследованным stdin он ждал бы ввода до
+            # wall_timeout вместо того, чтобы отдать отчёт.
             proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  cwd=td, timeout=wall)
+                                  cwd=td, timeout=wall,
+                                  stdin=subprocess.DEVNULL)
         except FileNotFoundError:
             return fail("nosqlmap_not_installed",
                         "nosqlmap не найден: поставьте из исходников "
-                        "(git clone https://github.com/c0rsh/nosqlmap) и "
+                        "(git clone https://github.com/codingo/NoSQLMap) и "
                         "укажите путь к nosqlmap.py в NOSQLMAP_BIN")
         except subprocess.TimeoutExpired:
             return fail("timeout",

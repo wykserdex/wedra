@@ -4,7 +4,7 @@ platform_api: "^0.1"
 description: >
   PoC Suite3 (poc-suite/pocsuite3) — проверка явно заданного URL на известные
   уязвимости из своего набора PoC. Обёртка над CLI pocsuite: неинтерактивный
-  прогон (-u, --verify, --batch), машинный вывод — JSON Lines (-o). PoC Suite3
+  прогон (-u, --verify), машинный вывод — JSON Lines (-o). PoC Suite3
   ставится отдельно: pip install pocsuite3.
 author: "community · wedra showcase (web security)"
 

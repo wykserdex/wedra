@@ -107,6 +107,24 @@ tests:
       exit_code: 1
       error: { code: no_report }
 
+  - name: mutations отдаются и в -m, и в -b (brute тоже обязан быть читаем)
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_STRICT_BRUTE: "1" }
+    input: { key: "acme", mutations: "enum_tools/fuzz.txt" }
+    expect:
+      status: ok
+      output:
+        services: { equals: [aws, gcp] }
+        count: { equals: 2 }
+
+  - name: без mutations дефолтные -m/-b недоступны → no_report с подсказкой
+    env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_STRICT_BRUTE: "1",
+           MOCK_BAD_MUT: "1" }
+    input: { key: "acme" }
+    expect:
+      status: error
+      exit_code: 1
+      error: { code: no_report }
+
   - name: лог не создан → доменная ошибка
     env: { CLOUD_ENUM_BIN: "mock_cloud_enum.py", MOCK_NO_REPORT: "1" }
     input: { key: "acme" }

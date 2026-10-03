@@ -7,19 +7,37 @@ wall_timeout (опц., общий лимит, 60).
 Вызов: <GEOIPLOOKUP_BIN|geoiplookup> (-f <файл базы> | -d <каталог>) <ip>
        (cwd = временная папка).
 
-Инструмент с именем geoiplookup документирован (manpage geoip-bin, linux.die.net):
-`geoiplookup [-d directory] [-f filename] [-v] <ipaddress|hostname>`, по
-умолчанию база ищется в /usr/share/GeoIP, ответ печатается одной строкой вида
-`NL, Netherlands`. Никаких других флагов и никакого JSON-вывода у него нет,
-поэтому страна разбирается из этой строки (паттерн B, текст), а region/city
-берутся из помеченных строк `Region:`/`City:`, если их печатает сборка с
-City-базой. Дона из ТЗ (speciallicity/geoiplookup, pip install geoiplookup)
-не существует — ни репозитория, ни пакета; взят документированный инструмент
-с этим именем.
+Инструмент с именем geoiplookup — это C-утилита MaxMind из пакета geoip-bin;
+сверено по исходнику maxmind/geoip-api-c (apps/geoiplookup.c,
+man/geoiplookup.1.in, libGeoIP/GeoIP.c). Флаги там ровно `-h`, `-?`,
+`-d <каталог>`, `-f <файл>`, `-v`, `-i`, `-l`: длинных --directory/--filename
+нет. Путь к базе — только -f (один .dat) либо -d (каталог: инструмент сам
+перебирает все найденные базы и печатает по строке на каждую), по умолчанию
+DATADIR (/usr/share/GeoIP). Читает утилита только старые легаси-.dat
+(GeoIP.dat, GeoIPCity.dat, GeoIPRegion.dat, GeoIPOrg.dat, GeoIPASNum.dat, ...)
+и не открывает MMDB (GeoLite2-*.mmdb, DB-IP) — это mmdblookup, другой
+инструмент. JSON-вывода нет, ответ — текст (паттерн B).
+
+Ключевое: строка ответа печатается ВСЕГДА с подписью базы из GeoIPDBDescription
+(`printf("%s: %s, %s\n", GeoIPDBDescription[i], code, name)`), а не голой
+строкой `NL, Netherlands` — устаревшая manpage про голый вид забыта. Реальные
+строки:
+  GeoIP Country Edition: NL, Netherlands
+  GeoIP Region Edition, Rev 1: NL, NH
+  GeoIP City Edition, Rev 1: US, CA, California, Mountain View, 94043,
+                        37.42, -122.08, 807, 0
+  GeoIP Country Edition: IP Address not found
+Поэтому страна/регион/город разбираются из хвоста после подписи: у Country-базы
+country — строка `КС, Страна`, у Region-базы хвост `КС, РЕГИОН`, у City-базы
+`КС, код региона, имя региона, город, индекс, ...`; `_mk_NA` печатает `N/A` —
+считаем пустым значением. Строки `Country:`/`Region:`/`City:` (обёртки без
+подписи базы) и голая строка `КС, Страна` тоже понимаются.
+Дона из ТЗ (speciallicity/geoiplookup, pip install geoiplookup) не существует —
+ни репозитория, ни пакета; взят документированный инструмент с этим именем.
 
 Путь к базе: вход db_path, иначе env GEOIP_DB_PATH. Нет пути или пути на диске
 нет — доменная ошибка missing_db (retryable: false). Файл отдаётся флагом -f,
-каталог — -d; оба флага документированы.
+каталог — -d; оба флага документированы исходником.
 
 Выход (stdout JSON): {ip, country, region, city, found}. found — страна
 найдена. Ничего не нашлось — ok с пустыми строками и found=false. Доменные
@@ -39,9 +57,25 @@ import tempfile
 DEFAULT_WALL = 60
 DEFAULT_BIN = "geoiplookup"
 
-# Строка ответа MaxMind: "NL, Netherlands".
-COUNTRY_LINE_RE = re.compile(r"^([A-Za-z]{2})\s*,\s*(.+)$")
+# Хвост строки ответа MaxMind: "NL, Netherlands".
+COUNTRY_LINE_RE = re.compile(r"^[A-Za-z]{2}\s*,\s*.+$")
+COUNTRY_CODE_RE = re.compile(r"^[A-Za-z]{2}$")
 LABELS = ("country", "region", "city")
+# Подписи баз из GeoIPDBDescription (libGeoIP/GeoIP.c) -> что из строки берём.
+EDITION_LABELS = {
+    "geoip country edition": "country",
+    "geoip large country edition": "country",
+    "geoip country v6 edition": "country",
+    "geoip large country v6 edition": "country",
+    "geoip region edition, rev 0": "region",
+    "geoip region edition, rev 1": "region",
+    "geoip city edition, rev 0": "city",
+    "geoip city edition, rev 1": "city",
+    "geoip city edition v6, rev 0": "city",
+    "geoip city edition v6, rev 1": "city",
+}
+# _mk_NA() в geoiplookup.c печатает "N/A" вместо неизвестного значения.
+NA = "N/A"
 
 
 try:
@@ -82,28 +116,74 @@ def build_cmd(ip, db_flag, db_path):
     return cmd
 
 
+def edition_kind(label):
+    """Что из строки берём по подписи базы: country/region/city или ''."""
+    kind = EDITION_LABELS.get(label)
+    if kind:
+        return kind
+    if not label.startswith("geoip "):
+        return ""
+    for word in ("country", "region", "city"):
+        if word in label:
+            return word
+    return ""
+
+
+def split_fields(value):
+    """Хвост строки `КС, ...` разбит по запятым, "N/A" заменён пустой строкой."""
+    return ["" if part.strip() == NA else part.strip()
+            for part in value.split(",")]
+
+
+def parse_edition(kind, value):
+    """(страна, регион, город) из хвоста строки ответа с подписью базы."""
+    parts = split_fields(value)
+    if not parts or not COUNTRY_CODE_RE.match(parts[0]):
+        return "", "", ""
+    if kind == "country":
+        # "NL, Netherlands"
+        return (value if COUNTRY_LINE_RE.match(value) else ""), "", ""
+    if kind == "region":
+        # "NL, NH"
+        return parts[0], (parts[1] if len(parts) > 1 else ""), ""
+    # city: "US, CA, California, Mountain View, 94043, 37.42, -122.08, ..."
+    return (parts[0],
+            parts[2] if len(parts) > 2 else "",
+            parts[3] if len(parts) > 3 else "")
+
+
 def parse_fields(stdout):
     country = region = city = ""
     for raw in stdout.splitlines():
         line = raw.strip()
         if not line:
             continue
+        label, value = "", line
         if ":" in line:
             label, _, value = line.partition(":")
-            key = label.strip().lower()
+            label = label.strip().lower()
             value = value.strip()
-            if key in LABELS and value:
-                if key == "country" and not country:
-                    country = value
-                elif key == "region" and not region:
-                    region = value
-                elif key == "city" and not city:
-                    city = value
+        if label in LABELS:
+            # обёртка печатает 'Country:'/'Region:'/'City:' — значение как есть
+            if label == "country" and value:
+                country = country or value
+            elif label == "region" and value:
+                region = region or value
+            elif label == "city" and value:
+                city = city or value
             continue
-        if not country:
-            match = COUNTRY_LINE_RE.match(line)
-            if match:
-                country = line
+        kind = edition_kind(label)
+        if kind:
+            found_country, found_region, found_city = parse_edition(kind, value)
+        elif ":" not in line:
+            # голая строка без подписи (вид из устаревшей manpage) — это страна
+            found_country = line if COUNTRY_LINE_RE.match(line) else ""
+            found_region = found_city = ""
+        else:
+            continue
+        country = country or found_country
+        region = region or found_region
+        city = city or found_city
     return country, region, city
 
 

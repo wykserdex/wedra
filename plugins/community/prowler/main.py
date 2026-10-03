@@ -8,19 +8,26 @@ critical|high|medium|low|informational), wall_timeout (опц., 1800).
           -o <tmp>/report -F wedra -b -z [--severity <severity>]
        (cwd = временная папка).
 
-Флаги подтверждены по prowler/lib/cli/parser.py и docs.prowler.com
-(user-guide/cli/tutorials/reporting): -M/--output-modes/--output-formats
-{nargs=+, choices csv|json-asff|json-ocsf|html}, -o/--output-directory,
--F/--output-filename (имя БЕЗ расширения), --severity {critical,high,medium,low,
-informational}, -b/--no-banner, -z/--ignore-exit-code-3. Нативный `-f json`
-и `-o <файл>` удалены в v4 (см. issue #3742) — поэтому json-ocsf + -o/-F.
--z обязателен: иначе находки дают exit 3, и мы сочли бы это падением.
+Флаги сверены с исходниками колеса prowler 5.44.0 (prowler/lib/cli/parser.py):
+-M/--output-modes/--output-formats {nargs=+, choices=available_output_formats =
+csv|json-asff|json-ocsf|html|sarif}, -o/--output-directory (каталог),
+-F/--output-filename (имя БЕЗ расширения), --severity/--severities
+{nargs=+, critical|high|medium|low|informational}, -b/--no-banner,
+-z/--ignore-exit-code-3. Нативных `-f json` и `-o <файл>` в парсере нет вовсе
+(grep по parser.py пуст) — поэтому json-ocsf + -o/-F. -z обязателен: иначе
+находки дают exit 3 (prowler/__main__.py: `sys.exit(3)` при total_fail > 0),
+и мы сочли бы это падением.
 
 Отчёт. prowler/config/config.py: json_ocsf_file_suffix = ".ocsf.json", имя
-файла = <output_directory>/<output_filename>.ocsf.json. Содержимое — JSON-массив
-OCSF Detection Finding (v1.1.0), маппинг native-JSON → OCSF задокументирован в
-docs.prowler.com: CheckID → metadata.event_code, CheckTitle → finding_info.title,
-Severity → severity, Status → status_code.
+файла = <output_directory>/<output_filename>.ocsf.json (prowler/__main__.py пишет
+f"{filename}{json_ocsf_file_suffix}"). Содержимое — JSON-массив OCSF Detection
+Finding; маппинг задан в prowler/lib/outputs/ocsf/ocsf.py:
+CheckID → metadata.event_code, CheckTitle → finding_info.title,
+Status → status_code, Severity → severity (здесь это ИМЯ SeverityID, напр. "High",
+а не "high" из prowler/lib/check/models.py). Сериализация
+model_dump_json(exclude_none=True), поэтому None-ключей в файле нет.
+Резервный путь к CheckID, если нет metadata.event_code: finding_info.uid формата
+`prowler-<provider>-<CheckID>-<account>-<region>-<resource>`, т.е. split("-")[2].
 
 Выход (stdout JSON): {provider, findings[{check,severity,title,status}],
 count}. count = число находок. Скан без находок — ok с пустым массивом.
@@ -48,11 +55,16 @@ REPORT_BASENAME = "wedra"
 REPORT_SUFFIX = ".ocsf.json"
 
 SEVERITIES = ("critical", "high", "medium", "low", "informational")
-# Провайдеры prowler, документированные в prowler/lib/cli/parser.py и
-# docs.prowler.com: aws, azure, gcp, kubernetes, github, cloudflare, iac,
-# alibaba, oci. Не выдумываем остальные.
+# Подкоманды prowler (prowler/lib/cli/parser.py, проверено на prowler 5.44.0):
+# aws, azure, gcp, kubernetes, m365, github, googleworkspace, okta, nhn,
+# mongodbatlas, oraclecloud, alibabacloud, cloudflare, openstack, scaleway,
+# stackit, vercel, linode, huaweicloud, e2enetworks, dashboard, iac, image,
+# llm. ВАЖНО: имя провайдера Alibaba — `alibabacloud`, не `alibaba`
+# (`prowler alibaba` → invalid choice). `oci` — алиас, который prowler
+# разворачивает в oraclecloud (PROVIDER_ALIASES в
+# prowler/providers/common/arguments.py). Оставляем только эти девять.
 PROVIDERS = ("aws", "azure", "gcp", "kubernetes", "github", "cloudflare",
-             "iac", "alibaba", "oci")
+             "iac", "alibabacloud", "oci")
 
 NOT_MODULE_RE = re.compile(r"No module named", re.IGNORECASE)
 

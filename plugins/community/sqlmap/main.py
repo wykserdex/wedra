@@ -15,17 +15,26 @@ inline (Q) отфильтровываются на входе. --level=1 и --ri
 чужих сессий. Сканируется ровно URL из входа: ни --crawl, ни --forms, ни
 --scope по домену.
 
-Машинного отчёта у sqlmap нет (признанного формата вывода нет ни в одной
-версии), поэтому разбор консервативный, по stdout. Снимаем ANSI-последовательности
-и ищем только известные маркеры sqlmap:
+Машинный отчёт есть только в dev-ветке sqlmap (--report-json, начиная с
+1.10.9.32#dev от 2026-07-19); в стабильном релизе 1.10 его нет, поэтому разбор
+остаётся консервативным, по stdout — иначе обёртка ломалась бы на стабильной
+версии. Снимаем ANSI-последовательности и держимся известных маркеров sqlmap:
   [INFO] testing for SQL injection on <PLACE> parameter '<name>'
-  [WARNING] parameter '<name>' does not seem to be injectable
-  [WARNING] parameter '<name>' is vulnerable / appears to be SQL injectable
-  sqlmap identified ... injection point(s) with payloads:
-  Parameter: <name> (<PLACE>) / Payload: <payload> / Type: <technique>
-Всё, что не распознано, игнорируется; отсутствие находок — status ok с
-vulnerable=false, а не ошибка. Если в stdout/stderr есть символ замены U+FFFD
-(вывод не декодируется как UTF-8) — bad_report, exit 2: находки не выдумываются.
+  [WARNING] <PLACE> parameter '<name>' does not seem to be injectable
+  <PLACE> parameter '<name>' is vulnerable. Do you want to keep testing ...
+  sqlmap identified the following injection point(s) with a total of N HTTP(s) requests:
+  Parameter: <name> (<PLACE>)
+      Type: <technique>      ← порядок именно такой: сначала Type, потом Title,
+      Title: <title>            потом Payload (lib/controller/controller.py,
+      Payload: <payload>        _formatInjection)
+Один Parameter может нести несколько блоков Type/Title/Payload (по одному на
+технику) — каждый превращается в отдельную запись injections. Всё, что не
+распознано, игнорируется; отсутствие находок — status ok с vulnerable=false, а
+не ошибка. Если в stdout/stderr есть символ замены U+FFFD (вывод не
+декодируется как UTF-8) — bad_report, exit 2: находки не выдумываются.
+
+Лог sqlmap пишется не в CWD, а в <--output-dir>/<host>/log (lib/core/dump.py,
+setOutputFile) — присутствие лога проверяется там.
 
 Выход (stdout JSON): {url, vulnerable, parameter, injections[{parameter, place,
 technique, payload}]}. Доменные ошибки: empty_url, bad_technique,
@@ -50,9 +59,13 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 LINE_RE = re.compile(r"^\[\d{2}:\d{2}:\d{2}\]\s*\[(\w+)\]\s*(.*)$")
 TESTING_RE = re.compile(r"testing (?:for )?SQL injection on (.+?) parameter '([^']+)'")
 NOT_INJECTABLE_RE = re.compile(r"parameter '([^']+)' does not seem to be injectable")
-VULNERABLE_RE = re.compile(r"parameter '([^']+)' (?:is vulnerable|appears to be SQL injectable)")
-POINT_HEADER_RE = re.compile(r"identified .*injection point", re.I)
-PARAM_RE = re.compile(r"^Parameter: (.+?)\s*\(([^()]*)\)\s*$")
+VULNERABLE_RE = re.compile(
+    r"parameter '([^']+)' (?:is vulnerable"
+    r"|appears to be '.+' injectable"
+    r"|is '.+' injectable)")
+POINT_HEADER_RE = re.compile(
+    r"sqlmap (?:identified|resumed) the following injection point", re.I)
+PARAM_RE = re.compile(r"^Parameter: (.+?)\s*\((.*)\)\s*$")
 PAYLOAD_RE = re.compile(r"^Payload: (.+)$")
 TYPE_RE = re.compile(r"^Type: (.+)$")
 
@@ -94,11 +107,34 @@ def clean(text):
     return ANSI_RE.sub("", text or "")
 
 
+def has_sqlmap_log(base_dir):
+    """Лог sqlmap лежит в <--output-dir>/<host>/log, а не в CWD (dump.py)."""
+    for root, _dirs, files in os.walk(base_dir):
+        if "log" in files or "sqlmap.log" in files:
+            return True
+    return False
+
+
 def parse_stdout(raw):
     injections = []
-    current = None
     vulnerable = False
     saw_sqlmap_line = False
+    in_block = False
+    parameter = ""
+    place = ""
+    entry = None
+
+    def flush(entry):
+        if not entry:
+            return
+        if not (entry.get("technique") or entry.get("payload")):
+            return
+        injections.append({
+            "parameter": parameter,
+            "place": place,
+            "technique": str(entry.get("technique") or ""),
+            "payload": str(entry.get("payload") or ""),
+        })
 
     for line in clean(raw).splitlines():
         line = line.strip()
@@ -112,46 +148,43 @@ def parse_stdout(raw):
             continue
 
         if POINT_HEADER_RE.search(line):
-            current = {}
+            flush(entry)
+            entry = None
+            in_block = True
+            parameter = ""
+            place = ""
             continue
 
         match = PARAM_RE.match(line)
-        if match and current is not None:
-            current["parameter"] = match.group(1).strip()
-            current["place"] = match.group(2).strip()
-            continue
-
-        match = PAYLOAD_RE.match(line)
-        if match and current is not None:
-            current["payload"] = match.group(1).strip()
+        if match:
+            flush(entry)
+            entry = None
+            in_block = True
+            parameter = match.group(1).strip()
+            place = match.group(2).strip()
             continue
 
         match = TYPE_RE.match(line)
-        if match and current is not None:
-            current["technique"] = match.group(1).strip()
-            if current.get("payload") or current.get("technique"):
-                injections.append({
-                    "parameter": str(current.get("parameter") or ""),
-                    "place": str(current.get("place") or ""),
-                    "technique": str(current.get("technique") or ""),
-                    "payload": str(current.get("payload") or ""),
-                })
-            current = None
+        if match:
+            flush(entry)
+            entry = {"technique": match.group(1).strip()}
             continue
 
-        if TESTING_RE.search(line) or NOT_INJECTABLE_RE.search(line):
+        match = PAYLOAD_RE.match(line)
+        if match:
+            if entry is None:
+                entry = {}
+            entry["payload"] = match.group(1).strip()
+            continue
+
+        if not in_block and (TESTING_RE.search(line)
+                             or NOT_INJECTABLE_RE.search(line)):
             saw_sqlmap_line = True
         if VULNERABLE_RE.search(line):
             saw_sqlmap_line = True
             vulnerable = True
 
-    if current and (current.get("parameter") or current.get("payload")):
-        injections.append({
-            "parameter": str(current.get("parameter") or ""),
-            "place": str(current.get("place") or ""),
-            "technique": str(current.get("technique") or ""),
-            "payload": str(current.get("payload") or ""),
-        })
+    flush(entry)
 
     if injections:
         vulnerable = True
@@ -183,12 +216,9 @@ def main():
         return fail("bad_wall_timeout", "wall_timeout обязан быть числом",
                     exit_code=2)
 
-    log_file = None
     stdout = ""
-    returncode = 0
     stderr = ""
     with tempfile.TemporaryDirectory() as td:
-        log_file = os.path.join(td, "sqlmap.log")
         cmd = resolve_bin()
         cmd += ["-u", url, "--batch", "--flush-session", "--disable-coloring",
                 "--level=1", "--risk=1", "--technique=" + technique,
@@ -220,7 +250,7 @@ def main():
                         "вывод sqlmap не декодируется как UTF-8 — находки "
                         "не разбираются", exit_code=2)
         injections, vulnerable, saw_line = parse_stdout(stdout)
-        has_log = os.path.isfile(log_file)
+        has_log = has_sqlmap_log(td)
         if not has_log and not saw_line:
             return fail("no_report",
                         "sqlmap не оставил ни лога, ни строк в своём формате")

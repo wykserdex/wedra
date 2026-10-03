@@ -8,12 +8,17 @@
 печать исходников макросов (display_code=False), поэтому в вывод плагина код
 не попадает.
 
-Формат stdout в -j: НЕ один JSON, а поток объектов, разделённых запятой:
-сначала MetaInformation (script_name/version/type), затем по одному объекту на
-файл:
-{container, file, type, json_conversion_successful, analysis[{type, keyword,
-description}], macros[{vba_filename, subfilename, ole_stream, code}]}.
-Читаем поток через raw_decode, MetaInformation пропускаем.
+Формат stdout в -j: ОДИН JSON-МАССИВ `[...]`. Его открывает
+`log_helper.enable_logging()` (печатает `[` в stdout), каждый объект печатает
+`print_json()` — первый с отступом, остальные с `,` + отступ перед ним, что
+ровно разделитель элементов массива, — а закрывает `log_helper.end_logging()`
+(печатает `]`). Внутри: сначала MetaInformation (script_name/version/
+python_version/url/type), затем по одному объекту на файл:
+{container, file, json_conversion_successful, analysis, code_deobfuscated,
+do_deobfuscate, show_pcode, type, macros}, где
+analysis = [{type, keyword, description}] (null, если макросов нет),
+macros = [{vba_filename, subfilename, ole_stream, code}], а code с `-a` = null.
+MetaInformation пропускаем.
 
 Доменные ошибки: empty_file, missing_file, oletools_not_installed, timeout
 (retryable), no_report, tool_failed. Платформенные (exit 2): битый JSON входа,
@@ -42,14 +47,28 @@ def fail(code, message, retryable=False, exit_code=1):
     return exit_code
 
 
-def read_json_stream(text):
-    """Читает поток JSON-объектов, разделённых запятыми (print_json olevba)."""
+def read_json_objects(text):
+    """Разбирает stdout olevba в режиме -j в список объектов.
+
+    Настоящий olevba печатает ОДИН JSON-массив (см. docstring), поэтому сначала
+    пробуем целиком json.loads(). Если не вышло (мусор до/после, вариант без
+    скобок) — читаем объекты потоком через raw_decode, пропуская разделители
+    `,` и скобки массива.
+    """
+    text = text or ""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        pass
+    else:
+        return parsed if isinstance(parsed, list) else [parsed]
+
     decoder = json.JSONDecoder()
     objects = []
     pos = 0
-    length = len(text or "")
+    length = len(text)
     while pos < length:
-        while pos < length and (text[pos].isspace() or text[pos] == ","):
+        while pos < length and (text[pos].isspace() or text[pos] in ",[]"):
             pos += 1
         if pos >= length:
             break
@@ -106,6 +125,7 @@ def main():
     with tempfile.TemporaryDirectory() as td:
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
                                   cwd=td, timeout=wall)
         except FileNotFoundError:
             return fail("oletools_not_installed",
@@ -126,7 +146,7 @@ def main():
 
         stdout = proc.stdout or ""
         try:
-            objects = read_json_stream(stdout)
+            objects = read_json_objects(stdout)
         except ValueError as e:
             return fail("bad_report",
                         f"JSON-репорт olevba не разбирается: {e}", exit_code=2)

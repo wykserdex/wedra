@@ -6,8 +6,10 @@
 
 Вызов: <INSTALOADER_BIN|...> либо `python3 -c <SNIPPET> <profile>`
        (cwd = временная папка). Почему не CLI. Сверено с instaloader 4.15.3
-       (docs/cli-options.rst и instaloader/__main__.py, ветка master): флага
-       `--json` (JSON в stdout) в CLI нет вообще, а `--no-login` нет тоже —
+       (instaloader/__main__.py, instaloader/instaloader.py,
+       instaloader/structures.py, instaloader/instaloadercontext.py): флага
+       `--json` (JSON в stdout) в CLI нет вообще — есть позиционный аргумент
+       `json`, но это файл со списком целей, а не флаг; `--no-login` нет тоже —
        есть только `--no-metadata-json`, и он отключает запись JSON-файлов
        метаданных постов. Метаданные профиля CLI наружу не отдаёт, поэтому
        продовый путь — паттерн C: тот же интерпретатор и фиксированный сниппет
@@ -15,12 +17,23 @@
 
 Логин не используется. Ник, пароль и cookie-файл плагин не передаёт и не
 читает: InstaloaderContext поднимает анонимную сессию (get_anonymous_session,
-username=None — instaloader/instaloadercontext.py) и логинится только при
-явном login_user, а Profile.from_username работает без логина (профиль
-закрытый вернёт is_private с нулевыми счётчиками). Медиа не качается: в
-сниппете download_pictures/download_videos/download_video_thumbnails=False и
-save_metadata=False — те же выключатели, что у флагов --no-pictures,
---no-videos, --no-video-thumbnails, --no-metadata-json.
+username=None — instaloader/instaloadercontext.py), а логинится только при
+явном InstaloaderContext.login(user, passwd); Profile.from_username работает без
+логина (профиль закрытый вернёт is_private с нулевыми счётчиками). Медиа не
+качается: в сниппете download_pictures/download_videos/
+download_video_thumbnails=False и save_metadata=False — те же выключатели, что у
+флагов --no-pictures, --no-videos, --no-video-thumbnails, --no-metadata-json
+(сверено с :param:-описанием Instaloader.__init__ в instaloader/instaloader.py).
+
+Сниппет читает у Profile только те свойства, которые реально нужны выходу.
+Все они — @property поверх Profile._metadata() и на нормальном узле
+web_profile_info безопасны: username, full_name, followers, followees,
+mediacount, is_private. Свойства biography и profile_pic_url из сниппета
+убраны намеренно: они в выход не идут, но могут уронить весь прогон —
+biography зовёт normalize("NFC", node['biography']) и падает TypeError на
+биографии null, а profile_pic_url читает ключ profile_pic_url_hd, которого
+Profile.from_username не добавляет (нормализацию _normalize_profile_data
+вызывает только _obtain_metadata), и падает KeyError.
 
 Выход (stdout JSON): {profile, username, followers, posts, is_private,
 full_name]. Сниппет — константа модуля, секретов в ней нет и быть не может:
@@ -60,10 +73,10 @@ SNIPPET = (
     "p=il.Profile.from_username(L.context,sys.argv[1]);"
     "n=lambda v:int(v or 0);"
     "print(json.dumps({'username':p.username or '',"
-    "'full_name':p.full_name or '','biography':p.biography or '',"
+    "'full_name':p.full_name or '',"
     "'followers':n(p.followers),'followees':n(p.followees),"
-    "'posts':n(p.mediacount),'is_private':bool(p.is_private),"
-    "'profile_pic_url':p.profile_pic_url or ''},ensure_ascii=False))"
+    "'posts':n(p.mediacount),'is_private':bool(p.is_private)},"
+    "ensure_ascii=False))"
 )
 
 

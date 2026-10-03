@@ -4,13 +4,15 @@
 Вход (stdin JSON): url, findall (опц., bool, -a), timeout (опц., с/запрос, 7),
 wall_timeout (опц., общий лимит, 300).
 
-Вызов: <WAFW00F_BIN|wafw00f|python3 -m wafw00f> -o wafw00f_report.json
+Вызов: <WAFW00F_BIN|wafw00f|python3 -m wafw00f.main> -o wafw00f_report.json
        [-a] -T N --no-colors <url>  (cwd = временная папка).
 
-Флаги сверены с main.py wafw00f 2.4.x (optparse): -o/--output — файл отчёта,
-формат выбирается по расширению (.json → JSON), -f/--format — принудительный
-формат, -a/--findall — искать все совпадения, -i/--input-file — список целей
-из файла, -T/--timeout — таймаут запроса. Отчёт — JSON-массив записей
+Флаги сверены с main.py wafw00f 2.4.2 (optparse, console_scripts
+wafw00f = wafw00f.main:main): -o/--output — файл отчёта, формат выбирается по
+расширению (.json → JSON), -f/--format — принудительный формат, -a/--findall —
+искать все совпадения, -i/--input-file — список целей из файла, -T/--timeout —
+таймаут запроса (int, по умолчанию 7), --no-colors. В пакете нет __main__.py,
+поэтому модульный запуск только через wafw00f.main. Отчёт — JSON-массив записей
 {url, detected, trigger_url, firewall, manufacturer}; при отсутствии WAF
 запись {detected: false, firewall: "None", manufacturer: "None"}, а при
 общей детекции — {firewall: "Generic", manufacturer: "Unknown"}. В stdout
@@ -57,7 +59,7 @@ def resolve_bin():
     found = shutil.which("wafw00f")
     if found:
         return [found]
-    return [sys.executable, "-m", "wafw00f"]
+    return [sys.executable, "-m", "wafw00f.main"]
 
 
 def main():

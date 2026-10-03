@@ -4,11 +4,16 @@
 Вход (stdin JSON): username, sites[] (опц., --site), timeout (опц., с/сайт,
 60), wall_timeout (опц., общий лимит, 600).
 
-Вызов: <SHERLOCK_BIN|python3 -m sherlock> <username> [--site S ...]
+Вызов: <SHERLOCK_BIN|python3 -m sherlock_project> <username> [--site S ...]
        --print-all --no-color --timeout N   (cwd = временная папка).
 
-Флаги сверены с docs/README.md sherlock-project (актуальная ветка master):
---site (повторяемый), --print-all, --no-color, --timeout, --print-found.
+Флаги сверены с исходником пакета sherlock-project 0.16.2
+(sherlock_project/sherlock.py, main()): --site (action=append, dest=site_list),
+--print-all, --no-color, --timeout (type=timeout_check, default 60). Позиционный
+username — nargs="+", поэтому username идёт первым. Без SHERLOCK_BIN модуль
+запускается как -m sherlock_project: в wheel верхний уровень — пакет
+sherlock_project, а «sherlock» — только имя консольного скрипта из
+entry_points (sherlock=sherlock_project.sherlock:main), модуля sherlock нет.
 Машинного отчёта не берём намеренно: плагин разбирает stdout (паттерн B) —
 [+] Сайт: url считается найденным, [-] Сайт: ... считается проверенным.
 Строка-заголовок «[*] Checking username ... on:» нужна как признак того, что
@@ -57,7 +62,10 @@ def resolve_bin():
             return [os.path.abspath(bin_env)]
         # имя из PATH; если PATH пуст — относительное от cwd плагина (моки)
         return [shutil.which(bin_env) or os.path.abspath(bin_env)]
-    return [sys.executable, "-m", "sherlock"]
+    # имя пакета — sherlock_project (sherlock_project.sherlock:main), а
+    # «sherlock» — лишь имя консольного скрипта из entry_points; модуля с
+    # таким именем в wheel нет, поэтому -m sherlock не отработает.
+    return [sys.executable, "-m", "sherlock_project"]
 
 
 def parse_report(stdout):

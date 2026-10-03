@@ -7,7 +7,10 @@ matcher (опц., выражение фильтра wfuzz), wall_timeout (опц
 Вызов: <WFUZZ_BIN|python3 -m wfuzz> -u <url> -w <wordlist> [--filter <matcher>]
        -f <временная папка>/wfuzz_report.json,json   (cwd = временная папка).
 
-Wfuzz 2.1.x принтером json пишет в файл из -f один JSON-массив объектов:
+Аргумент -f у wfuzz — это `<filename>,<printer>` (ui/console/clparser.py:
+`optsd["-f"][0].split(",", 1)`), поэтому вызов `-f <файл>,json` верен.
+Принтер json (wfuzz/plugins/printers/printers.py, class json) в файл из -f
+пишет один JSON-массив объектов — одинаковый набор ключей в 2.4.x и 3.x:
 [{code, lines, words, chars, payload, location, method, post_data, server, url}].
 Берём этот файл. Пустой массив [] — нормальный результат (count=0), не ошибка.
 FUZZ — маркер wfuzz: он не «разворачивается» в наш код, а остаётся в URL и

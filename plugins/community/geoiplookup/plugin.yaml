@@ -3,9 +3,11 @@ version: 0.1.0
 platform_api: "^0.1"
 description: >
   GeoIP по IP-адресу через CLI geoiplookup (MaxMind, из пакета geoip-bin) по
-  локальной базе GeoIP/GeoLite2/DB-IP — сети не нужно. Инструмент ставится
-  отдельно (apt install geoip-bin или сборка из исходников maxmind/geoip), база
-  кладётся оператором и указывается входом db_path либо env GEOIP_DB_PATH.
+  локальной базе — сети не нужно. Инструмент ставится отдельно (apt install
+  geoip-bin или сборка из исходников maxmind/geoip-api-c), база кладётся
+  оператором и указывается входом db_path либо env GEOIP_DB_PATH. Утилита
+  легаси-C и читает только .dat-базы (GeoIP.dat, GeoIPCity.dat, ...), MMDB
+  (GeoLite2-*.mmdb, DB-IP) открывает другой инструмент — mmdblookup.
   Дона, названного в ТЗ (репозиторий speciallicity/geoiplookup и PyPI-пакет
   geoiplookup), не существует: GitHub отдаёт 404, на PyPI /simple/geoiplookup/
   пусто. Поэтому обёртка зовёт документированный инструмент с этим именем.

@@ -21,7 +21,7 @@ input:
   types:
     from: input.types
     type: array
-    optional: true      # std, brt, srv, axfr, spf, rvl, bing, yand, crt,
+    optional: true      # std, brt, srv, axfr, rvl, bing, yand, crt,
                         # snoop, tld, zonewalk; без него — ["std"]
   dictionary:
     from: input.dictionary

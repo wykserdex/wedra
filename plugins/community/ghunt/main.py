@@ -6,15 +6,18 @@ wall_timeout (опц., 300).
 
 Запуск, cwd = временная папка, stdin закрыт:
   <GHUNT_BIN | ghunt> <mode> <target> --json <файл во временной папке>
-GHunt сам читает токен/сессию из env GHUNT_TOKEN — плагин переменную только
-пробрасывает в дочерний процесс и не требует её наличия, поэтому
-happy-path полностью мокается.
+GHunt 2.3.4 не имеет ни одного env-чтения: сессию он держит в файле
+~/.malfrats/ghunt/creds.m (base64+JSON), который заводит `ghunt login`.
+Плагин переменную GHUNT_TOKEN из окружения только пробрасывает в дочерний
+процесс и не требует её наличия, поэтому happy-path полностью мокается;
+сам инструмент её не читает.
 
-О подкомандах: по документации GHunt 2.x из CLI-экспорта с --json есть
-login, email, gaia, drive, geolocate (плюс spiderdal без --json). Подкоманды
-username у апстрима НЕТ. mode пробрасывается в командную строку как есть,
-ничего не подменяем и не изобретаем: mode=username на текущем GHunt
-закончится tool_failed. mode=email — рабочий сценарий.
+О подкомандах: подтверждено по исходнику ghunt/cli.py 2.3.4 и по его
+--help — login, email, gaia, drive, geolocate, spiderdal, причём --json есть
+у всех, кроме login. Подкоманды username у апстрима НЕТ. mode
+пробрасывается в командную строку как есть, ничего не подменяем и не
+изобретаем: mode=username закончится ошибкой argparse и tool_failed.
+mode=email — рабочий сценарий.
 
 Выход (stdout JSON): {target, records[], count}. records — плоский список
 {field, value}: верхний уровень JSON-выгрузки GHunt (dict → по ключам,

@@ -11,7 +11,8 @@ CLI `prowler`: JSON-OCSF-отчёт `<output-dir>/<name>.ocsf.json` привод
 `AWS_SESSION_TOKEN`, `AWS_DEFAULT_REGION`/`AWS_REGION`) — обёртка их не читает и
 не требует. Аудит только собственных аккаунтов.
 
-ВНИМАНИЕ к версиям: нативный `-f json`/`-o <файл>` удалён начиная с prowler v4
-(см. prowler-cloud/prowler#3742), обёртка использует актуальный
-`-M json-ocsf -o <dir> -F <name>`. Флаг `-z/--ignore-exit-code-3` обязателен:
-без него находки дают exit 3.
+ВНИМАНИЕ к версиям: нативных `-f json`/`-o <файл>` в парсере prowler нет — в
+wheel 5.44.0 (`prowler/lib/cli/parser.py`) таких флагов нет вовсе, а
+`-M/--output-modes` принимает `{csv,json-asff,json-ocsf,html,sarif}`. Обёртка
+поэтому использует актуальный `-M json-ocsf -o <dir> -F <name>`. Флаг
+`-z/--ignore-exit-code-3` обязателен: без него находки дают exit 3.

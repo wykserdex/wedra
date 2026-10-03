@@ -4,10 +4,12 @@ platform_api: "^0.1"
 description: >
   Instaloader (instaloader/instaloader) — метаданные публичного профиля
   Instagram, без скачивания медиа и без логина. CLI instaloader не умеет
-  печатать метаданные профиля в stdout (флаг --json не существует), поэтому
-  обёртка идёт паттерном C: запускает тот же интерпретатор с фиксированным
-  сниппетом, который читает профиль публичным API (Profile.from_username,
-  анонимно) и печатает JSON. Загрузка картинок/видео и запись метаданных в
+  печатать метаданные профиля в stdout (флага --json нет, --no-login нет),
+  поэтому обёртка идёт паттерном C: запускает тот же интерпретатор с
+  фиксированным сниппетом, который читает профиль публичным API
+  (Profile.from_username, анонимно) и печатает JSON. Сниппет читает только
+  нужные выходу свойства Profile (username, full_name, followers, followees,
+  mediacount, is_private). Загрузка картинок/видео и запись метаданных в
   файлы выключены (соответствуют флагам --no-pictures, --no-videos,
   --no-video-thumbnails, --no-metadata-json).
   Инструмент ставится отдельно: pip install instaloader.

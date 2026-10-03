@@ -11,17 +11,22 @@
 
 Вызов: <TPLMAP_BIN|tplmap.py> -u <url> [-e <engine>]  (cwd = временная папка).
 
-Отчёта-файла у tplmap нет (флагов --pipe/--report-json тоже нет) — разбираем
-текстовый stdout. Формат (utils/loggers.py, префиксы [+] / [-] / [!]):
-  [+] Tplmap 0.5
-  [+] Testing if GET parameter 'name' is injectable
-  [+] Jinja2 plugin has confirmed injection with tag '{{*}}'
-  [+] Tplmap identified the following injection point:
-        GET parameter: name
-        Engine: Jinja2
-        Injection: {{*}}
-        Context: text
-  [!][core.checks] Tested parameters appear to be not injectable.
+Отчёта-файла у tplmap нет (флагов --pipe/--report-json/-o тоже нет) — разбираем
+текстовый stdout. Формат (core/checks.py, core/plugin.py; у tplmap 0.5 префиксы
+логгера в stdout НЕ печатаются — utils/loggers.py пишет fmt в self._fmt, а
+logging.Formatter его игнорирует, так что строки идут без [+] / [-] / [!]):
+  Tplmap 0.5
+  Testing if GET parameter 'name' is injectable
+  Jinja2 plugin has confirmed injection with tag '{{*}}'
+  Tplmap identified the following injection point:
+
+    GET parameter: name
+    Engine: Jinja2
+    Injection: {{*}}
+    Context: text
+    OS: nt-win32
+    Technique: render
+  Tested parameters appear to be not injectable.
 
 Выход (stdout JSON): {url, vulnerable, engine, payloads[]}. payloads — теги,
 которые движок подтвердил (строки «has confirmed injection with tag '...'»
@@ -114,7 +119,7 @@ def main():
             return fail("tplmap_not_installed",
                         "tplmap не найден: поставьте из исходников "
                         "(git clone https://github.com/epinna/tplmap && "
-                        "pip install -r requirements.txt) и укажите путь "
+                        "pip install PyYAML requests) и укажите путь "
                         "к tplmap.py в TPLMAP_BIN")
         except subprocess.TimeoutExpired:
             return fail("timeout",

@@ -3,12 +3,14 @@
 
 Имитирует joomscan 0.0.7: читает -u <url> [--enumerate-components] --timeout N,
 печатает ход проверок в stdout и кладёт текстовый репорт
-reports/<host>/<host>_report_<дата>_at_<время>.txt в CWD (как core/report.pl).
-Строки репорта — реальные сообщения модулей joomscan: "[+] <проверка>" из dprint и
-"[++] <детали>" из tprint/fprint. Режимы env: MOCK_SLEEP=N (тест wall_timeout),
-MOCK_NO_REPORT=1 (нет репорта — тест no_report), MOCK_CLEAN=1 (цель Joomla без
-находок и компонентов), MOCK_NOT_ALIVE=1 ("The target is not alive!", без
-репорта), MOCK_BAD_REPORT=1 (репорт в нечитаемой кодировке), MOCK_FAIL=1
+reports/<host>/<host>_report_<дата>_at_<время>.txt в CWD (как core/report.pl:
+каталог reports/<host> создаётся НЕРЕКУРСИВНЫМ os.mkdir, поэтому без готового
+reports/ отчёта не будет). Строки репорта — реальные сообщения модулей joomscan:
+"[+] <проверка>" из dprint и "[++] <детали>" из tprint/fprint; версия печатается
+как реальный ver.pl — после tr остаётся "3.9.24". Режимы env: MOCK_SLEEP=N (тест
+wall_timeout), MOCK_NO_REPORT=1 (нет репорта — тест no_report), MOCK_CLEAN=1 (цель
+Joomla без находок и компонентов), MOCK_NOT_ALIVE=1 ("The target is not alive!",
+без репорта), MOCK_BAD_REPORT=1 (репорт в нечитаемой кодировке), MOCK_FAIL=1
 (ненулевой код выхода).
 """
 import os
@@ -53,7 +55,7 @@ if os.environ.get("MOCK_NO_REPORT") == "1":
 
 clean = os.environ.get("MOCK_CLEAN") == "1"
 
-lines = ["[+] Detecting Joomla Version", "[++] Joomla3.9.24", ""]
+lines = ["[+] Detecting Joomla Version", "[++] 3.9.24", ""]
 lines += ["[+] FireWall Detector",
           "[++] Firewall detected : Sucuri Firewall (Sucuri Cloudproxy)", ""]
 if not clean:
@@ -77,7 +79,8 @@ lines += ["[++] components are not found"]
 
 host = urlsplit(url).netloc or url.strip("/")
 report_dir = os.path.join("reports", host)
-os.makedirs(report_dir, exist_ok=True)
+# как core/report.pl: mkdir не рекурсивный — без готового reports/ в CWD отчёта нет
+os.mkdir(report_dir)
 report = os.path.join(report_dir,
                       "%s_report_2026-01-01_at_00.00.00.txt" % host)
 

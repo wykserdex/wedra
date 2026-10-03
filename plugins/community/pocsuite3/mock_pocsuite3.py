@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Mock pocsuite3 CLI для контракт-тестов (без сети и без пакета pocsuite3).
 
-Имитирует pocsuite3 2.1.0: читает -u <url> --verify --batch -o <file> [-k KEY],
-печатает таблицу результатов в stdout и пишет в файл -o JSON Lines — по строке на
-успешную находку {"target","poc_name","result","created_time"} (как плагин
-file_record). Режимы env: MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1
+Имитирует pocsuite3 2.1.0: читает -u <url> --verify -o <file> [-k KEY], печатает
+таблицу результатов в stdout и пишет в файл -o JSON Lines — по строке на успешную
+находку {"target","poc_name","result","created_time"} (как плагин file_record).
+Голый --batch в 2.1.0 требует значения, поэтому мок его отвергает, как argparse
+(«expected one argument» + код 0, файл -o не создаётся — SystemExit глотает
+cli.main). Режимы env: MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1
 (нет файла — тест no_report), MOCK_EMPTY=1 (файл создан, находок нет),
 MOCK_BAD_REPORT=1 (битая строка JSON вместо записей), MOCK_FAIL=1 (ненулевой код
 выхода).
@@ -44,6 +46,13 @@ if not url:
     print("[*] No poc specified, try 'pocsuite -h' or 'pocsuite --help' "
           "for more information")
     sys.exit(1)
+
+if "--batch" in argv:
+    # 2.1.0: --batch объявлен без action=store_true -> требует значения
+    print("usage: pocsuite [options]", file=sys.stderr)
+    print("Pocsuite3: error: argument --batch: expected one argument",
+          file=sys.stderr)
+    sys.exit(0)
 
 records = []
 if os.environ.get("MOCK_EMPTY") != "1":

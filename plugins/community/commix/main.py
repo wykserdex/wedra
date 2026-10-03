@@ -12,10 +12,15 @@ wall_timeout (опц., общий лимит, 300).
 Вызов: <COMMIX_BIN|commix> -u <url> --batch --skip-technique=f
        --disable-coloring --timeout N --report-json report.json [-p param]
        (cwd = временная папка). Флага --output-file у commix нет: машинный
-       репорт даёт --report-json (commix 4.2+), его JSON-схема — target,
-       http_method, command, started, findings[{parameter, http_method,
-       technique, type, boundary, payload, reproduce}], finished, requests,
-       target_os, waf_detected, evasion_applied.
+       репорт даёт --report-json, его JSON-схема — target, http_method,
+       command, started, findings[{parameter, http_method, technique, type,
+       boundary, payload, reproduce}], finished, requests, target_os,
+       waf_detected, evasion_applied.
+
+Версия донора: --report-json появился в коммите от 2026-09-04, который уже
+ПОСЛЕ последнего тега v4.1 (декабрь 2025) — релиз 4.2 не вышел, ветка master
+сообщает о себе как v4.2.devN (setup.py: version='4.2.dev'). Ставить нужно
+master, а не «4.2+».
 
 Выход (stdout JSON): {url, vulnerable, parameter, injections[{parameter,
 http_method, technique, type, payload}]}. Отсутствие находок — нормальный
@@ -110,9 +115,11 @@ def main():
                                   cwd=td, timeout=wall)
         except FileNotFoundError:
             return fail("commix_not_installed",
-                        "commix не найден: поставьте commix 4.2+ из исходников "
-                        "(git clone https://github.com/commixproject/commix) "
-                        "и укажите путь в COMMIX_BIN")
+                        "commix не найден: поставьте master-ветку commix "
+                        "из исходников (git clone "
+                        "https://github.com/commixproject/commix) — "
+                        "--report-json есть только там — и укажите путь "
+                        "в COMMIX_BIN")
         except subprocess.TimeoutExpired:
             return fail("timeout",
                         f"commix не уложился в {wall:.0f}s: уменьшите timeout "

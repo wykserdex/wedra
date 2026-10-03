@@ -5,11 +5,22 @@
 
 Запуск, cwd = временная папка, stdin закрыт:
   1) <EXIFTOOL_BIN | exiftool из PATH> -j -q <file>  → JSON-массив в stdout;
-  2) системного бинаря нет → паттерн C (спека §8a):
-     <python> -c <SNIPPET> <file>, где сниппет импортирует pip-пакет
-     pyexiftool (находит перл-бинарь сам, в т.ч. в каталоге установки под
-     Windows) и печатает тот же JSON. Отдельным CLI-донором pyexiftool не
-     является: консольного скрипта у пакета нет.
+2) системного бинаря нет → паттерн C (спека §8a):
+      <python> -c <SNIPPET> <file>, где сниппет импортирует pip-пакет
+      pyexiftool и печатает тот же JSON. Отдельным CLI-донором pyexiftool не
+      является: консольного скрипта у пакета нет (в колесе нет ни
+      entry_points.txt, ни каталога scripts).
+
+      Сниппет держится на двух особенностях API pyexiftool, проверенных по
+      исходникам 0.5.x и вживую:
+      * ExifTool() не поднимает процесс сам — execute_json() на свежем
+        экземпляре падает с ExifToolNotRunning("Cannot execute()"). Работает
+        только контекстный менеджер: __enter__ зовёт run(), __exit__ —
+        terminate(). Метода close() у ExifTool НЕТ вовсе, звать terminate().
+      * common_args по умолчанию ["-G","-n"] — с ними имена тегов идут
+        с префиксом группы (File:FileName) и значения остаются сырыми
+        (FileSize=322). common_args=[] даёт вывод, побайтово совпадающий с
+        основным путём `exiftool -j -q`.
 
 Выход (stdout JSON): {file, tags{}, count}. tags — первый объект массива
 exiftool без SourceFile, значения приведены к строкам (списки — через
@@ -30,10 +41,9 @@ DEFAULT_WALL = 60
 MAX_TAGS = 400
 
 SNIPPET = (
-    "import json,sys,exiftool;"
-    "e=exiftool.ExifTool();"
-    "print(json.dumps(e.execute_json(sys.argv[1]),ensure_ascii=False,default=str));"
-    "e.close()"
+    "import json,sys,exiftool\n"
+    "with exiftool.ExifTool(common_args=[]) as e:\n"
+    "    print(json.dumps(e.execute_json(sys.argv[1]),ensure_ascii=False,default=str))"
 )
 
 
@@ -141,6 +151,14 @@ def main():
                             "нет ни exiftool в PATH, ни pyexiftool: "
                             "поставьте ExifTool (exiftool.org) или "
                             "pip install pyexiftool")
+            # pyexiftool есть, но перл-бинарь не найден: ExifTool() кидает
+            # голый FileNotFoundError (класса ExifToolNotFound в пакете нет)
+            if "FileNotFoundError" in stderr and "is not found" in stderr:
+                return fail("exiftool_not_installed",
+                            "pyexiftool установлен, но не найден перл-бинарь "
+                            "ExifTool: поставьте системный ExifTool "
+                            "(exiftool.org) или укажите путь через "
+                            "EXIFTOOL_BIN")
             tail = stderr.strip().splitlines()
             last = tail[-1] if tail else f"exit {proc.returncode}"
             return fail("tool_failed",

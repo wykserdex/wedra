@@ -18,15 +18,19 @@ joomscan), из репозитория — joomscan.pl на Perl. Поэтому
 не выдумываем. Свою разведку не запускаем: одна цель, заданная оператором.
 
 Отчёт: core/report.pl пишет в CWD reports/<host>/<host>_report_<дата>_at_<время>.txt
-(и .html) — берём txt. Формат: dprint печатает "\n[+] <проверка>\n", tprint/fprint
-"[++] <детали>"; в txt обе метки одинаковые, поэтому находки отделяем по тексту:
-VULN_NEGATIVE вычитается первым, потом ищем VULN_POSITIVE — это подстроки реальных
-сообщений модулей joomscan (core/ver.pl, exploit/verexploit.pl, jckeditor.pl,
+(и .html) — берём txt. Каталог reports/<host> создаёт сам report.pl, но mkdir в Perl
+НЕ рекурсивный: без готового reports/ в CWD mkdir падает с ENOENT, open() — следом,
+и отчёта не бывает вовсе. Поэтому мы заранее создаём reports/ во временной папке
+(иначе каждый прогон даёт no_report). Формат: dprint печатает "\n[+] <проверка>\n",
+tprint/fprint "[++] <детали>"; в txt обе метки одинаковые, поэтому находки отделяем
+по тексту: VULN_NEGATIVE вычитается первым, потом ищем VULN_POSITIVE — это подстроки
+реальных сообщений модулей joomscan (core/ver.pl, exploit/verexploit.pl, jckeditor.pl,
 com_lfd.pl, modules/{pathdisclure,debugmode,dirlisting,missconfig,backupfinder,
 robots,reg,cpfinder,waf_detector}.pl). Остальное молча игнорируем — разбор
-намеренно консервативный. Версия: блок вида "Joomla3.9.24" (core/ver.pl печатает
-$ver через tr, пробелов в нём нет). Компоненты: строки "Name: com_content" +
-"Location : <url>" из exploit/components.pl.
+намеренно консервативный. Версия: блок из одной строки вида "[++] 3.9.24" —
+core/ver.pl печатает $ver через tr/[0-9a-zA-Z. ]/cd, отсекающий и префикс "Joomla",
+и пробелы; ветка с префиксом оставлена про запас. Компоненты: строки
+"Name: com_content" + "Location : <url>" из exploit/components.pl.
 
 Выход (stdout JSON): {url, version, vulns[{check,detail}], components[{name,
 location}], count}; count = len(vulns). Ничего не нашлось — ok с пустыми массивами.
@@ -237,6 +241,9 @@ def main():
         cmd.append("--enumerate-components")
 
     with tempfile.TemporaryDirectory() as td:
+        # report.pl делает mkdir("reports/<host>") — mkdir не рекурсивный,
+        # без родителя отчёт не пишется вовсе
+        os.makedirs(os.path.join(td, "reports"), exist_ok=True)
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   cwd=td, timeout=wall,

@@ -3,7 +3,9 @@
 
 Имитирует сниппет плагина: берёт имя профиля из argv и печачает в stdout один
 JSON-объект метаданных профиля, как это делает instaloader
-(Profile.from_username). Ни сети, ни пакета instaloader, ни логина. Режимы env:
+(Profile.from_username). Набор ключей — ровно те свойства Profile, которые
+сниппет читает: username, full_name, followers, followees, posts (mediacount),
+is_private. Ни сети, ни пакета instaloader, ни логина. Режимы env:
 MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1 (пустой stdout, тест
 no_report), MOCK_FAIL=1 (ProfileNotExistsException, тест tool_failed),
 MOCK_FAIL_RETRY=1 (HTTP Error 429, tool_failed c retryable), MOCK_BAD_REPORT=1
@@ -37,21 +39,18 @@ if os.environ.get("MOCK_NO_REPORT") == "1":
     sys.exit(0)
 
 if os.environ.get("MOCK_PRIVATE") == "1":
-    report = {"username": profile, "full_name": "", "biography": "",
-              "followers": 0, "followees": 0, "posts": 0, "is_private": True,
-              "profile_pic_url": ""}
+    report = {"username": profile, "full_name": "", "followers": 0,
+              "followees": 0, "posts": 0, "is_private": True}
 elif os.environ.get("MOCK_MISSING_FIELDS") == "1":
     report = {"username": profile}
 else:
     report = {
         "username": profile,
         "full_name": "Demo Person",
-        "biography": "демо-профиль",
         "followers": 12345,
         "followees": 321,
         "posts": 678,
         "is_private": False,
-        "profile_pic_url": "https://example.com/avatar.jpg",
     }
 
 if os.environ.get("MOCK_BAD_REPORT") == "1":
