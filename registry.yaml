@@ -607,6 +607,103 @@ plugins:
     version: v0.33c
     commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
     description: "yt-dlp — метаданные видео по URL (-J), без скачивания. pip install yt-dlp."
+  cron_next:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/cron_next
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Ближайшее срабатывание 5-польного cron от заданного момента (UTC). Без сети."
+
+  csv_stats:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/csv_stats
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Статистики числовой колонки CSV из текста: count/mean/min/max/sum. Без сети."
+
+  dns_lookup:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/dns_lookup
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "DNS-резолв хоста в IP (A/AAAA через getaddrinfo), фильтр семейства."
+
+  domain_parser:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/domain_parser
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Разбор URL/хоста: схема, хост, порт, путь, punycode→unicode, детект IP-литерала. Без сети."
+
+  email_extractor:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/email_extractor
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Извлечение email-адресов из текста: дедуп, лимит, уникальные домены. Без сети."
+
+  geo_distance:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/geo_distance
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Расстояние между двумя точками по гаверсинусу: км/метры/мили. Без сети."
+
+  hash_tool:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/hash_tool
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Хэши: определение типа по виду (md5/sha*/bcrypt/argon2/uuid) и вычисление digest. Без сети."
+
+  http_probe:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/http_probe
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "HTTP GET-проба URL: статус, финальный URL, content-type, размер, время."
+
+  ip_intel:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/ip_intel
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Разбор IP-адреса: версия, приватный/loopback/multicast/reserved, нормализация. Без сети."
+
+  jwt_decode:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/jwt_decode
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Разбор JWT без верификации: header/payload, alg, протух ли по exp. Без сети."
+
+  password_strength:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/password_strength
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Оценка стойкости пароля 0-4: длина, классы символов, энтропия, стоп-лист. Без сети."
+
+  port_probe:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/port_probe
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "TCP-проба host:port: открыт/закрыт, задержка, опциональный баннер."
+
+  regex_extract:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/regex_extract
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "Извлечение совпадений regex из текста с лимитом max_n. Без сети."
+
+  ssl_info:
+    source: https://github.com/wykserdex/wedra
+    path: plugins/community/ssl_info
+    version: v0.33c
+    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    description: "TLS-сертификат хоста: CN, издатель, сроки, протух ли, самоподписан ли."
 presets:
   csv_foreach:
     source: https://github.com/wykserdex/wedra
