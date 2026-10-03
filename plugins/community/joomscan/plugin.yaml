@@ -5,7 +5,8 @@ description: >
   OWASP JoomScan — неинвазивный аудит Joomla-сайта: версия, известные уязвимости
   и ошибки конфигурации, перечисление компонентов. Обёртка над CLI joomscan: одна
   явно заданная цель, текстовый репорт reports/<host>/<host>_report_*.txt
-  разбирается в версию, находки и компоненты. JoomScan — инструмент на Perl,
+  разбирается в версию, находки и компоненты (каталог reports/ плагин создаёт
+  сам: mkdir в report.pl не рекурсивный). JoomScan — инструмент на Perl,
   ставится отдельно: apt install joomscan (Kali) или
   git clone https://github.com/OWASP/joomscan.
 author: "community · wedra showcase (web security)"

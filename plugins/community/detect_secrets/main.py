@@ -4,12 +4,14 @@
 Вход (stdin JSON): path (каталог или файл), wall_timeout (опц., 300).
 
 Вызов: <DETECT_SECRETS_BIN|python3 -m detect_secrets> scan <abspath> --all-files
-       (cwd = временная папка).
+       (cwd = каталог цели, см. scan_cwd ниже — это обязательное условие).
 
 detect-secrets печатает baseline-JSON в stdout:
 {version, plugins_used[], filters_used[], results{<file>:[{type, filename,
-line_number, hashed_secret, is_verified}]}}. Значения секретов и их хэши в
-output НЕ попадают — только тип, имя файла и номер строки. Пустой results —
+hashed_secret, is_verified, line_number}]}, generated_at}. Значения секретов и их
+хэши в output НЕ попадают — только тип, имя файла и номер строки. Поле
+line_number донор пишет только когда номер ненулевой (иначе ключа нет — мы
+тогда ставим 0), is_secret появляется только после audit. Пустой results —
 нормальный результат («секретов не нашли»).
 
 Доменные ошибки: empty_path, missing_path, detect_secrets_not_installed,
@@ -21,7 +23,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 
 DEFAULT_WALL = 300
 
@@ -94,7 +95,7 @@ def main():
 
     bin_env = os.environ.get("DETECT_SECRETS_BIN", "").strip()
     if bin_env:
-        # subprocess поедет с cwd во временной папке: имя из PATH ищем
+        # subprocess поедет с cwd в каталог цели: имя из PATH ищем
         # which'ем, путь — приводим к абсолютному
         if "/" not in bin_env and "\\" not in bin_env:
             cmd = [shutil.which(bin_env) or os.path.abspath(bin_env)]
@@ -108,38 +109,51 @@ def main():
         cmd = [sys.executable] + cmd
     cmd += ["scan", target, "--all-files"]
 
-    with tempfile.TemporaryDirectory() as td:
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  cwd=td, timeout=wall)
-        except FileNotFoundError:
-            return fail("detect_secrets_not_installed",
-                        "detect-secrets не найден: pip install detect-secrets "
-                        "(или укажите DETECT_SECRETS_BIN)")
-        except subprocess.TimeoutExpired:
-            return fail("timeout",
-                        f"detect-secrets не уложился в {wall:.0f}s: уменьшите "
-                        "объём сканируемого пути или увеличьте wall_timeout",
-                        retryable=True)
-        if proc.stderr:
-            sys.stderr.write(proc.stderr)
+    # cwd ОБЯВАН быть РАЗРЕШЁННЫМ (realpath) каталогом цели. detect-secrets
+    # отдаёт имена файлов относительно os.getcwd(): в
+    # util/path.get_relative_path_if_in_cwd путь файла приводится к
+    # realpath и режется строковым срезом по длине os.getcwd()+'/', после
+    # чего проверяется os.path.isfile() ОТ СРЕЗА (то есть относительно cwd).
+    # Две несовместимые формы пути дают разную длину — 8.3-короткое имя на
+    # Windows (C:\Users\X~1\... против C:\Users\Кириллица\...) или симлинк —
+    # и тогда срез уходит мимо цели: файлы молча отбрасываются, на stdout
+    # приходит results: {}, то есть «секретов не нашли» при полном молчании.
+    # С реальным cwd обе стороны приведены к одной форме, и срез сходится.
+    scan_cwd = os.path.realpath(
+        target if os.path.isdir(target) else os.path.dirname(target))
 
-        stdout = proc.stdout or ""
-        if proc.returncode != 0 and not stdout.strip():
-            tail = (proc.stderr or "").strip().splitlines()
-            last = tail[-1] if tail else f"exit {proc.returncode}"
-            return fail("tool_failed",
-                        f"detect-secrets упал: {last}", retryable=False)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              cwd=scan_cwd, timeout=wall)
+    except FileNotFoundError:
+        return fail("detect_secrets_not_installed",
+                    "detect-secrets не найден: pip install detect-secrets "
+                    "(или укажите DETECT_SECRETS_BIN)")
+    except subprocess.TimeoutExpired:
+        return fail("timeout",
+                    f"detect-secrets не уложился в {wall:.0f}s: уменьшите "
+                    "объём сканируемого пути или увеличьте wall_timeout",
+                    retryable=True)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
 
-        baseline, looks_like_json = extract_json(stdout)
-        if baseline is None:
-            if looks_like_json:
-                return fail("bad_report",
-                            "baseline detect-secrets не разбирается как JSON",
-                            exit_code=2)
-            return fail("no_report",
-                        "detect-secrets не дал baseline-JSON в stdout "
-                        "(нет репорта или он пуст)")
+    stdout = proc.stdout or ""
+    if proc.returncode != 0 and not stdout.strip():
+        tail = (proc.stderr or "").strip().splitlines()
+        last = tail[-1] if tail else f"exit {proc.returncode}"
+        return fail("tool_failed",
+                    f"detect-secrets упал: {last}", retryable=False)
+
+    baseline, looks_like_json = extract_json(stdout)
+    if baseline is None:
+        if looks_like_json:
+            return fail("bad_report",
+                        "baseline detect-secrets не разбирается как JSON",
+                        exit_code=2)
+        return fail("no_report",
+                    "detect-secrets не дал baseline-JSON в stdout "
+                    "(нет репорта или он пуст)")
 
     results = baseline.get("results")
     if results is None:

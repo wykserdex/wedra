@@ -6,6 +6,10 @@
 который задан через --savePath, в формате nsmweb.save_to(): «Vulnerable
 URLs:», «Possibly Vulnerable URLs:», «Timing based attacks:».
 
+Как и донор, mock требует --params и --doTimeAttack: без них nsmweb.buildUri()
+и nsmweb.getApps() падают на None.split()/.lower() ДО save_to(), поэтому файл
+отчёта не появляется, наружу уходит traceback и код выхода 1.
+
 Управляющие env: MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1 (нет
 артефакта), MOCK_BAD_REPORT=1 (мусор вместо секций отчёта), MOCK_FAIL=1
 (ненулевой код выхода), MOCK_CLEAN=1 (инъекций не найдено).
@@ -22,6 +26,8 @@ victim = ""
 webport = "80"
 uri = "/"
 save_path = "report.txt"
+params = None
+do_time_attack = None
 for i, arg in enumerate(args):
     if arg == "--victim" and i + 1 < len(args):
         victim = args[i + 1]
@@ -29,8 +35,29 @@ for i, arg in enumerate(args):
         webport = args[i + 1]
     elif arg == "--uri" and i + 1 < len(args):
         uri = args[i + 1]
+    elif arg == "--params" and i + 1 < len(args):
+        params = args[i + 1]
+    elif arg == "--doTimeAttack" and i + 1 < len(args):
+        do_time_attack = args[i + 1]
     elif arg == "--savePath" and i + 1 < len(args):
         save_path = args[i + 1]
+
+# Донор 0.7 падает на None до save_to(), если эти флаги не заданы.
+if params is None:
+    print("Traceback (most recent call last):", file=sys.stderr)
+    print("  File \"nsmweb.py\", line 934, in buildUri\n"
+          "    for params in injIndex.split(\",\"):\n"
+          "AttributeError: 'NoneType' object has no attribute 'split'",
+          file=sys.stderr)
+    sys.exit(1)
+
+if do_time_attack is None:
+    print("Traceback (most recent call last):", file=sys.stderr)
+    print("  File \"nsmweb.py\", line 308, in getApps\n"
+          "    if doTimeAttack.lower() == \"y\":\n"
+          "AttributeError: 'NoneType' object has no attribute 'lower'",
+          file=sys.stderr)
+    sys.exit(1)
 
 if os.environ.get("MOCK_FAIL") == "1":
     print("SyntaxError: NoSQLMap mock failed", file=sys.stderr)

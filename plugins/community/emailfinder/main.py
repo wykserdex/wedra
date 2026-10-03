@@ -3,13 +3,17 @@
 
 Вход (stdin JSON): domain, wall_timeout (опц., общий лимит, 300).
 
-Вызов: <EMAILFINDER_BIN|emailfinder|python3 -m emailfinder> -d <домен>
+Вызов: <EMAILFINDER_BIN|emailfinder|python3 -m emailfinder.cli> -d <домен>
        (cwd = временная папка).
 
-CLI сверен с README пакета `pip install emailfinder` (josue87/emailfinder,
-репозиторий soxoj/emailfinder): единственный документированный флаг поиска —
-`-d/--domain`; флагов JSON-вывода у пакета не подтверждено, поэтому отчёт
+CLI сверен с исходником пакета `pip install emailfinder` (josue87/emailfinder,
+репозиторий soxoj/emailfinder) 0.3.0b0, файл emailfinder/cli.py: единственный
+обязательный флаг поиска — `-d/--domain` (required=True), есть ещё
+`-p/--proxy` и `-v/--version`. Флагов JSON-вывода у пакета нет, поэтому отчёт
 разбирается как текст (паттерн B): по всему stdout ищутся адреса регуляркой.
+Без EMAILFINDER_BIN модуль запускается как -m emailfinder.cli: в пакете нет
+__main__.py, а entry_points указывает на emailfinder.cli:main, поэтому
+-m emailfinder не отработает.
 Адреса на целевом домене идут в emails; если таких нет — берём все найденные
 (поисковики любят отдавать чужие домены). checked — сколько адресных строк
 разобрано из вывода до дедупа.
@@ -59,7 +63,9 @@ def resolve_bin():
     found = shutil.which("emailfinder")
     if found:
         return [found]
-    return [sys.executable, "-m", "emailfinder"]
+    # console_scripts: emailfinder = emailfinder.cli:main; __main__.py в пакете
+    # нет, поэтому -m emailfinder не работает — запускаем модуль cli.
+    return [sys.executable, "-m", "emailfinder.cli"]
 
 
 def normalize_domain(raw):

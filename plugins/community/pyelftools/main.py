@@ -5,9 +5,11 @@
 
 Вызов: <PYELFTOOLS_BIN|python3 -c SNIPPET> <абс.путь к файлу>  (cwd = временная
 папка). SNIPPET — константа модуля: импортирует elftools, читает class,
-machine, type, entry, секции, динамические символы (не больше SYMBOL_LIMIT) и
-список DT_NEEDED, печатает один JSON в stdout. main.py саму elftools не
-импортирует (только stdlib) и никак в сеть не ходит.
+machine, type, entry, секции, символы из .dynsym/.symtab (не больше
+SYMBOL_LIMIT) и список DT_NEEDED, печатает один JSON в stdout. DT_NEEDED берём
+перебором секций: у секции с типом SHT_DYNAMIC (имя .dynamic, не .dynlink) есть
+iter_tags(), и у тегов с d_tag=DT_NEEDED есть поле needed. main.py саму elftools
+не импортирует (только stdlib) и никак в сеть не ходит.
 
 Протокол донора в сниппете: exit 0 и JSON в stdout — успех; exit 1 и
 {"wedra_error": "<код>", "wedra_message": "..."} в stdout — доменная ошибка

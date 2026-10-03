@@ -7,13 +7,14 @@ description: >
   storage/блобы/БД/ВМ (Azure), GCS/Firebase/App Engine/Cloud Functions (GCP).
   Обёртка над CLI cloud_enum: ключ(и) приходят из входа (не из env, поэтому
   secrets пуст), машинный вывод — JSON-лог (-l -f json). Инструмент ставится
-  отдельно: pip install cloud_enum.
+  отдельно: pip install git+https://github.com/initstring/cloud_enum (на PyPI
+  имя cloud-enum quarantined и пустое).
 author: "community · wedra showcase (cloud security)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет cloud_enum — отдельно (pip install cloud_enum)
+  requires: []          # только stdlib; cloud_enum — отдельно (pip install git+https://github.com/initstring/cloud_enum)
 
 input:
   key:
@@ -29,7 +30,7 @@ input:
   mutations:
     from: input.mutations
     type: string
-    optional: true      # -m, свой список мутаций (enum_tools/fuzz.txt из пакета)
+    optional: true      # -m и -b: свой список мутаций (enum_tools/fuzz.txt из клона; в wheel из pip его нет, так что указывайте)
   quickscan:
     from: input.quickscan
     type: boolean

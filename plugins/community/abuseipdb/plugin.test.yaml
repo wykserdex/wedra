@@ -51,13 +51,25 @@ tests:
       exit_code: 1
       error: { code: bad_ip, retryable: false }
 
-  - name: days вне 1..180 → доменная ошибка
+  - name: days вне 1..365 → доменная ошибка
     env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
     input: { ip: "8.8.8.8", days: 999 }
     expect:
       status: error
       exit_code: 1
       error: { code: bad_days }
+
+  - name: days = 365 (верхняя граница APIv2 maxAgeInDays) → ok
+    env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }
+    input: { ip: "8.8.8.8", days: 365 }
+    expect:
+      status: ok
+      output:
+        ip: "8.8.8.8"
+        abuse_score: 0
+        total_reports: 0
+        country: US
+        found: false
 
   - name: days не число → платформенная ошибка
     env: { ABUSEIPDB_BIN: "mock_abuseipdb.py" }

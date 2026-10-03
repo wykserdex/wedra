@@ -5,15 +5,15 @@ description: >
   Ghauri (r0oth3x49) — детектор SQL-инъекций на Python, наследник sqlmap.
   Обёртка над CLI ghauri: гоняет неинвазивный аудит (уровень 1, только
   GET/POST-параметры) по явно заданному пользователем URL и разбирает его
-  текстовый лог ~/.ghauri/<host>/log. Флаги перечисления и эксплуатации
-  (--dbs/--tables/--dump/--sql-shell) плагин не передаёт никогда.
-  Ghauri ставится отдельно: pip install ghauri.
+  отчёт: вывод процесса (stderr) и лог ~/.ghauri/<host>/log. Флаги перечисления
+  и эксплуатации (--dbs/--tables/--dump/--sql-shell) плагин не передаёт никогда.
+  Ghauri ставится отдельно: pip install "git+https://github.com/r0oth3x49/ghauri.git".
 author: "community · wedra showcase (vuln)"
 
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет ghauri — отдельно (pip install ghauri)
+  requires: []          # только stdlib; ghauri — отдельно, из репозитория (на PyPI пакета нет)
 
 input:
   url:

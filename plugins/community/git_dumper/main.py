@@ -45,6 +45,21 @@ PROBE_RE = re.compile(r"^Testing \S+(?P<target>/\.git/HEAD|/\.git/) \[(?P<code>\
 FETCH_RE = re.compile(r"^Fetching (?P<rest>.+) \[(?P<code>\d+)\]$")
 CACHED_RE = re.compile(r"^Already downloaded (?P<rest>\S+)$")
 
+# Сетевой сбой донор НЕ перехватывает: fetch_git() не оборачивает session.get()
+# в try/except, requests.ConnectionError уходит необработанным трейсбеком в
+# stderr, а процесс падает с кодом 1. Поэтому «цель недоступна» опознаём по
+# тексту этого трейсбека (старый маркер "unable to connect" в donor'е не
+# встречается ни разу — он жил только в моке).
+NETWORK_MARKERS = (
+    "unable to connect",
+    "connectionerror",
+    "max retries exceeded",
+    "failed to establish a new connection",
+    "connection refused",
+    "name or service not known",
+    "temporary failure in name resolution",
+)
+
 
 def ok(output):
     print(json.dumps({"status": "ok", "output": output}, ensure_ascii=False))
@@ -155,6 +170,7 @@ def main():
             cmd = [sys.executable] + cmd
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
                                   cwd=td, timeout=wall)
         except FileNotFoundError:
             return fail("git_dumper_not_installed",
@@ -171,7 +187,8 @@ def main():
         if proc.returncode != 0:
             if looks_like_nothing_found(everything):
                 return ok({"url": url, "findings": [], "count": 0})
-            if "unable to connect" in everything.lower():
+            low = everything.lower()
+            if any(marker in low for marker in NETWORK_MARKERS):
                 tail = everything.strip().splitlines()
                 return fail("tool_failed",
                             f"git-dumper не достучался до цели: "

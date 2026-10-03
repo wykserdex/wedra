@@ -15,11 +15,12 @@
 Модуль по умолчанию "xss,sql" — неразрушающий аудит. Пресет wapiti `common`
 (его собственный дефолт) содержит exec/file/upload, поэтому его не используем.
 
-JSON-репорт wapiti 3.x — объект с ключами classifications, vulnerabilities
-(словарь «категория → список находок»), anomalies, additionals, infos,
-suppressed_findings. Находка: {method, path, info, level, parameter, module,
-referer, http_request, curl_command, wstg}. Разворачиваем в плоский список;
-пустой раздел vulnerabilities — нормальный результат (count=0), не ошибка.
+JSON-репорт wapiti 3.x (wapitiCore/report/jsonreportgenerator.py) — объект с
+пятью ключами: classifications, vulnerabilities (словарь «категория → список
+находок»), anomalies, additionals, infos. Находка: {method, path, info, level,
+parameter, referer, module, http_request, curl_command, wstg} (+ detail при
+-dr 2). Разворачиваем в плоский список; пустой раздел vulnerabilities —
+нормальный результат (count=0), не ошибка.
 
 Выход (stdout JSON): {url, vulnerabilities[{category, method, path, parameter,
 info, module, level}], count}. Доменные ошибки: empty_url, wapiti_not_installed,

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Mock CLI wfuzz для контракт-тестов (без сети и без пакета wfuzz).
 
-Имитирует wfuzz 2.1.x: читает -u <url>, -w <wordlist>, --filter <expr>,
--f <путь>,<принтер> и пишет в <путь> JSON-массив объектов (принтер json).
+Имитирует wfuzz: читает -u <url>, -w <wordlist> (у настоящего wfuzz это алиас
+для -z file,<wordlist>, отдельного длинного флага нет), --filter <expr>,
+-f <путь>,<принтер> и пишет в <путь> JSON-массив объектов (принтер json,
+набор ключей одинаков в 2.4.x и 3.x).
 Режимы env: MOCK_SLEEP=N — спать N секунд (тест wall_timeout);
 MOCK_NO_REPORT=1 — ничего не писать (тест no_report);
 MOCK_BAD_REPORT=1 — записать битый JSON (тест bad_report, exit 2);

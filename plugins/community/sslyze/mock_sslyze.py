@@ -5,7 +5,9 @@
 и пишет в файл из --json_out документ вида
 {"server_scan_results": [{server_location{hostname,port,ip_address},
 scan_status, connectivity_error_trace, scan_result{<команда>: {status,
-result}}}]}. Ни одного TLS-соединения не устанавливается.
+result}}}]}. Ни одного TLS-соединения не устанавливается. scan_status —
+допустимое значение ServerScanStatusEnum реального sslyze (COMPLETED или
+ERROR_NO_CONNECTIVITY).
 
 Режимы env: MOCK_SLEEP=N (тест wall_timeout), MOCK_NO_REPORT=1 (нет файла
 --json_out), MOCK_FAIL=1 (ненулевой код выхода), MOCK_BAD_REPORT=1 (битый
@@ -72,7 +74,7 @@ else:
                             "reverse_hostname": None},
         "scan_status": ("ERROR_NO_CONNECTIVITY"
                         if os.environ.get("MOCK_NO_CONNECT") == "1"
-                        else "SUCCESSFUL"),
+                        else "COMPLETED"),
         "connectivity_error_trace": ("socket.gaierror: Name or service not known"
                                      if os.environ.get("MOCK_NO_CONNECT") == "1"
                                      else None),

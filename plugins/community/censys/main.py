@@ -14,15 +14,22 @@ JSON-объект. Вшитых ключей нет и не должно быт�
 донора целиком — на этом пути тесты идут через mock_censys.py, без ключа и без
 сети.
 
-censys-python 2.3: CensysHosts() без аргументов (креды из env), .view(ip) →
-хост {ip, services[], location{}, autonomous_system{}, ...}; для домена —
-.search("dns.names: <домен>", per_page=1), и search() в 2.x отдаёт объект
-запроса, поэтому сниппет зовёт его через callable() — так одинаково
-отрабатывают и объект-запрос, и обычный список. Ошибки приходят
-исключениями censys.common.exceptions (CensysHostNotFoundException,
-CensysRateLimitExceededException, CensysMissingApiKeyException,
-CensysInvalidAPIKeyException, CensysSearchAPITimeoutException, ...) — сниппет
-по имени класса даёт error_class, плагин решает по нему.
+censys-python 2.3: CensysHosts() без аргументов (креды из
+os.getenv("CENSYS_API_ID"/"CENSYS_API_SECRET") или censys.common.config),
+.view(ip) → хост {ip, services[], location{}, autonomous_system{}, ...}; для
+домена — .search("dns.names: <домен>", per_page=1), и search() в 2.x отдаёт
+объект CensysSearchAPIv2.Query, а он и callable, и Iterable (Iterable — из
+typing, не collections), поэтому сниппет зовёт его через callable() — так
+одинаково отрабатывают и объект-запрос, и обычный список. Ошибки приходят
+исключениями censys.common.exceptions. Важно: Search-API отдаёт свои
+CensysNotFoundException (404), CensysUnauthorizedException (401/403),
+CensysRateLimitExceededException (429), CensysInternalServerException (500),
+а CensysHostNotFoundException / CensysMissingApiKeyException /
+CensysInvalidAPIKeyException / CensysSearchAPITimeoutException существуют, но
+относятся к ASM-клиенту (censys.asm) и в Search не поднимаются. Отдельно:
+без кредов CensysHosts() поднимает базовый CensysException("No API ID or API
+secret configured.") — сниппет ловит это по тексту и даёт error_class
+missing_key.
 
 Выход (stdout JSON): {target, services[{port, service_name,
 transport_protocol, observed_at}], location{country, country_code, continent,
@@ -69,7 +76,13 @@ def classify(exc):
     if name in ("CensysRateLimitExceededException",
                 "CensysTooManyRequestsException"):
         return "rate_limit"
-    if name == "CensysMissingApiKeyException":
+    if name in ("CensysMissingApiKeyException",
+                "CensysInvalidAuthTokenException"):
+        return "missing_key"
+    if "no api id or api secret" in text:
+        # censys-python 2.x Search: CensysHosts() без кредов поднимает базовый
+        # CensysException("No API ID or API secret configured."), а не
+        # CensysMissingApiKeyException (тот только у ASM-клиента)
         return "missing_key"
     if name in ("CensysInvalidAPIKeyException", "CensysUnauthorizedException"):
         return "auth"

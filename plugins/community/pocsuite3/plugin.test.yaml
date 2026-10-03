@@ -42,6 +42,15 @@ tests:
         vulns: []
         count: 0
 
+  - name: неинтерактивный прогон без голого --batch (2.1.0 требует значение)
+    env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
+    input: { url: "https://target.example" }
+    expect:
+      status: ok
+      output:
+        url: "https://target.example"
+        count: { equals: 2 }
+
   - name: пустой url → доменная ошибка
     env: { POCSUITE3_BIN: "mock_pocsuite3.py" }
     input: { url: "   " }

@@ -6,8 +6,9 @@ description: >
   над CLI commix: сканирует ТОЛЬКО явно заданный пользователем url, без краулинга
   и разведки, в неинтерактивном режиме (--batch) и без файловых техник
   (--skip-technique=f); эксплуатация (--os-cmd/--os-shell/--file-read) не
-  включается никогда — только детект и JSON-репорт (--report-json). Нужен commix
-  4.2+ из исходников (см. README плагина).
+  включается никогда — только детект и JSON-репорт (--report-json). Нужен
+  commix из ветки master (см. README плагина): --report-json появился после
+  последнего тега v4.1, релиз 4.2 не вышел.
 author: "community · wedra showcase (AppSec)"
 
 runtime:

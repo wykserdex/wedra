@@ -1,18 +1,38 @@
 #!/usr/bin/env python3
 """abuseipdb — репутация IP по базе жалоб AbuseIPDB (обёртка над SDK, паттерн C).
 
-Вход (stdin JSON): ip, days (опц., окно жалоб, 1..180, default 30),
+Вход (stdin JSON): ip, days (опц., окно жалоб, 1..365, default 30),
 wall_timeout (опц., общий лимит рана, 300).
 
 Сеть делает только ДОЧЕРНИЙ процесс: тот же интерпретатор с -c SNIPPET (или
 ABUSEIPDB_BIN, если он задан — единственный путь для тестов). Реальный ключ в
 код не вшит: сниппет читает os.environ['ABUSEIPDB_API_KEY'].
 
-SNIPPET импортирует пакет abuseipdb (pip install abuseipdb) и печатает в stdout
-один JSON: {"payload": <что вернул SDK.check() либо старый check_ip()>}. Нормальный
-ответ APIv2 /check — объект data: {ipAddress, isPublic, abuseConfidenceScore,
-countryCode, totalReports, ...}; SDK 1.3.0 отдаёт тело ответа строкой/байтами,
-поэтому payload разбирается терпимо (обёртка {"data": ...} тоже).
+ДОНОР. `pip install abuseipdb` на py3 НЕ работает: единственный релиз на PyPI —
+1.3.0 (2018-04-24), и он не ставится вообще. Его setup.py импортирует сам пакет,
+а __init__.py тянет _app.py, где `import unirest` (unirest 1.1.7 — py2-only) и
+`from parameters import Parameters` (неявный относительный импорт, в py3
+запрещён) — сборка падает ещё до установки. Рабочий донор — git-master того же
+репозитория (vsecades/AbuseIpDb, __version__ = 3.0.0), ставится так:
+    pip install requests
+    pip install --no-build-isolation git+https://github.com/vsecades/AbuseIpDb.git
+(--no-build-isolation обязателен: setup.py мастера тоже импортирует пакет, а
+pyproject.toml с build-requires у него нет.)
+
+SNIPPET работает с обоими API по-разному и выбирает ветку по hasattr:
+  * 3.0.0 (master) — класс AbuseIpDb, метод check(ip_address, max_age_in_days);
+    внутри GET https://api.abuseipdb.com/api/v2/check?ipAddress=&maxAgeInDays=,
+    заголовок Key, вернёт ГОТОВЫЙ dict из response.json()['data'] — печати в
+    stdout нет, stdout остаётся чистым JSON;
+  * 1.3.0 (PyPI, недостижим на py3) — модульные configure_api_key/check_ip.
+    Ветка оставлена терпимо: вернули бы unirest raw_body (байты/строка), а
+    check_ip вдобавок печатает URL с ключом в stdout. Так что на 1.3.0 этот
+    сниппет всё равно непригоден — ставьте master.
+Ответ APIv2 /check: {data: {ipAddress, isPublic, isWhitelisted,
+abuseConfidenceScore, countryCode, countryName, totalReports, ...}}; читаем
+abuseConfidenceScore, totalReports, countryCode — имена сверены с
+docs.abuseipdb.com. payload разбирается терпимо и как dict, и как обёртка
+{"data": ...}, и как JSON-строка.
 
 Выход (stdout JSON): {ip, abuse_score, total_reports, country, found}.
 found=true — по IP есть жалобы (totalReports > 0); «чистый» IP — это ok с
@@ -29,7 +49,7 @@ import sys
 import tempfile
 
 DEFAULT_DAYS = 30
-MAX_DAYS = 180
+MAX_DAYS = 365          # docs.abuseipdb.com: maxAgeInDays min 1, max 365
 DEFAULT_WALL = 300
 
 SNIPPET = (
@@ -161,7 +181,7 @@ def main():
                                   cwd=td, timeout=wall)
         except FileNotFoundError:
             return fail("abuseipdb_not_installed",
-                        "abuseipdb не найден: pip install abuseipdb "
+                        "донор не найден: поставьте его (см. README) "
                         "(или укажите ABUSEIPDB_BIN)")
         except subprocess.TimeoutExpired:
             return fail("timeout",
@@ -174,8 +194,9 @@ def main():
             last = tail[-1] if tail else f"exit {proc.returncode}"
             if "No module named" in last or "ModuleNotFoundError" in last:
                 return fail("abuseipdb_not_installed",
-                            "пакет abuseipdb не установлен: "
-                            "pip install abuseipdb (или укажите ABUSEIPDB_BIN)")
+                            "пакет abuseipdb не импортируется на py3 — "
+                            "PyPI-релиз 1.3.0 нерабочий, ставьте master "
+                            "(см. README) либо укажите ABUSEIPDB_BIN")
             if "ABUSEIPDB_API_KEY" in last and not os.environ.get(
                     "ABUSEIPDB_API_KEY", "").strip():
                 return fail("tool_failed",

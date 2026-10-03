@@ -2,12 +2,13 @@ id: nosqlmap
 version: 0.1.0
 platform_api: "^0.1"
 description: >
-  NoSQLMap (c0rsh/nosqlmap) — проверка веб-приложения на MongoDB/NoSQL-инъекции
+  NoSQLMap (codingo/NoSQLMap) — проверка веб-приложения на MongoDB/NoSQL-инъекции
   по одной явно заданной цели. Обёртка над CLI nosqlmap в режиме web-app атаки
   (--attack 2): раскладывает url на host/port/uri, подставляет параметры для
   инъекции и разбирает текстовый отчёт --savePath (Vulnerable URLs / Possibly
   Vulnerable URLs / Timing based attacks). Флагов -u/--report/--technique у
-  nosqlmap нет. Инструмент ставится отдельно из исходников, донор написан на
+  nosqlmap нет; обязательные --params (номерами) и --doTimeAttack передаются
+  всегда. Инструмент ставится отдельно из исходников, донор написан на
   Python 2 (см. README плагина).
 author: "community · wedra showcase (AppSec)"
 

@@ -7,6 +7,11 @@
 Вызов: <SSLYZE_BIN|python3 -m sslyze> --json_out <tmp>/sslyze_report.json
        --quiet [--<команда> ...] <target>   (cwd = временная папка).
 
+commands — это булевы флаги проверок sslyze (certinfo, heartbleed, reneg,
+resum, tlsv1_3, ...), они же опции из раздела "Scan commands" в `sslyze --help`.
+Имена флагов НЕ совпадают с ключами scan_result в JSON: --reneg → ключ
+session_renegotiation, --resum → session_resumption, --certinfo → certificate_info.
+
 У sslyze отличный машинный вывод: --json_out ПРИНИМАЕТ ИМЯ ФАЙЛА (--quiet
 только чтобы не мусорить в stdout), поэтому репорт читается из временного
 каталога. Формат: {"server_scan_results": [ {server_location{hostname,port},
@@ -14,9 +19,10 @@ scan_status, connectivity_error_trace, scan_result{<команда>: {status,
 result}}, ...} ]}. findings — по одной записи на каждый server × выполненную
 проверку ({target: "host:port", command: <ключ в scan_result>, status: <status
 попытки>}); ключи, начинающиеся с "_", и не-словари пропускаются. Если
-scan_status сервера не SUCCESSFUL, добавляется запись command="connectivity" с
-этим статусом. Пустой server_scan_results — нормальный результат (findings:
-[], scanned: 0), не ошибка; отсутствие ключа server_scan_results — bad_report.
+scan_status сервера не COMPLETED (в sslyze это enum {COMPLETED,
+ERROR_NO_CONNECTIVITY}), добавляется запись command="connectivity" с этим
+статусом. Пустой server_scan_results — нормальный результат (findings: [],
+scanned: 0), не ошибка; отсутствие ключа server_scan_results — bad_report.
 
 Выход (stdout JSON): {target, findings[{target, command, status}], scanned}.
 
@@ -34,11 +40,20 @@ import tempfile
 DEFAULT_WALL = 300
 DEFAULT_COMMANDS = ["certinfo"]
 
+# Допустимые значения — ровно _cli_option всех scan-command коннекторов
+# sslyze (sslyze/plugins/**, проверено на 6.3.1: `sslyze --help`, раздел
+# "Scan commands"). Обёртка передаёт только `--<команда>` без значения, поэтому
+# опции, требующие аргумент (--certinfo_ca_file, --resum_attempts), сюда не
+# входят. Имена — ИМЕННО флаги CLI, а не ключи scan_result в JSON: например
+# --reneg (в JSON session_renegotiation) и --resum (в JSON session_resumption).
+# Несуществующих у донора --session_tickets/--session_renegotiation/--alpn/
+# --sni_support в наборе больше нет: sslyze на них отвечает
+# "unrecognized arguments", exit 2.
 KNOWN_COMMANDS = {
-    "certinfo", "heartbleed", "openssl_ccs", "reneg", "resum",
-    "session_tickets", "compression", "early_data", "elliptic_curves",
-    "robot", "ems", "alpn", "session_renegotiation", "sni_support",
-    "tlsv1", "tlsv1_1", "tlsv1_2", "tlsv1_3", "sslv2",
+    "certinfo", "compression", "early_data", "elliptic_curves", "ems",
+    "fallback", "heartbleed", "http_headers", "openssl_ccs", "reneg",
+    "resum", "robot", "sslv2", "sslv3", "tlsv1", "tlsv1_1", "tlsv1_2",
+    "tlsv1_3",
 }
 
 
@@ -78,7 +93,7 @@ def extract_findings(report):
             continue
         label = server_label(server.get("server_location"))
         status = str(server.get("scan_status") or "").strip()
-        if status and status.upper() != "SUCCESSFUL":
+        if status and status.upper() != "COMPLETED":
             findings.append({"target": label, "command": "connectivity",
                              "status": status})
         scan_result = server.get("scan_result")

@@ -29,7 +29,13 @@ def printf(fmt, *args, file=sys.stdout):
 
 
 if os.environ.get("MOCK_UNREACHABLE") == "1":
-    printf("\nerror: Unable to connect to %s. Error: connection refused\n" % url)
+    # Настоящий git-dumper сетевых сбоев не перехватывает: session.get() в
+    # fetch_git() не обёрнут в try/except, requests.ConnectionError уходит
+    # необработанным трейсбеком в stderr, процесс падает с кодом 1.
+    printf("\nrequests.exceptions.ConnectionError: HTTPConnectionPool("
+           "host='target.example', port=443): Max retries exceeded with url: "
+           "/.git/HEAD (Caused by NewConnectionError(\"Failed to establish a "
+           "new connection\"))\n", file=sys.stderr)
     sys.exit(1)
 if os.environ.get("MOCK_NOT_FOUND") == "1":
     printf("[-] Testing %s/.git/HEAD " % url)

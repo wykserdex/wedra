@@ -12,10 +12,11 @@ Origin-заголовком — Corsy ничего не пишет на цель
 цель, поэтому цель уходит через -u.
 
 Corsy v1.0-beta не умеет принимать список Origin: core/tests.active_tests
-дергает свой фиксированный набор (example.com, <root>.example.com, d3v<root>,
-null, <root>_.example.com, <root>%60.example.com, http://<root>). Поэтому поле
-origins только проверяется на тип и в команду не попадает — в finding попадает
-тот Origin, который сервер реально отразил в ACAO.
+перебирает свой фиксированный набор (example.com, <root>.example.com, d3v<root>,
+null, <root>_.example.com, <root>%60.example.com, http://<root> и — только для
+многоуровневого домена — <root> с первой точкой, заменённой на «x»).
+Поэтому поле origins только проверяется на тип и в команду не попадает — в
+finding попадает тот Origin, который сервер реально отразил в ACAO.
 
 Машинный отчёт `-o` — JSON-словарь {url: {class, description, severity,
 exploitation, "acao header", "acac header"}}; Corsy пишет его только когда

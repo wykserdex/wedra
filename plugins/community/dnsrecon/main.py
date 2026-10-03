@@ -8,13 +8,18 @@
        [-D <словарь>] -j <tmp>/dnsrecon_report.json   (cwd = временная папка).
 
 Ключ -j/--json у dnsrecon принимает ИМЯ ФАЙЛА (не булев флаг), stdout-режима
-JSON нет: репорт всегда пишется на диск. Формат репорта — список словарей-за-
-писей, поля зависят от типа (SOA: mname/address, NS: target/address,
-A: name/address, MX: name/exchange/address, CNAME: name/target/address,
-SPF/TXT: strings, AXFR-служебные: zone_transfer/ns_server). Поэтому запись
+JSON нет: репорт всегда пишется на диск. Значения -t/--type — только ключи
+type_map донора (std, rvl, brt, srv, axfr, bing, yand, crt, snoop, tld,
+zonewalk); типа `spf` среди них нет, обратный резолв из SPF-текста включается
+отдельным булевым флагом `-s`. Формат репорта — список словарей-записей, поля
+зависят от типа (SOA: mname/address, NS: target/address, A: name/address, MX:
+name/exchange/address, CNAME: name/target/address, SPF/TXT: strings,
+AXFR-служебные: zone_transfer/ns_server). Поэтому запись
 нормализуется в {type, name, value}: name — первое непустое из
 name/mname/exchange/target; value — первое непустое из
 strings/data/target/exchange/address/extra, кроме уже взятого на name ключа.
+Первый элемент списка — служебный {"type": "ScanInfo", "arguments": {...},
+"date": ...}, он в records попадает как type=ScanInfo с пустыми name/value.
 Пустой список — нормальный результат (records: [], total: 0), не ошибка.
 Список верхнего уровня вида {"records": [...]} тоже принимается.
 
@@ -34,7 +39,11 @@ import tempfile
 DEFAULT_TYPES = ["std"]
 DEFAULT_WALL = 300
 
-KNOWN_TYPES = {"std", "brt", "srv", "axfr", "spf", "rvl", "bing", "yand",
+# Допустимые значения -t/--type — ровно ключи type_map в dnsrecon/__main__.py
+# (проверено на 0.10.1: `python -m dnsrecon -d x -t spf` → "This type of scan is
+# not in the list: spf", exit 1). Типа `spf` у донора НЕТ: обратный резолв
+# диапазонов из SPF-текста включается булевым флагом `-s`, а не элементом -t.
+KNOWN_TYPES = {"std", "brt", "srv", "axfr", "rvl", "bing", "yand",
                "crt", "snoop", "tld", "zonewalk"}
 
 NAME_KEYS = ("name", "mname", "exchange", "target")

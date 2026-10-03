@@ -21,7 +21,8 @@ input:
   commands:
     from: input.commands
     type: array
-    optional: true      # флаги проверок sslyze (certinfo, heartbleed, reneg,
+    optional: true      # булевы флаги проверок из "Scan commands" в `sslyze
+                        # --help` (certinfo, heartbleed, reneg, resum,
                         # tlsv1_3, ...); без него — ["certinfo"]
   wall_timeout:
     from: input.wall_timeout

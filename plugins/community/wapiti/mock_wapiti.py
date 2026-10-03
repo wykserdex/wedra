@@ -3,8 +3,9 @@
 
 Имитирует wapiti 3.x: читает -u <url>, -m <modules>, --scope <scope>, -f json,
 -o <report>, --store-session <dir> и пишет в <report> JSON-отчёт нужной формы
-(генерируется JSONReportGenerator: classifications/vulnerabilities/anomalies/
-additionals/infos/suppressed_findings). Режимы env: MOCK_SLEEP=N — спать N секунд
+(ровно те пять ключей, что даёт JSONReportGenerator: classifications/
+vulnerabilities/anomalies/additionals/infos — никакого suppressed_findings).
+Режимы env: MOCK_SLEEP=N — спать N секунд
 (тест wall_timeout); MOCK_NO_REPORT=1 — ничего не писать (тест no_report);
 MOCK_BAD_REPORT=1 — битый JSON (тест bad_report, exit 2);
 MOCK_BAD_SHAPE=1 — JSON-массив вместо объекта (тест bad_report, exit 2);
@@ -86,7 +87,6 @@ report = {
         "detailed_report_level": 0,
         "crawled_pages_nbr": 1,
     },
-    "suppressed_findings": {},
 }
 
 if os.environ.get("MOCK_EMPTY") != "1":

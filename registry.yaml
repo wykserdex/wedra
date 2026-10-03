@@ -172,7 +172,7 @@ plugins:
     path: plugins/community/abuseipdb
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "AbuseIPDB — репутация IP: abuseConfidenceScore, число жалоб, страна, паттерн C. pip install abuseipdb."
+    description: "AbuseIPDB — репутация IP: abuseConfidenceScore, число жалоб, страна, паттерн C. PyPI-пакет сломан под py3, ставится из git."
 
   altdns:
     source: https://github.com/wykserdex/wedra
@@ -193,14 +193,14 @@ plugins:
     path: plugins/community/binwalk
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "binwalk (ReFirmLabs) v3 — поиск и извлечение данных из бинарников, JSON-отчёт. pip install binwalk."
+    description: "binwalk (ReFirmLabs) v3 — поиск и извлечение данных из бинарников, JSON-отчёт. v3 ставится через cargo/Docker, pip-пакет нерабочий."
 
   buckethacker:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/buckethacker
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "buckethacker (ingo60) — открытые облачные хранилища по имени, разбор stdout."
+    description: "Обёртка над buckethacker (ingo60) — донора НЕ СУЩЕСТВУЕТ (PyPI 404, репозиторий 404). Требует замены донора."
 
   censys:
     source: https://github.com/wykserdex/wedra
@@ -214,7 +214,7 @@ plugins:
     path: plugins/community/cloud_enum
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "cloud_enum (initstring) — открытые облачные хранилища по ключу/имени. pip install cloud_enum."
+    description: "cloud_enum (initstring) — открытые облачные хранилища по ключу/имени. На PyPI имя quarantined, ставится из git."
 
   cloudmapper:
     source: https://github.com/wykserdex/wedra
@@ -228,7 +228,7 @@ plugins:
     path: plugins/community/commix
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "Commix (commixproject) — автоматизация инъекций, batch-режим, JSON-отчёт (нужна версия 4.2+). Установка из git, подробности в README."
+    description: "Commix (commixproject) — автоматизация инъекций, batch-режим. --report-json есть только в master (4.2 не выпускался)."
 
   corsy:
     source: https://github.com/wykserdex/wedra
@@ -277,7 +277,7 @@ plugins:
     path: plugins/community/droopescan
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "droopescan (SamJoan) — плагиновый сканер CMS (Drupal, WordPress, Silverstripe). pip install droopescan."
+    description: "droopescan (SamJoan) — плагиновый сканер CMS (Drupal, WordPress, Silverstripe). pip install droopescan, но требует Python <= 3.11."
 
   emailfinder:
     source: https://github.com/wykserdex/wedra
@@ -319,21 +319,21 @@ plugins:
     path: plugins/community/geoiplookup
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "geoiplookup (MaxMind) — страна по IP из локальной базы GeoIP/DB-IP, сети не нужно. apt install geoip-bin."
+    description: "geoiplookup (MaxMind, C) — страна по IP из локальной базы GeoIP .dat, сети не нужно. MMDB не открывает. apt install geoip-bin."
 
   ghauri:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/ghauri
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "ghauri (r0oth3x49) — детектор SQL-инъекций на Python, разбор лога. pip install ghauri."
+    description: "Ghauri (r0oth3x49) — детектор SQL-инъекций на Python. На PyPI отсутствует, ставится из git."
 
   ghunt:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/ghunt
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "GHunt (mxrch) — OSINT по Google-аккаунтам, токен из GHUNT_TOKEN. pipx install ghunt."
+    description: "GHunt (mxrch) — OSINT по Google-аккаунтам. Учётные данные донора в ~/.malfrats/ghunt/creds.m, из env он их не читает."
 
   git_dumper:
     source: https://github.com/wykserdex/wedra
@@ -417,7 +417,7 @@ plugins:
     path: plugins/community/nosqlmap
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "nosqlmap — проверка NoSQL-инъекций по явно заданной цели. Требует Python 2 (см. README), pip install nosqlmap."
+    description: "nosqlmap (codingo) — проверка NoSQL-инъекций. На PyPI отсутствует, код донора на Python 2 (реальный прогон требует py2)."
 
   oletools:
     source: https://github.com/wykserdex/wedra
@@ -445,7 +445,7 @@ plugins:
     path: plugins/community/pocsuite3
     version: v0.33c
     commit: f5417a93364130b29e19d000e1d8e82936761910
-    description: "pocsuite3 (poc-suite) — проверка POC по явно заданной цели, batch-режим. pip install pocsuite3."
+    description: "pocsuite3 (poc-suite) — проверка POC по явно заданной цели. Скрипта `poc` нет, точки входа pocsuite/poc-console."
 
   prowler:
     source: https://github.com/wykserdex/wedra
