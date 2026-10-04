@@ -79,7 +79,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/dir_lister
     version: v0.32
-    commit: 046861222a9058d45e701aa113173ebce9f1db8c
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: список каталога
 
   word_freq:
@@ -192,7 +192,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/binwalk
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "binwalk (ReFirmLabs) v3 — поиск и извлечение данных из бинарников, JSON-отчёт. v3 ставится через cargo/Docker, pip-пакет нерабочий."
 
   censys:
@@ -241,7 +241,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/detect_secrets
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "detect-secrets (Yelp) — поиск секретов в коде, baseline-JSON; значения секретов наружу не отдаются. pip install detect-secrets."
 
   dirsearch:
@@ -283,14 +283,14 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/exifread
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "exifread (lexiflex) — EXIF-метаданные изображений через библиотеку, паттерн C. pip install exifread."
 
   exiftool:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/exiftool
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "ExifTool (Phil Harvey) — метаданные файлов (EXIF/IPTC/XMP, GPS) через -j. Системный ExifTool либо pyexiftool."
 
   fierce:
@@ -381,7 +381,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/lief
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "LIEF (LIEF-project) — универсальный разбор бинарников PE/ELF/Mach-O, паттерн C. pip install lief."
 
   linkfinder:
@@ -402,7 +402,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/msoffcrypto_tool
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "msoffcrypto-tool (nolze) — проверка/снятие пароля офисного документа; пароль из MSOFFCRYPTO_PASSWORD. pip install msoffcrypto-tool."
 
   nosqlmap:
@@ -416,7 +416,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/oletools
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "oletools (decalage2) — анализ макросов в офисных документах, JSON-вывод olevba -j. pip install oletools."
 
   otx_pulse:
@@ -430,7 +430,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/pefile
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "pefile — разбор PE: заголовок, секции, импорты, паттерн C. pip install pefile."
 
   pocsuite3:
@@ -451,7 +451,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/pyelftools
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "pyelftools (eliben) — разбор ELF: класс, секции, импортируемые библиотеки, паттерн C. pip install pyelftools."
 
   python_whois:
@@ -549,7 +549,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/volatility3
     version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: "volatility3 — анализ дампов памяти, JSON-рендерер, плагины pslist/cmdline/banners. pip install volatility3."
 
   wafw00f:
@@ -726,7 +726,7 @@ presets:
     source: https://github.com/wykserdex/wedra
     path: examples/dir_snapshots.yaml
     version: v0.32
-    commit: cf024eb6810068d20eabec3fe2ecac432d21be09
+    commit: 6b0206ba7e3eaf3a168382839f2e86c754cea25d
     description: снимок каталога + гейт (artifacts)
   llm_text_chain:
     source: https://github.com/wykserdex/wedra
