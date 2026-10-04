@@ -85,6 +85,35 @@
     font-size:12px;color:var(--tx)}
   #link-bar.on{display:flex}
   #link-bar code{font-family:var(--mono);color:var(--par)}
+  /* v0.38: артефакты и подсказки цепочки */
+  #assets-wrap{border-bottom:1px solid var(--line);padding:6px 10px 8px;background:var(--bg2)}
+  #assets-wrap h3{margin:0 0 6px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  #assets{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
+  .artifact{display:flex;flex-direction:column;gap:2px;padding:5px 9px;min-width:132px;max-width:230px;
+    background:var(--bg3);border:1px solid var(--line);border-radius:8px;cursor:grab}
+  .artifact:hover{border-color:var(--acc)}
+  .artifact .aname{font-family:var(--mono);font-size:11px;color:var(--tx);overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .artifact .asize{font-size:10px;color:var(--dim)}
+  .artifact .asrc{font-family:var(--mono);font-size:10px;color:var(--acc)}
+  .artifact.up{color:var(--dim);font-size:11px;cursor:default}
+  .artifact.hint-art{max-width:420px;color:var(--dim);font-size:11px;cursor:default;line-height:1.4}
+  #suggest{padding:0 10px}
+  #suggest:empty{display:none}
+  #suggest .hint{margin:10px 0 6px;color:var(--dim);font-size:11px}
+  .sug{display:block;width:100%;text-align:left;margin:0 0 4px;padding:5px 8px;
+    background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:7px;
+    font-family:var(--mono);font-size:11px;cursor:pointer}
+  .sug:hover{border-color:var(--acc);background:var(--bg1)}
+  .sug .arrow{color:var(--acc)}
+  .sug .types{color:var(--dim);font-size:10px}
+  /* v0.37: протяжка как в канвасе — резиновая линия и кандидаты */
+  .edge.ghost{fill:none;stroke:var(--par);stroke-width:2;stroke-dasharray:5 4;pointer-events:none;opacity:.9}
+  .node.dragging-out{opacity:.75}
+  .inrow.hovered{background:rgba(188,140,255,.22);outline:1px solid var(--par);outline-offset:-1px}
+  #link-hint .cand{background:var(--bg3);color:var(--tx);border:1px solid var(--par);border-radius:10px;
+    padding:2px 9px;margin:0 6px 0 0;font-family:var(--mono);font-size:11px;cursor:pointer}
+  #link-hint .cand:hover{background:rgba(188,140,255,.22)}
   #link-bar button{margin-left:auto;background:var(--bg3);color:var(--tx);border:1px solid var(--line);
     border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer}
   #btn-run{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
@@ -137,6 +166,8 @@
   <button id="btn-redo" title="Ctrl+Y">↷ redo</button>
   <button id="btn-yaml">YAML</button>
   <button id="btn-save" class="primary">Сохранить</button>
+  <input type="file" id="asset-file" hidden/>
+  <button id="btn-asset" title="загрузить фото/CSV/PDF и протянуть его в шаг">⤒ Файл</button>
   <button id="btn-run">▶ Запустить</button>
   <span id="save-status" class="badge"></span>
   <a class="link" href="/" style="margin-left:auto">← консоль</a>
@@ -156,17 +187,23 @@
       <div class="io">in: form · out: поля формы</div>
     </div>
   </aside>
+  <div id="assets-wrap">
+    <h3>Артефакты <span style="text-transform:none">(фото, файлы — перетащи в поле входа шага)</span></h3>
+    <div id="assets"></div>
+  </div>
   <div id="canvas-wrap"><div id="canvas">
-    <div id="link-bar">Связываю из <code id="link-src"></code> — щёлкни поле на любом другом шаге. <button id="link-cancel">отмена (Esc)</button></div>
+    <div id="link-bar"><span class="lbl">Связываю из <code id="link-src"></code></span><span id="link-hint"></span> <button id="link-cancel">отмена (Esc)</button></div>
     <svg id="edges"></svg>
     <div id="canvas-hint">
-      <b>Связи — двумя щелчками.</b> Щёлкни выход у одного шага (например
-      <span style="font-family:var(--mono)">words</span>), потом поле входа у другого —
-      ребро появится само. Линию мышью тянуть не нужно: в формате пайплайна связи
-      и есть <span style="font-family:var(--mono)">bind</span>, а он ссылается на выход
-      другого шага.
+      <b>Связи — протяжкой, как в канвасе.</b> Зажми на выходе шага
+      (например <span style="font-family:var(--mono)">words</span>), веди линию к
+      другому шагу и отпусти на поле входа — ребро появится само, имя поля вводить
+      не надо. Зажми на самом узле: выход выберется сам, а если вариантов
+      несколько, сверху выпадут пары, между которыми достаточно щёлкнуть.
+      <span style="opacity:.75">Можно и двумя щелчками: выход, потом поле входа.</span>
     </div>
   </div></div>
+  <div id="suggest"></div>
   <aside id="props"></aside>
 </div>
 <div id="yaml-view"><div class="inner">

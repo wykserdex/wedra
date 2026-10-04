@@ -45,8 +45,11 @@ const (
 type Server struct {
 	PluginsDir   string
 	PipelinesDir string
-	RunsDir      string
-	Engine       *plugin.Engine
+	// AssetsDir — куда ложатся загруженные файлы (фото, CSV). Сосед
+	// каталога пайплайнов: всё рабочее рядом, а не в %TEMP%.
+	AssetsDir string
+	RunsDir   string
+	Engine    *plugin.Engine
 	// Trusted — allow-list доверенных плагинов. Используется и списком
 	// (/api/plugins), и запуском ранов: одно и то же решение о доверии, иначе
 	// список показывал бы «доверен», а ран — падал бы (или наоборот).
@@ -100,6 +103,16 @@ type summaryCacheEntry struct {
 	value   map[string]interface{}
 }
 
+// defaultAssetsDir — каталог загруженных файлов рядом с пайплайнами:
+// pipelines/ и assets/ окажутся соседями, если pipelinesDir — <корень>/pipes.
+func defaultAssetsDir(pipelinesDir string) string {
+	abs, err := filepath.Abs(pipelinesDir)
+	if err != nil {
+		return filepath.Join("assets")
+	}
+	return filepath.Join(filepath.Dir(abs), "assets")
+}
+
 func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 	eng := plugin.NewEngine()
 	// v0.9: один резолв плагинов для validate/plan/list и run (раньше
@@ -108,6 +121,7 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 	srv := &Server{
 		PluginsDir:   pluginsDir,
 		PipelinesDir: pipelinesDir,
+		AssetsDir:    defaultAssetsDir(pipelinesDir),
 		RunsDir:      runsDir,
 		Engine:       eng,
 		// Дефолт — встроенный allow-list (пины реестра), а не пустой: иначе
@@ -310,6 +324,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineDetail)
 	mux.HandleFunc("/api/presets", s.handlePresets)
+	// v0.38: загруженные артефакты для редактора. Сессия и CSRF —
+	// из обёртки Routes(), как и у остального /api/*.
+	mux.HandleFunc("/api/assets", s.handleAssets)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/runs/", s.handleRunDetail)
 	mux.HandleFunc("/api/run", s.handleRunStart)

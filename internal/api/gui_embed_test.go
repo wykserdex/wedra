@@ -26,11 +26,19 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		// редактора, и заметят это те, кто уже споткнулся. Пином маркер по
 		// конвенции остальных кусков UI. v0.36: жест — два щелчка, а панель
 		// связи и кнопка запуска обязаны быть в раздаче.
-		{"/editor/", "Связи — двумя щелчками"},
+		{"/editor/", "Связи — протяжкой, как в канвасе"},
+		// v0.38: артефакты и подсказки цепочки
+		{"/editor/", "assets-wrap"},
+		{"/editor/", "btn-asset"},
+		{"/editor/", "id=\"suggest\""},
+		{"/editor/app.js", "loadAssets"},
+		{"/editor/app.js", "suggestNext"},
 		{"/editor/", "link-bar"},
 		{"/editor/", "btn-run"},
 		{"/editor/app.js", "canvas-hint"}, // маркер v0.6 UI
 		{"/editor/app.js", "armLink"},
+		{"/editor/app.js", "startLinkDrag"},
+		{"/editor/app.js", "link-ghost"},
 		{"/app.js", "api/health"},
 		{"/app.js", "api/presets"},
 	}
