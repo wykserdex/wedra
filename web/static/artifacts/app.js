@@ -352,6 +352,9 @@ function renderChain() {
       + (b.from === null ? 'input.' + assetKey(st.file.name) : 'steps.s' + i + '.' + b.from)).join(', ');
     const miss = (c.missing || []).length
       ? `<span class="miss">не хватает: ${esc(c.missing.join(', '))}</span>` : '';
+    const pl = st.plugins.find(x => x.id === c.plugin || x.dir === c.dir);
+    const ext = pl && pl.trusted !== true
+      ? `<span class="extw" title="плагин не в allow-list доверия; без изолятора он не запустится">внешний код</span>` : '';
     const amb = (c.ambiguous || []).map(a =>
       `<span class="amb">${esc(a.field)} ← выбери: ` +
       a.choices.map((ch, k) => `<button class="pick" data-step="${i}" data-pick="${esc(a.field)}"` +
@@ -359,7 +362,7 @@ function renderChain() {
     return `<div class="cstep">` +
       `<span class="idx">${i + 1}</span>` +
       `<span class="nm">${esc(String(c.plugin).split('/').pop())}</span>` +
-      `<span class="bind">${esc(binds || '—')}</span>` + amb + miss +
+      `<span class="bind">${esc(binds || '—')}</span>` + ext + amb + miss +
       `<button class="rm" data-i="${i}" title="убрать шаг">×</button></div>`;
   });
   box.innerHTML = parts.join('<div class="carrow"></div>');
@@ -430,8 +433,13 @@ function renderPicker() {
     const rest = all.filter(p => !fileInputsLoose(p).length);
     const card = (p, tag) => {
       const flds = fileInputsLoose(p);
+      // Внешний код помечаем прямо в списке. /api/plugins отдаёт trusted, и
+      // без метки человек узнаёт о блокировке только из лога рана: «плагин
+      // exiftool — внешний код … песочница недоступна». На Windows изолятора
+      // нет, так что недоверенный плагин не запустится вообще.
+      const ext = p.trusted === true ? '' : '<span class="tag ext" title="не доверен: без изолятора не запустится">внешний</span>';
       return `<button class="plug" data-p="${esc(p.id)}" data-d="${esc(p.dir)}" title="${esc(p.description || '')}">` +
-        `<span class="nm">${esc(p.id)}</span>` +
+        `<span class="nm">${esc(p.id)}</span>` + ext +
         (tag ? `<span class="tag ${tag.k}">${esc(tag.t)}</span>` : '') +
         `<span class="why">in:${Object.keys(p.input || {}).length} out:${Object.keys(p.output || {}).length}` +
         (flds.length ? ' · файл:' + esc(flds.join(',')) : '') + `</span></button>`;

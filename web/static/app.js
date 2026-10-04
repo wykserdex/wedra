@@ -3,6 +3,16 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
 
+// errText — текст ошибки из журнала. В journal.jsonl error приходит ОБЪЕКТОМ
+// {code, message, retryable}, и печать его напрямую давала «[object object]».
+// Показываем сообщение, а при его отсутствии — код.
+function errText(e) {
+  if (e == null) return '';
+  if (typeof e === 'string') return e;
+  if (typeof e === 'object') return e.message || e.err_msg || e.code || JSON.stringify(e);
+  return String(e);
+}
+
 let state = {
   tab: 'menu',
   runs: [],
@@ -470,10 +480,10 @@ function renderTimeline(events) {
     if (type === 'step_start') { html += ev(t(e), 'run', `▶ ${esc(e.step)}`, e.attempt > 1 ? `повтор ${esc(String(e.attempt))}` : ''); continue; }
     if (type === 'step_end') {
       const cls = e.status === 'ok' ? 'ok' : 'err';
-      html += ev(t(e), cls, `${e.status === 'ok' ? '✓' : '✗'} ${esc(e.step)}`, `${esc(String(e.duration_ms ?? '?'))} мс · exit ${esc(String(e.exit_code))}${e.error ? ' · ' + esc(e.error) : ''}`);
+      html += ev(t(e), cls, `${e.status === 'ok' ? '✓' : '✗'} ${esc(e.step)}`, `${esc(String(e.duration_ms ?? '?'))} мс · exit ${esc(String(e.exit_code))}${e.error ? ' · ' + esc(errText(e.error)) : ''}`);
       continue;
     }
-    if (type === 'step_failed') { html += ev(t(e), 'err', `✗ ${esc(e.step)}: ${esc(e.error || 'ошибка')}`, ''); continue; }
+    if (type === 'step_failed') { html += ev(t(e), 'err', `✗ ${esc(e.step)}: ${esc(errText(e.error) || 'ошибка')}`, ''); continue; }
     if (type === 'step_skipped') { html += ev(t(e), 'skip', `↷ ${esc(e.step)} пропущен`, e.reason ? `reason: ${esc(e.reason)}${e.condition ? ' · ' + esc(e.condition) : ''}` : ''); continue; }
     if (type === 'gate_wait') { html += ev(t(e), 'run', `👤 гейт ${esc(e.step)}: ожидает решение (в браузере)`, esc((e.actions || []).map(a => String(a)).join('/'))); continue; }
     if (type === 'gate_retry') { html += ev(t(e), 'skip', `⚠ гейт ${esc(e.step)}: ${esc(e.reason || 'переспрос')}`, 'попытка ' + esc(String(e.attempt || '?'))); continue; }
@@ -481,11 +491,11 @@ function renderTimeline(events) {
     if (type === 'run_start') { html += ev(t(e), 'dim', `ран: ${esc(e.pipeline || '?')}${e.foreach ? ' · foreach ' + esc(e.foreach) : ''}`, ''); continue; }
     if (type === 'run_resumed') { html += ev(t(e), 'par', `ран возобновлён (resume)`, ''); continue; }
     if (type === 'run_end') { html += ev(t(e), (e.aborted || 0) ? 'err' : 'ok', `■ ран завершён: ok=${esc(String(e.ok || 0))} aborted=${esc(String(e.aborted || 0))}`, ''); continue; }
-    if (type === 'run_failed') { html += ev(t(e), 'err', `■ ран упал${e.code ? ' [' + esc(e.code) + ']' : ''}: ${esc(e.error || '')}`, ''); continue; }
+    if (type === 'run_failed') { html += ev(t(e), 'err', `■ ран упал${e.code ? ' [' + esc(e.code) + ']' : ''}: ${esc(errText(e.error))}`, ''); continue; }
     if (type === 'run_cancelled') { html += ev(t(e), 'skip', '■ ран отменён (resume — продолжить с места остановки)', ''); continue; }
     if (type === 'post_phase_start') { html += ev(t(e), 'dim', 'post-фаза (после foreach)…', ''); continue; }
     if (type === 'post_phase_end') { html += ev(t(e), 'dim', 'post-фаза завершена', ''); continue; }
-    if (type === 'foreach_item_failed') { html += ev(t(e), 'err', `⤷ ${esc(e.step)} · элемент ${esc(String(e.item_index))}: ${esc(e.error || 'ошибка')}`, ''); continue; }
+    if (type === 'foreach_item_failed') { html += ev(t(e), 'err', `⤷ ${esc(e.step)} · элемент ${esc(String(e.item_index))}: ${esc(errText(e.error) || 'ошибка')}`, ''); continue; }
     if (type === 'file_ref_warning' || type === 'contract_warning') { html += ev(t(e), 'dim', '· ' + esc(e.message || e.warning || JSON.stringify(e)), ''); continue; }
   }
   if (inItem >= 0) html += '</div>';
