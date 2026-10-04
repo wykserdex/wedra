@@ -18,7 +18,7 @@ input:
   file:
     from: input.file
     type: string
-    format: text        # путь к ELF-файлу (.so/бинарник/объектник); должен существовать
+    format: file_ref # путь к ELF-файлу (.so/бинарник/объектник); должен существовать
   wall_timeout:
     from: input.wall_timeout
     type: number

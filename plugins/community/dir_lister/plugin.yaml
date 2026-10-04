@@ -13,8 +13,7 @@ input:
   path:
     from: input.path
     type: string
-    format: text
-
+    format: file_ref
 output:
   path: { type: string }
   file_count: { type: number }

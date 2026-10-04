@@ -89,8 +89,12 @@
   .tag.any{border-color:var(--warn);color:var(--warn)}
 
   .empty{color:var(--dim);font-size:12px;padding:10px 0}
-  #status{margin-top:10px;font-size:12px;min-height:18px}
-  #status.ok{color:var(--ok)}#status.err{color:var(--err)}#status.busy{color:var(--acc)}
+  #status{margin-top:10px;padding:7px 10px;border-radius:7px;font-size:12px;
+    background:var(--bg2);border:1px solid var(--line);min-height:18px}
+  #status:empty{display:none}
+  #status.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
+  #status.err{color:var(--err);border-color:rgba(248,81,73,.4)}
+  #status.busy{color:var(--acc);border-color:rgba(88,166,255,.4)}
   pre#out{background:var(--bg0);border:1px solid var(--line);border-radius:8px;padding:10px;
     font-family:var(--mono);font-size:11px;overflow:auto;max-height:280px;margin:10px 0 0;white-space:pre-wrap}
 </style>
@@ -136,11 +140,10 @@
       <button id="to-editor" disabled>Открыть в редакторе</button>
       <button id="clear">Очистить</button>
     </div>
+    <div id="status"></div>
     <pre id="out" hidden></pre>
   </section>
 </main>
-
-<div id="status"></div>
 
 <script src="app.js"></script>
 </body>

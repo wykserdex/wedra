@@ -19,7 +19,7 @@ input:
   file:
     from: input.file
     type: string
-    format: text        # путь к PE/ELF/Mach-O; должен существовать
+    format: file_ref # путь к PE/ELF/Mach-O; должен существовать
   wall_timeout:
     from: input.wall_timeout
     type: number

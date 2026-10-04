@@ -19,7 +19,7 @@ input:
   file:
     from: input.file
     type: string
-    format: text        # путь к зашифрованному .doc/.xls/.ppt/... файлу
+    format: file_ref # путь к зашифрованному .doc/.xls/.ppt/... файлу
   out:
     from: input.out
     type: string

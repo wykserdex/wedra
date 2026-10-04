@@ -18,7 +18,7 @@ input:
   file:
     from: input.file
     type: string
-    format: text        # путь к изображению; относительный — от каталога плагина
+    format: file_ref # путь к изображению; относительный — от каталога плагина
   wall_timeout:
     from: input.wall_timeout
     type: number

@@ -19,7 +19,7 @@ input:
   file:
     from: input.file
     type: string
-    format: text        # путь к .doc/.docx/.xls/.xlsm/.ppt/... файлу
+    format: file_ref # путь к .doc/.docx/.xls/.xlsm/.ppt/... файлу
   wall_timeout:
     from: input.wall_timeout
     type: number

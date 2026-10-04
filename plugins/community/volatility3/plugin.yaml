@@ -18,7 +18,7 @@ input:
   image:
     from: input.image
     type: string
-    format: text        # путь к дампу памяти (raw/aff4/vmem/…); должен существовать
+    format: file_ref # путь к дампу памяти (raw/aff4/vmem/…); должен существовать
   module:
     from: input.module
     type: string

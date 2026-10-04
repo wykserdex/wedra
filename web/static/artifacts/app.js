@@ -205,38 +205,35 @@ function planStep(p, isFirst) {
   const prev = isFirst ? [] : prevOutputs();
   const binds = [];
   const missing = [];
+  const ambiguous = [];
   const used = new Set();
 
-  // Первый шаг: файл идёт в порт, объявивший себя файловым.
-  if (isFirst) {
-    const fileField = fileInputsLoose(p)[0]
-      || Object.keys(p.input || {}).find(f => p.input[f] && !p.input[f].optional) || null;
-    if (fileField) binds.push({ field: fileField, from: null });
-    for (const f of Object.keys(p.input || {})) {
-      if (f === fileField || !isDataPort(f)) continue;
-      const d = p.input[f];
-      if (d && d.optional) continue;
-      missing.push(f);
-    }
-    return { binds, missing, ambiguous: [] };
-  }
+  // Файл получают ЛЮБЫЕ шаги с файловым портом, а не только первый.
+  // pipeline.input — общий вход пайплайна, и читать один файл могут
+  // несколько шагов подряд: exiftool вытащит метаданные, потом бинарный разбор того же
+  // файла. Раньше файл доставался только шагу №1, и второй шаг с файловым
+  // портом получал «не хватает: file» — хотя файл на диске лежит.
+  const fileField = fileInputsLoose(p)[0] || null;
+  if (fileField) binds.push({ field: fileField, from: null });
 
-  const ambiguous = [];
   for (const f of Object.keys(p.input || {})) {
+    if (f === fileField || !isDataPort(f)) continue; // лимит рана не берётся из выхода соседа
     const d = p.input[f] || {};
-    if (!isDataPort(f)) continue; // лимит рана не берётся из выхода соседа
     const want = portType(d);
-    const byName = prev.find(o => !used.has(o.field)
-      && o.field.toLowerCase() === f.toLowerCase());
+    // одноимённый выход — детерминированно и осмысленно
+    const byName = prev.find(o => !used.has(o.field) && o.field.toLowerCase() === f.toLowerCase());
     if (byName) { used.add(byName.field); binds.push({ field: f, from: byName.field }); continue; }
-    const compat = prev.filter(o => !used.has(o.field)
-      && (!want || !o.type || want === o.type));
+    const compat = prev.filter(o => !used.has(o.field) && (!want || !o.type || want === o.type));
     if (compat.length === 1) { used.add(compat[0].field); binds.push({ field: f, from: compat[0].field }); continue; }
+    // Несколько равных кандидатов — не угадываем: молчаливый выбор даёт
+    // валидный, но бессмысленный пайплайн (csv_loader отдаёт и rows, и
+    // headers, оба array).
     if (compat.length > 1) { ambiguous.push({ field: f, choices: compat.map(o => o.field) }); continue; }
     if (!d.optional) missing.push(f);
   }
   return { binds, missing, ambiguous };
 }
+
 // ── сборка пайплайна ───────────────────────────────────────────────────────
 // yamlStr — значение в двойных кавычках. Экранирование обязательно: путь
 // приходит с диска, и кавычка или обратный слэш в имени каталога сделали бы
@@ -264,6 +261,11 @@ function buildYAML() {
   st.chain.forEach((c, i) => {
     lines.push(`    - id: s${i + 1}`);
     lines.push(`      plugin: ${c.dir || c.plugin}`);
+    // pos нужен, чтобы шаги в редакторе встали в ряд, а не друг на друга.
+    // Без него редактор расставляет их случайно (и они накладываются — я это
+    // увидел на скриншоте: два узла в одной точке, «on_err: stop» нарисован
+    // дважды). Схема принимает pos и ядро его читает.
+    lines.push(`      pos: [${40 + i * 340}, 60]`);
     const binds = (c.binds || []).map(b =>
       `${b.field}: ${b.from === null ? 'input.' + key : 'steps.s' + i + '.' + b.from}`);
     if (binds.length) lines.push(`      bind: { ${binds.join(', ')} }`);
@@ -283,11 +285,19 @@ async function build() {
     const v = await api('/api/validate/pipeline', {
       method: 'POST', headers: { 'Content-Type': 'application/yaml' }, body: yaml,
     });
-    const errs = (v && (v.errors || v.issues || [])) || [];
+    // Раньше здесь стояло `v.errors || v.issues || []`, и это была ловушка:
+    // эндпоинт отдаёт errors, warnings И issues (все замечания), причём errors
+    // равен null, когда ошибок нет. Фолбэк на issues подхватывал
+    // ПРЕДУПРЕЖДЕНИЯ и объявлял их ошибками: пайплайн, который ядро приняло
+    // (ok=true), помечался как негодный, а сообщение печатало
+    // «[object Object]» — ошибки приходят объектами.
+    const errs = Array.isArray(v && v.errors) ? v.errors : [];
+    const warns = Array.isArray(v && v.warnings) ? v.warnings : [];
+    const asText = list => list.map(x => (x && typeof x === 'object') ? (x.message || x.msg || JSON.stringify(x)) : String(x));
     if (errs.length) {
       $('#out').hidden = false;
       $('#out').textContent = yaml;
-      status('ядро нашло ошибки (показал yaml): ' + errs.join('; '), 'err');
+      status('ядро нашло ошибки (показал yaml): ' + asText(errs).join('; '), 'err');
       return;
     }
     const name = 'artifact_' + Date.now().toString(36) + '.yaml';
@@ -297,7 +307,10 @@ async function build() {
     st.built = name;
     $('#out').hidden = false;
     $('#out').textContent = yaml;
-    status('собрано и сохранено: ' + name, 'ok');
+    // Предупреждения ядра полезны (например «файл не найден»), но это не
+    // повод отказывать в сборке — показываем отдельной строкой.
+    status('собрано и сохранено: ' + name
+      + (warns.length ? ' · предупреждений: ' + asText(warns).length : ''), 'ok');
   } catch (e) {
     status('не собралось: ' + e.message, 'err');
   }
@@ -374,8 +387,14 @@ function renderChain() {
 
 function renderPicker() {
   const box = $('#pluglist');
-  const last = st.chain.length ? infoOf(st.chain[st.chain.length - 1]) : null;
-  let sug = suggest(last);
+  // В цепочке лежит ЗАПИСЬ шага ({plugin, dir, binds, missing}), а suggest()
+  // ждёт полный объект плагина с input/output. Сюда раньше передавалась
+  // запись, и подсказки молча выходили пустыми — то есть в живом интерфейсе
+  // их не показывало НИКОГДА, а вместо них всплывал список всех 99 плагинов.
+  // Стенд этого не ловил: он кормил suggest() настоящим плагином.
+  const entry = st.chain.length ? st.chain[st.chain.length - 1] : null;
+  const lastP = entry ? st.plugins.find(x => x.id === entry.plugin || x.dir === entry.dir) : null;
+  let sug = lastP ? suggest(infoOf(lastP)) : [];
   const q = String(st.q || '').trim().toLowerCase();
 
   // Поиск сужает и подсказки тоже: при 99 плагинах список длинный.
@@ -383,7 +402,27 @@ function renderPicker() {
     sug = sug.filter(x => x.p.id.toLowerCase().indexOf(q) >= 0
       || String(x.p.description || '').toLowerCase().indexOf(q) >= 0);
   }
-  if (!sug.length) {
+  // Список всех плагинов показываем ВСЕГДА, а не только когда подсказок нет:
+  // подсказки строятся по типам выходов, а нужен, скажем, второй
+  // читающий файл (exiftool после csv_loader) — в подсказках его не будет
+  // никогда, и человек упирался в стенку.
+  // Подсказки — отдельный блок, идущий ПЕРЕД списком всех плагинов.
+  const sugHtml = (() => {
+    if (!sug.length) return '';
+    const SHOW = 25;
+    const more = sug.length - SHOW;
+    return `<div class="empty">Подсказки по типам выходов <b>${esc(lastP.id)}</b>`
+      + ` — клик добавит шаг и свяжет. Найдено ${sug.length}`
+      + (more > 0 ? `, показаны первые ${SHOW}; остальные — в поиске сверху` : '') + `:</div>` +
+      sug.slice(0, SHOW).map(x => `<button class="plug" data-p="${esc(x.p.id)}" data-d="${esc(x.p.dir)}"`
+        + ` data-f="${esc(x.field)}" data-o="${esc(x.outField)}" title="${esc(x.p.description || '')}">`
+        + `<span class="nm">${esc(x.p.id)}</span>`
+        + `<span class="tag ${x.score === 2 ? 'exact' : 'any'}">${x.score === 2 ? 'тип' : 'любой'}</span>`
+        + `<span class="why">${esc(x.outField)} → ${esc(x.field)} · ${esc(x.outType)} → ${esc(x.inType)}</span></button>`
+      ).join('');
+  })();
+
+  {
     const all = st.plugins
       .filter(p => p.id !== 'core/human_gate')
       .filter(p => !q || p.id.toLowerCase().indexOf(q) >= 0 || (p.description || '').toLowerCase().indexOf(q) >= 0);
@@ -397,24 +436,12 @@ function renderPicker() {
         `<span class="why">in:${Object.keys(p.input || {}).length} out:${Object.keys(p.output || {}).length}` +
         (flds.length ? ' · файл:' + esc(flds.join(',')) : '') + `</span></button>`;
     };
-    box.innerHTML = (withFile.length
-      ? `<div class="empty">Объявили вход файлом (format: file_ref) — можно взять первым:</div>`
+    box.innerHTML = sugHtml + (withFile.length
+? `<div class="empty">Объявили вход файлом (format: file_ref)${st.chain.length ? ' — такой шаг тоже возьмёт твой файл' : ' — можно взять первым'}:</div>`
         + withFile.map(p => card(p, { k: 'file', t: 'файл' })).join('')
       : '') +
-      `<div class="empty">${q ? 'Ничего не нашлось. Все плагины:' : 'Все плагины — выбери первый шаг:'}</div>` +
+      `<div class="empty">${q ? 'Ничего не нашлось. Все плагины:' : 'Все плагины:'}</div>` +
       rest.map(p => card(p, null)).join('');
-  } else {
-    const SHOW = 25;
-    const more = sug.length > SHOW ? sug.length - SHOW : 0;
-    box.innerHTML = `<div class="empty">Подсказки по типам выходов <b>${esc(last.id)}</b>`
-      + ` — клик добавит шаг и свяжет. Найдено ${sug.length}`
-      + (more ? `, показаны первые ${SHOW}; остальные — в поиске сверху` : '') + `:</div>` +
-      sug.slice(0, SHOW).map((x, i) => `<button class="plug" data-p="${esc(x.p.id)}" data-d="${esc(x.p.dir)}"` +
-        ` data-f="${esc(x.field)}" data-o="${esc(x.outField)}" title="${esc(x.p.description || '')}">` +
-        `<span class="nm">${esc(x.p.id)}</span>` +
-        `<span class="tag ${x.score === 2 ? 'exact' : 'any'}">${x.score === 2 ? 'тип' : 'любой'}</span>` +
-        `<span class="why">${esc(x.outField)} → ${esc(x.field)} · ${esc(x.outType)} → ${esc(x.inType)}</span></button>`
-      ).join('');
   }
 
   box.querySelectorAll('.plug').forEach(b => {

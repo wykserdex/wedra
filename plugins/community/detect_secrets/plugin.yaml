@@ -18,7 +18,7 @@ input:
   path:
     from: input.path
     type: string
-    format: text        # каталог или файл для сканирования
+    format: file_ref # каталог или файл для сканирования
   wall_timeout:
     from: input.wall_timeout
     type: number
