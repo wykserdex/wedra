@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""dir_lister — инвентаризация файлов в директории: счёт по расширениям, размер.
+"""dir_lister — инвентаризация файлов в разрешённой директории: счёт/размер.
 
-permissions.filesystem: workspace — плагин обязан работать только внутри
-переданного пути, наружу (../, абсолютные пути вне workspace) не выходит.
+Runner запускает плагин с cwd=m.Dir; относительный путь остаётся под этим
+корнем. Проверка realpath также закрывает symlink, указывающий наружу.
 """
 import json
 import os
@@ -41,28 +41,33 @@ def main():
     if not path:
         return fail("empty_input", "поле path пустое")
 
-    # защита от выхода за пределы workspace: запрещаем абсолютные пути
-    # и любой относительный путь, который после нормализации всё ещё
-    # начинается с "..' (т.е. поднимается выше текущей директории).
-    # v0.29: startswith("/") и ("\\") явно — на Windows "/etc" НЕ isabs,
-    # и без этого абсолютный путь проскакивал мимо гарда.
+    # Runner задаёт cwd=m.Dir. Оставляем лексические проверки и дополнительно
+    # проверяем реальный путь: normpath сам по себе не разрешает symlink.
     if os.path.isabs(path) or path.startswith(("/", "\\")):
         return fail("path_escape", "абсолютные пути запрещены (filesystem: workspace)")
     norm = os.path.normpath(path)
     if norm == ".." or norm.startswith(".." + os.sep):
         return fail("path_escape", "путь пытается выйти за пределы workspace")
 
-    if not os.path.exists(norm):
-        return fail("not_found", f"путь не найден: {norm}", retryable=False)
+    allowed_root = os.path.realpath(os.getcwd())
+    resolved = os.path.realpath(os.path.join(allowed_root, norm))
+    try:
+        within_root = os.path.commonpath((allowed_root, resolved)) == allowed_root
+    except ValueError:
+        within_root = False
+    if not within_root:
+        return fail("path_escape", "symlink выводит путь за пределы разрешённого корня")
 
-    if not os.path.isdir(norm):
+    if not os.path.exists(resolved):
+        return fail("not_found", f"путь не найден: {norm}", retryable=False)
+    if not os.path.isdir(resolved):
         return fail("not_a_dir", f"путь не является директорией: {norm}")
 
     by_ext = {}
     total_size = 0
     file_count = 0
     try:
-        for entry in os.scandir(norm):
+        for entry in os.scandir(resolved):
             if entry.is_file():
                 file_count += 1
                 size = entry.stat().st_size

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """ssl_info — снимает TLS-сертификат и разбирает сроки/издателя.
 
-MOCK=1 — детерминированный ответ без сети (для тестов/CI).
-Проверка подписи отключена осознанно: цель — аудит, а не trust.
+MOCK=1 — детерминированный ответ без сети (для контракт-тестов).
+Проверка цепочки отключена намеренно: цель — аудит сертификата, включая
+самоподписанные и просроченные сертификаты. DER разбирается через cryptography.
 """
 import datetime
 import json
+import math
 import os
 import socket
 import ssl
@@ -32,12 +34,53 @@ def fail(code, message, retryable=False):
     return 1
 
 
-def _cn(name):
-    for part in name:
-        for key, val in part:
-            if key == "commonName":
-                return val
-    return ""
+def fail_platform(code, message):
+    print(json.dumps({"status": "error",
+                      "error": {"code": code, "message": message,
+                                "retryable": False}},
+                     ensure_ascii=False))
+    return 2
+
+
+def _integer_port(value):
+    """Accept JSON integers and integral floats, but never truncate a port."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _common_name(name, name_oid):
+    attributes = name.get_attributes_for_oid(name_oid)
+    return str(attributes[0].value) if attributes else ""
+
+
+def _decode_certificate(der):
+    # Import lazily so MOCK=1 and input validation do not need the optional
+    # dependency; real certificate decoding does, and the manifest pins it.
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+    except ImportError as e:
+        raise RuntimeError("не установлена зависимость cryptography") from e
+
+    cert = x509.load_der_x509_certificate(der)
+    not_after = cert.not_valid_after_utc
+    subject_cn = _common_name(cert.subject, NameOID.COMMON_NAME)
+    issuer_cn = _common_name(cert.issuer, NameOID.COMMON_NAME)
+
+    # Совпадения CN недостаточно: проверяем, что сертификат действительно
+    # подписан собственным ключом, а не только имеет одинаковые имена.
+    try:
+        cert.verify_directly_issued_by(cert)
+        self_signed = True
+    except Exception:
+        self_signed = False
+
+    return subject_cn, issuer_cn, not_after, self_signed
 
 
 def main():
@@ -54,13 +97,11 @@ def main():
         return fail("empty_input", "поле host пустое")
     if host.lower().rstrip(".").endswith((".invalid", ".test", ".example")):
         return fail("dns_fail", f"{host!r}: зарезервированный TLD, не резолвится")
-    port = data.get("port")
+
+    raw_port = data.get("port")
+    port = 443 if raw_port is None else _integer_port(raw_port)
     if port is None:
-        port = 443
-    try:
-        port = int(port)
-    except (TypeError, ValueError):
-        return fail("bad_port", "port должен быть числом 1-65535")
+        return fail("bad_port", "port должен быть целым числом 1-65535")
     if not 1 <= port <= 65535:
         return fail("bad_port", "port вне 1-65535")
 
@@ -81,30 +122,34 @@ def main():
         return fail("dns_fail", f"не резолвится {host!r}: {e}")
     except Exception as e:
         return fail("network", f"{host}:{port}: {e}", retryable=True)
+
     try:
         with ctx.wrap_socket(raw, server_hostname=host) as tls:
-            cert = tls.getpeercert()
+            der = tls.getpeercert(binary_form=True)
     except Exception as e:
         return fail("tls_fail", f"handshake {host}:{port}: {e}",
                     retryable=True)
     finally:
         raw.close()
 
-    subj = _cn(cert.get("subject", []))
-    issuer = _cn(cert.get("issuer", []))
+    if not der:
+        return fail("bad_cert", "сервер не прислал сертификат")
     try:
-        na = datetime.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
-    except Exception:
-        return fail("bad_cert", "не разобрать notAfter")
-    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    days_left = (na - now).days
+        subj, issuer, not_after, self_signed = _decode_certificate(der)
+    except RuntimeError as e:
+        return fail_platform("missing_dependency", str(e))
+    except Exception as e:
+        return fail("bad_cert", f"не разобрать сертификат: {e}")
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    days_left = int((not_after - now).total_seconds() // 86400)
     return ok({
         "subject_cn": subj,
         "issuer_cn": issuer,
-        "not_after": na.strftime("%Y-%m-%dT%H:%M:%S"),
+        "not_after": not_after.strftime("%Y-%m-%dT%H:%M:%S"),
         "days_left": days_left,
-        "expired": days_left < 0,
-        "self_signed": bool(subj) and subj == issuer,
+        "expired": now >= not_after,
+        "self_signed": self_signed,
     })
 
 

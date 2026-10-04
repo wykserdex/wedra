@@ -30,9 +30,6 @@ var builtinTrusted = map[string][]string{
 	"binwalk": {
 		"sha256:37e78d7d20e5e8450412660e556aa404b5b26d72a1e702c8678ac7e74b6440dc",
 	},
-	"buckethacker": {
-		"sha256:bbeea340e52396ca2ed207da58260d060872fd69737a4fd75a1360dbb8fbd6b2",
-	},
 	"censys": {
 		"sha256:83562df73d8140fb41d6e00bebeb973e0bdee58cfd997b68c7b8e21667c10342",
 	},

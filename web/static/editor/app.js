@@ -4,6 +4,8 @@
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach-батч
 // пайплайна (foreach/foreach_item/item_type/item_format).
 // v0.29: retry (on_error: retry + retry{attempts, delay, backoff}).
+// v0.30: input schema (type/required/default/format/description), step loops,
+// round-trip всех полей цикла и работающий Save As по имени файла.
 // v0.5: secrets (pipeline.secrets — env-ключи плагинов) в UI (чипы в
 // блоке «Пайплайн» + подсказка в шаге, какой ключ просит плагин).
 // v0.6: network (pipeline.network — политика allow/deny) в UI: чекбокс
@@ -11,45 +13,86 @@
 // v0.8a: перетаскивание палитра→холст на mouse-событиях (ghost) + клик =
 // добавить на свободное место. Нативный HTML5 DnD не работает в sandboxed
 // iframe (превью) — mouse-события работают везде.
-// Честный скоуп: type-объявления input не управляются — такие пайплайны
-// открываются с баннером и без сохранения.
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
-const inputText = value => Array.isArray(value) || (value !== null && typeof value === 'object')
-  ? JSON.stringify(value, null, 2) : (value == null ? '' : String(value));
-const parseInputText = (text, current) => {
-  if (Array.isArray(current)) {
+const inputText = value => value === null || Array.isArray(value) || (typeof value === 'object')
+  ? JSON.stringify(value, null, 2) : (value === undefined ? '' : String(value));
+const parseInputText = (text, current, expectedType = '') => {
+  if (expectedType === 'array' || (!expectedType && Array.isArray(current))) {
     const value = JSON.parse(text);
     if (!Array.isArray(value)) throw new Error('ожидается массив JSON');
     return value;
   }
-  if (current !== null && typeof current === 'object') {
+  if (expectedType === 'object' || (!expectedType && current !== null && typeof current === 'object')) {
     const value = JSON.parse(text);
     if (value === null || Array.isArray(value) || typeof value !== 'object') throw new Error('ожидается объект JSON');
     return value;
   }
-  if (typeof current === 'number') {
+  if (expectedType === 'number' || (!expectedType && typeof current === 'number')) {
     const value = Number(text);
     if (text.trim() === '' || !Number.isFinite(value)) throw new Error('ожидается число');
     return value;
   }
-  if (typeof current === 'boolean') {
+  if (expectedType === 'boolean' || (!expectedType && typeof current === 'boolean')) {
     if (text !== 'true' && text !== 'false') throw new Error('ожидается true или false');
     return text === 'true';
   }
+  if (expectedType === 'string') return text;
+  if (current === null) return JSON.parse(text);
   return text;
 };
-const inputEditor = (input, idx) => {
+const INPUT_TYPES = ['string', 'number', 'boolean', 'array', 'object'];
+const defaultForInputType = type => ({string: '', number: 0, boolean: false, array: [], object: {}}[type] ?? '');
+const valueMatchesInputType = (value, type) => {
+  if (type === 'array') return Array.isArray(value);
+  if (type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  return typeof value === type;
+};
+const inputValueEditor = (input, idx) => {
   const value = input.default;
-  let editor;
-  if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
-    editor = `<textarea data-indef="${idx}" rows="3" spellcheck="false" style="flex:1;min-width:0">${esc(inputText(value))}</textarea>`;
-  } else if (typeof value === 'boolean') {
-    editor = `<select data-indef="${idx}" style="flex:1;min-width:0"><option value="true"${value ? ' selected' : ''}>true</option><option value="false"${value ? '' : ' selected'}>false</option></select>`;
-  } else {
-    editor = `<input data-indef="${idx}" type="${typeof value === 'number' ? 'number' : 'text'}"${typeof value === 'number' ? ' step="any"' : ''} value="${esc(inputText(value))}" placeholder="значение по умолчанию" spellcheck="false"/>`;
+  const type = input.typed ? input.type : '';
+  const jsonValue = value === null || Array.isArray(value) || typeof value === 'object';
+  if (type === 'array' || type === 'object' || (!type && jsonValue)) {
+    return `<textarea data-indef="${idx}" rows="3" spellcheck="false">${esc(inputText(value))}</textarea>`;
   }
-  return `<div class="irow"><input data-iname="${idx}" value="${esc(input.name)}" placeholder="имя"/>${editor}<button data-indel="${idx}">×</button></div>`;
+  if (type === 'boolean' || (!type && typeof value === 'boolean')) {
+    const valid = typeof value === 'boolean';
+    return `<select data-indef="${idx}">${valid ? '' : '<option value="" selected disabled>исправь default</option>'}<option value="true"${value === true ? ' selected' : ''}>true</option><option value="false"${value === false ? ' selected' : ''}>false</option></select>`;
+  }
+  const number = type === 'number' || (!type && typeof value === 'number');
+  const display = type === 'string' && typeof value !== 'string' && value != null ? JSON.stringify(value) : inputText(value);
+  return `<input data-indef="${idx}" type="${number ? 'number' : 'text'}"${number ? ' step="any"' : ''} value="${esc(display)}" placeholder="значение по умолчанию" spellcheck="false"/>`;
+};
+const inputEditor = (input, idx) => {
+  const typeOpts = INPUT_TYPES.map(v => `<option value="${v}"${input.type === v ? ' selected' : ''}>${v}</option>`).join('');
+  const required = input.required === true ? 'true' : input.required === false ? 'false' : '';
+  const mismatch = input.typed && input.has_default && !valueMatchesInputType(input.default, input.type);
+  const value = input.has_default ? `<div class="input-value">${inputValueEditor(input, idx)}</div>` : '';
+  return `<div class="input-editor">
+    <div class="input-row">
+      <input data-iname="${idx}" value="${esc(input.name)}" placeholder="имя" spellcheck="false"/>
+      <select data-ikind="${idx}" title="формат входа"><option value="value"${input.typed ? '' : ' selected'}>значение</option><option value="schema"${input.typed ? ' selected' : ''}>схема</option></select>
+      <button data-indel="${idx}" title="удалить вход">×</button>
+    </div>
+    ${input.typed ? `<div class="input-schema">
+      <div class="input-meta-grid">
+        <label>тип<select data-itype="${idx}">${typeOpts}</select></label>
+        <label>обязательность<select data-irequired="${idx}">
+          <option value=""${required === '' ? ' selected' : ''}>не задана</option>
+          <option value="true"${required === 'true' ? ' selected' : ''}>обязательный</option>
+          <option value="false"${required === 'false' ? ' selected' : ''}>необязательный</option>
+        </select></label>
+      </div>
+      <div class="input-meta-grid">
+        <label>format<input data-iformat="${idx}" value="${esc(input.format || '')}" placeholder="email, url…" spellcheck="false"/></label>
+        <label>описание<input data-idescription="${idx}" value="${esc(input.description || '')}" placeholder="для чего поле" spellcheck="false"/></label>
+      </div>
+      <label class="input-default-toggle"><input type="checkbox" data-ihasdefault="${idx}"${input.has_default ? ' checked' : ''}/> значение по умолчанию</label>
+      ${value}
+      ${mismatch ? `<div class="hint" style="color:var(--err)">default не соответствует type: ${esc(input.type)} — исправь значение или тип.</div>` : ''}
+    </div>` : value}
+  </div>`;
 };
 const GRID = 20;
 const snap = v => Math.round(v / GRID) * GRID;
@@ -195,6 +238,10 @@ function undo() {
   state.redo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.undo.pop());
   state.sel = null;
+  const fileInput = $('#file-name');
+  if (fileInput) fileInput.value = state.doc.file || '';
+  const fileSelect = $('#file-open');
+  if (fileSelect) fileSelect.value = state.doc.file || '';
   renderAll();
 }
 function redo() {
@@ -202,6 +249,10 @@ function redo() {
   state.undo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.redo.pop());
   state.sel = null;
+  const fileInput = $('#file-name');
+  if (fileInput) fileInput.value = state.doc.file || '';
+  const fileSelect = $('#file-open');
+  if (fileSelect) fileSelect.value = state.doc.file || '';
   renderAll();
 }
 
@@ -218,7 +269,8 @@ function addStep(plugin, x, y) {
   const st = {
     id: nextStepId(), plugin, pos: [snap(x), snap(y)],
     on_error: 'stop', timeout: '', bind: {}, when: null,
-    foreach: '', foreach_item: '', after_foreach: false, parallel_group: '', retry: null,
+    foreach: '', foreach_item: '', after_foreach: false, parallel_group: '',
+    loop: '', loop_condition: '', max_iterations: 0, retry: null,
   };
   if (plugin === 'core/human_gate') {
     st.form = []; st.actions = ['accept', 'reject']; st.on_reject = 'stop'; st.approval = '';
@@ -318,7 +370,7 @@ function renderNodes() {
     node.innerHTML = `
       <div class="nh"><span class="nid">${esc(st.id)}</span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
       <div class="body">${ins}<div style="margin-top:6px">${outs}</div></div>
-      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? '<span title="after_foreach">⤓ post</span>' : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
+      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? '<span title="after_foreach">⤓ post</span>' : ''}${st.loop ? '<span title="цикл шага">⟳ loop</span>' : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
     canvas.appendChild(node);
     node.addEventListener('mousedown', e => startNodeDrag(e, st));
     node.addEventListener('click', e => { e.stopPropagation(); state.sel = st.id; renderAll(); });
@@ -416,6 +468,23 @@ function flowBlock(st) {
   <div class="pblock"><label><input type="checkbox" data-safter ${st.after_foreach ? 'checked' : ''}/> after_foreach — один раз после всего pipeline-foreach (агрегаты steps.X_all)</label></div>`;
 }
 
+function loopBlock(st) {
+  const on = !!st.loop;
+  if (!on) {
+    return `<div class="pblock"><label class="loop-toggle"><input type="checkbox" data-sloop-toggle/> цикл шага — повторять до условия</label></div>`;
+  }
+  return `
+  <div class="pblock"><label class="loop-toggle"><input type="checkbox" data-sloop-toggle checked/> цикл шага — повторять до условия</label>
+    <div class="hint">Шаг запускается повторно, пока условие истинно. Пустое условие использует steps.&lt;id&gt;.continue; пустой лимит — 100 итераций.</div>
+  </div>
+  <div class="prow">
+    <div class="pblock" style="flex:2"><label>loop_condition — путь к boolean</label>
+      <input data-sloop-condition value="${esc(st.loop_condition || '')}" placeholder="steps.${esc(st.id)}.continue" spellcheck="false"/></div>
+    <div class="pblock" style="flex:1"><label>max_iterations (1–100; пусто = 100)</label>
+      <input data-sloop-max type="number" min="1" max="100" value="${esc(st.max_iterations || '')}" placeholder="100" spellcheck="false"/></div>
+  </div>`;
+}
+
 function pipelineFlowBlock() {
   const d = state.doc;
   const srcs = sourceOptions(null);
@@ -493,9 +562,8 @@ function renderProps() {
   const el = $('#props');
   let html = '';
   if (state.unsupported.length) {
-    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор v0.6 не управляет:
-      <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение из редактора запрещено —
-      правь в YAML (вкладка «Пайплайны» в консоли), иначе эти поля будут потеряны.</div>`;
+    html += `<div id="banner" style="display:block">Пайплайн содержит поля, которые редактор не умеет сохранять:
+      <b>${state.unsupported.map(esc).join(', ')}</b>. Сохранение отключено, чтобы не потерять данные; открой файл в YAML-режиме.</div>`;
   }
   const st = state.doc.steps.find(s => s.id === state.sel);
   if (st) {
@@ -537,7 +605,7 @@ function renderProps() {
           <option value="human"${st.approval === 'human' ? ' selected' : ''}>human — только человек</option>
         </select></div>` : '';
     html += `
-      <h3>Шаг</h3>
+      <h3 style="display:flex;align-items:center;justify-content:space-between">Шаг<button data-select-pipeline>‹ настройки пайплайна</button></h3>
       <div class="prow">
         <div class="pblock"><label>id</label><input data-sid value="${esc(st.id)}" spellcheck="false"/></div>
         <div class="pblock"><label>on_error</label>
@@ -549,6 +617,7 @@ function renderProps() {
       <div class="pblock"><label>timeout (пусто = 60s): 10s, 1m30s, …</label><input data-stimeout value="${esc(st.timeout || '')}" placeholder="60s" spellcheck="false"/></div>
       ${whenBlock(st)}
       ${flowBlock(st)}
+      ${loopBlock(st)}
       ${retryBlock(st)}
       ${ins}
       ${gateBlock}
@@ -565,7 +634,7 @@ function renderProps() {
           <option value="any"${state.doc.gates === 'any' ? ' selected' : ''}>any</option>
           <option value="human_only"${state.doc.gates === 'human_only' ? ' selected' : ''}>human_only — все гейты только человеком</option>
         </select></div>
-      <div class="pblock"><label>вход (input.*): object/array — JSON</label>${rows || '<div class="hint">нет входов</div>'}
+      <div class="pblock"><label>входы input.* — значения или schema</label>${rows || '<div class="hint">нет входов</div>'}
         <button data-inadd>+ вход</button></div>
       <div class="pblock"><label>secrets — env-ключи для плагинов (v0.5)</label>
         ${secretsBlock()}</div>
@@ -576,7 +645,7 @@ function renderProps() {
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст (или кликни по нему — узел появится на свободном месте).
-      type-объявления input — пока в YAML вручную (редактор их не трогает и такие файлы не сохраняет).</div>`;
+      Обычные входы — фактические значения input.*; «схема» — декларация type, required, format, description и default.</div>`;
   }
   el.innerHTML = html;
   wireProps(st);
@@ -584,6 +653,8 @@ function renderProps() {
 
 function wireProps(st) {
   const el = $('#props');
+  const selectPipeline = el.querySelector('[data-select-pipeline]');
+  if (selectPipeline) selectPipeline.onclick = () => { state.sel = null; renderAll(); };
   el.querySelectorAll('[data-bind]').forEach(sel => {
     sel.onchange = () => {
       pushUndo();
@@ -660,6 +731,26 @@ function wireProps(st) {
   if (spg) spg.onchange = () => { pushUndo(); st.parallel_group = spg.value.trim(); renderAll(); };
   const sa = el.querySelector('[data-safter]');
   if (sa) sa.onchange = () => { pushUndo(); st.after_foreach = sa.checked; renderAll(); };
+  const loopToggle = el.querySelector('[data-sloop-toggle]');
+  if (loopToggle) loopToggle.onchange = () => {
+    pushUndo();
+    if (loopToggle.checked) st.loop = st.loop || 'repeat';
+    else { st.loop = ''; st.loop_condition = ''; st.max_iterations = 0; }
+    renderAll();
+  };
+  const loopCondition = el.querySelector('[data-sloop-condition]');
+  if (loopCondition) loopCondition.onchange = () => { pushUndo(); st.loop_condition = loopCondition.value.trim(); renderAll(); };
+  const loopMax = el.querySelector('[data-sloop-max]');
+  if (loopMax) loopMax.onchange = () => {
+    const raw = loopMax.value.trim();
+    const value = raw === '' ? 0 : Number(raw);
+    if (!Number.isInteger(value) || (raw !== '' && value < 1) || value > 100) {
+      alert('max_iterations должен быть от 1 до 100; пустое поле использует 100.');
+      renderAll();
+      return;
+    }
+    pushUndo(); st.max_iterations = value; renderAll();
+  };
   const gform = el.querySelector('[data-gform]');
   if (gform) gform.onchange = () => {
     const previous = st.form || [];
@@ -720,12 +811,79 @@ function wireProps(st) {
   if (pn) pn.onchange = () => { pushUndo(); state.doc.name = pn.value.trim() || state.doc.name; renderAll(); };
   const pgates = el.querySelector('[data-pgates]');
   if (pgates) pgates.onchange = () => { pushUndo(); state.doc.gates = pgates.value; renderAll(); };
-  el.querySelectorAll('[data-iname]').forEach(i => i.onchange = () => { pushUndo(); state.doc.input[i.dataset.iname].name = i.value.trim(); renderAll(); });
+  el.querySelectorAll('[data-iname]').forEach(control => control.onchange = () => {
+    const idx = +control.dataset.iname;
+    const input = state.doc.input[idx];
+    const name = control.value.trim();
+    if (!name || state.doc.input.some((other, i) => i !== idx && other.name === name)) {
+      alert(!name ? 'Имя входа не может быть пустым.' : 'Такое имя входа уже есть.');
+      renderAll();
+      return;
+    }
+    pushUndo(); input.name = name; renderAll();
+  });
+  el.querySelectorAll('[data-ikind]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.ikind];
+    if (control.value === 'schema') {
+      pushUndo();
+      input.typed = true;
+      input.type = input.type || (Array.isArray(input.default) ? 'array' : input.default === null ? 'string' : typeof input.default === 'object' ? 'object' : typeof input.default);
+      if (!INPUT_TYPES.includes(input.type)) input.type = 'string';
+      input.required = input.required ?? null;
+      input.format = input.format || '';
+      input.description = input.description || '';
+      input.has_default = input.has_default !== false;
+      if (!input.has_default || !valueMatchesInputType(input.default, input.type)) input.default = defaultForInputType(input.type);
+      renderAll();
+      return;
+    }
+    if (input.typed && (input.required !== undefined && input.required !== null || input.format || input.description || !input.has_default) &&
+        !confirm('Переключить на обычное значение? Параметры type/required/format/description будут удалены.')) {
+      renderAll();
+      return;
+    }
+    pushUndo();
+    input.typed = false;
+    input.default = input.has_default ? input.default : '';
+    input.has_default = true;
+    delete input.type; delete input.required; delete input.format; delete input.description;
+    renderAll();
+  });
+  el.querySelectorAll('[data-itype]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.itype];
+    pushUndo();
+    input.type = control.value;
+    if (!input.has_default || !valueMatchesInputType(input.default, input.type)) input.default = defaultForInputType(input.type);
+    renderAll();
+  });
+  el.querySelectorAll('[data-irequired]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.irequired];
+    pushUndo();
+    if (control.value === '') delete input.required;
+    else input.required = control.value === 'true';
+    renderAll();
+  });
+  el.querySelectorAll('[data-iformat]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.iformat];
+    pushUndo(); input.format = control.value.trim(); renderAll();
+  });
+  el.querySelectorAll('[data-idescription]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.idescription];
+    pushUndo(); input.description = control.value.trim(); renderAll();
+  });
+  el.querySelectorAll('[data-ihasdefault]').forEach(control => control.onchange = () => {
+    const input = state.doc.input[+control.dataset.ihasdefault];
+    pushUndo();
+    input.has_default = control.checked;
+    if (control.checked && input.default === undefined) input.default = defaultForInputType(input.type || 'string');
+    renderAll();
+  });
   el.querySelectorAll('[data-indef]').forEach(control => {
     control.onchange = () => {
       const input = state.doc.input[control.dataset.indef];
       try {
-        const value = parseInputText(control.value, input.default);
+        const value = parseInputText(control.value, input.default, input.typed ? input.type : '');
+        if (input.typed && !valueMatchesInputType(value, input.type)) throw new Error('значение не соответствует type: ' + input.type);
         pushUndo();
         input.default = value;
         renderAll();
@@ -745,7 +903,13 @@ function wireProps(st) {
   const pfmt = el.querySelector('[data-pformat]');
   if (pfmt) pfmt.onchange = () => { pushUndo(); state.doc.item_format = pfmt.value.trim(); renderAll(); };
   const inadd = el.querySelector('[data-inadd]');
-  if (inadd) inadd.onclick = () => { pushUndo(); state.doc.input.push({ name: 'field' + (state.doc.input.length + 1), default: '' }); renderAll(); };
+  if (inadd) inadd.onclick = () => {
+    let n = state.doc.input.length + 1;
+    while (state.doc.input.some(input => input.name === 'field' + n)) n++;
+    pushUndo();
+    state.doc.input.push({ name: 'field' + n, default: '', typed: false, has_default: true });
+    renderAll();
+  };
   // v0.5: secrets — добавление/удаление env-ключей
   const skey = el.querySelector('[data-skey]');
   const sadd = el.querySelector('[data-sadd]');
@@ -868,8 +1032,34 @@ async function doValidate() {
   }
 }
 
+function normalizePipelineFilename(raw) {
+  let file = String(raw || '').trim();
+  if (!file || file.includes('/') || file.includes('\\') || /[\x00-\x1f<>:"|?*]/.test(file) || file === '.' || file === '..') return '';
+  file = file.replace(/\.ya?ml$/i, '');
+  if (!file || file === '.' || file === '..') return '';
+  return file + '.yaml';
+}
+
+function rebaseHistoryFilename(file) {
+  for (const history of [state.undo, state.redo]) {
+    for (let i = 0; i < history.length; i++) {
+      const snapshot = JSON.parse(history[i]);
+      if (Object.prototype.hasOwnProperty.call(snapshot, 'file')) {
+        snapshot.file = file;
+        history[i] = JSON.stringify(snapshot);
+      }
+    }
+  }
+}
+
 async function save() {
-  const file = (state.doc.file || '').replace(/\.ya?ml$/i, '') + '.yaml';
+  const file = normalizePipelineFilename($('#file-name').value || state.doc.file);
+  const status = $('#save-status');
+  if (!file) {
+    status.textContent = 'некорректное имя файла'; status.className = 'badge err';
+    $('#file-name').focus();
+    return;
+  }
   $('#file-name').value = file;
   try {
     await doValidate();
@@ -880,6 +1070,8 @@ async function save() {
   const st = $('#save-status');
   try {
     await apiRaw('/api/pipelines/' + encodeURIComponent(file), { method: 'PUT', body: state.yaml });
+    state.doc.file = file;
+    rebaseHistoryFilename(file);
     st.textContent = 'сохранено: ' + file; st.className = 'badge ok';
     await loadFileList();
   } catch (e) {
@@ -908,7 +1100,13 @@ async function openFile(file) {
       name: doc.name, file, format_version: doc.format_version || '',
       input: (doc.input || []).map(i => ({
         name: i.name,
-        default: Object.prototype.hasOwnProperty.call(i, 'default') ? i.default : '',
+        default: i.has_default ? i.default : undefined,
+        typed: !!i.typed,
+        type: i.type || '',
+        required: i.required,
+        format: i.format || '',
+        description: i.description || '',
+        has_default: !!i.has_default,
       })),
       steps: (doc.steps || []).map(s => ({
         id: s.id, plugin: s.plugin,
@@ -920,6 +1118,8 @@ async function openFile(file) {
         when: s.when || null,
         foreach: s.foreach || '', foreach_item: s.foreach_item || '',
         after_foreach: !!s.after_foreach, parallel_group: s.parallel_group || '',
+        loop: s.loop || '', loop_condition: s.loop_condition || '',
+        max_iterations: Number(s.max_iterations) || 0,
         retry: s.retry || null,
       })),
       foreach: doc.foreach || '', foreach_item: doc.foreach_item || '',
@@ -961,6 +1161,8 @@ async function init() {
   renderPalette();
   initCanvas();
   await loadFileList();
+  $('#file-name').value = state.doc.file;
+  $('#file-name').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
   $('#file-open').onchange = e => { if (e.target.value) openFile(e.target.value); };
   $('#btn-save').onclick = save;
   $('#btn-yaml').onclick = showYaml;

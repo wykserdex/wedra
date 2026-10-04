@@ -1,7 +1,8 @@
 package api
 
-// v0.25 (v0.26a: format_version; v0.27: when; v0.28: foreach/parallel; v0.29: retry;/
-// after_foreach): round-trip parse → doc → serialize → YAML обязан читаться
+// v0.25 (v0.26a: format_version; v0.27: when; v0.28: foreach/parallel;
+// v0.29: retry/after_foreach; v0.30: typed inputs and step loops): round-trip
+// parse → doc → serialize → YAML обязан читаться
 // ядром и проходить валидацию; pos возвращается; unsupported блокирует
 // serialize; конфликты управляющего потока — честно в errors.
 
@@ -111,22 +112,31 @@ pipeline:
 	}
 }
 
-func TestEditorParseUnsupported(t *testing.T) {
+func TestEditorParseTypedInputAndPreservesOrdinaryMap(t *testing.T) {
 	ts, _ := gateTestServer(t)
-	raw := []byte(`format_version: "0.1"
+	raw := []byte(`format_version: "0.2"
 pipeline:
-  name: tricky
+  name: typed_inputs
   input:
-    n: { type: number, required: true }
+    count:
+      type: number
+      required: true
+      description: Maximum number of results
+    email:
+      type: string
+      required: false
+      default: user@example.test
+      format: email
+      description: Contact address
     ordinary:
       type: string
       value: payload
   steps:
-    - id: a
+    - id: review
       plugin: core/human_gate
       when:
-        path: input.n
-        op: ">"
+        path: input.count
+        op: gt
         value: 10
       actions: [accept]
       retry:
@@ -134,43 +144,109 @@ pipeline:
 `)
 	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
 	if code != 200 {
-		t.Fatalf("code=%d body=%v", code, doc)
+		t.Fatalf("parse code=%d body=%v", code, doc)
 	}
-	unsup, _ := doc["unsupported"].([]interface{})
-	text := ""
-	for _, u := range unsup {
-		text += u.(string) + " "
+	if unsupported, _ := doc["unsupported"].([]interface{}); len(unsupported) != 0 {
+		t.Fatalf("typed inputs still block editing: %v", unsupported)
 	}
-	// v0.27–v0.29: when/parallel_group/retry под управлением редактора —
-	// в unsupported не попадают; остался только input type-объявление
-	for _, gone := range []string{"a: when", "a: parallel_group", "a: retry"} {
-		if strings.Contains(text, gone) {
-			t.Fatalf("unsupported = %q (%s больше не unsupported)", text, gone)
-		}
-	}
-	if len(unsup) != 1 || unsup[0] != "input.n (type-объявление, не значение)" {
-		t.Fatalf("unsupported = %q (ждём только descriptor input.n)", text)
-	}
-	var ordinary map[string]interface{}
+	inputs := make(map[string]map[string]interface{})
 	for _, rawInput := range doc["input"].([]interface{}) {
 		input := rawInput.(map[string]interface{})
-		if input["name"] == "ordinary" {
-			ordinary = input["default"].(map[string]interface{})
-		}
+		inputs[input["name"].(string)] = input
 	}
-	if !reflect.DeepEqual(ordinary, map[string]interface{}{"type": "string", "value": "payload"}) {
-		t.Fatalf("ordinary object input=%v", ordinary)
+	count := inputs["count"]
+	if count["typed"] != true || count["type"] != "number" || count["required"] != true || count["has_default"] != false {
+		t.Fatalf("typed input count=%v", count)
 	}
-	// retry при этом — в doc (под управлением): attempts=3, без delay/backoff
-	ra, _ := doc["steps"].([]interface{})[0].(map[string]interface{})["retry"].(map[string]interface{})
-	if ra == nil || ra["attempts"] != float64(3) || ra["delay"] != "" || ra["backoff"] != "" {
-		t.Fatalf("doc.retry = %v (ждём {3, , })", ra)
+	email := inputs["email"]
+	if email["typed"] != true || email["type"] != "string" || email["required"] != false || email["format"] != "email" || email["description"] != "Contact address" || email["default"] != "user@example.test" || email["has_default"] != true {
+		t.Fatalf("typed input email=%v", email)
 	}
-	// serialize такого — 409 (редактор не управляет полями → не терять их)
-	d, _ := json.Marshal(doc)
-	code, body := postBytes(t, ts.URL+"/api/serialize/pipeline", d)
-	if code != 409 {
-		t.Fatalf("serialize unsupported: code=%d body=%v (want 409)", code, body)
+	ordinary, ok := inputs["ordinary"]["default"].(map[string]interface{})
+	if !ok || !reflect.DeepEqual(ordinary, map[string]interface{}{"type": "string", "value": "payload"}) {
+		t.Fatalf("ordinary object input=%v", inputs["ordinary"])
+	}
+	// when/retry остаются редактируемыми и не попадают в unsupported.
+	step := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if step["when"].(map[string]interface{})["op"] != "gt" {
+		t.Fatalf("doc.when=%v", step["when"])
+	}
+	retry := step["retry"].(map[string]interface{})
+	if retry["attempts"] != float64(3) {
+		t.Fatalf("doc.retry=%v", retry)
+	}
+
+	encoded, _ := json.Marshal(doc)
+	code, body := postBytes(t, ts.URL+"/api/serialize/pipeline", encoded)
+	if code != 200 {
+		t.Fatalf("serialize code=%d body=%v", code, body)
+	}
+	yamlText := body["yaml"].(string)
+	parsed, err := pipeline.LoadPipelineFileFromBytes([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("serialized YAML не читается: %v\n%s", err, yamlText)
+	}
+	countDescriptor := parsed.Pipeline.Input["count"].(map[string]interface{})
+	if countDescriptor["type"] != "number" || countDescriptor["required"] != true || countDescriptor["description"] != "Maximum number of results" {
+		t.Fatalf("round-trip count=%v", countDescriptor)
+	}
+	emailDescriptor := parsed.Pipeline.Input["email"].(map[string]interface{})
+	if emailDescriptor["default"] != "user@example.test" || emailDescriptor["format"] != "email" || emailDescriptor["required"] != false {
+		t.Fatalf("round-trip email=%v", emailDescriptor)
+	}
+	if !reflect.DeepEqual(parsed.Pipeline.Input["ordinary"], map[string]interface{}{"type": "string", "value": "payload"}) {
+		t.Fatalf("ordinary map changed on round-trip: %v", parsed.Pipeline.Input["ordinary"])
+	}
+}
+
+func TestEditorRejectsUnknownInputSchemaType(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	doc := map[string]interface{}{
+		"name": "bad_input_schema",
+		"input": []interface{}{map[string]interface{}{"name": "value", "typed": true, "type": "mystery", "has_default": false}},
+		"steps": []interface{}{}, "unsupported": []interface{}{},
+	}
+	encoded, _ := json.Marshal(doc)
+	code, _ := postBytes(t, ts.URL+"/api/serialize/pipeline", encoded)
+	if code != http.StatusBadRequest {
+		t.Fatalf("unknown input type accepted: status=%d, want %d", code, http.StatusBadRequest)
+	}
+}
+
+func TestEditorLoopFieldsRoundTrip(t *testing.T) {
+	ts, _ := gateTestServer(t)
+	raw := []byte(`format_version: "0.2"
+pipeline:
+  name: loop_editor
+  input: {}
+  steps:
+    - id: repeat
+      plugin: core/human_gate
+      loop: retry_cycle
+      loop_condition: steps.repeat.continue
+      max_iterations: 5
+      actions: [accept]
+`)
+	code, doc := postBytes(t, ts.URL+"/api/parse/pipeline", raw)
+	if code != 200 {
+		t.Fatalf("parse code=%d body=%v", code, doc)
+	}
+	step := doc["steps"].([]interface{})[0].(map[string]interface{})
+	if step["loop"] != "retry_cycle" || step["loop_condition"] != "steps.repeat.continue" || step["max_iterations"] != float64(5) {
+		t.Fatalf("parsed loop fields=%v", step)
+	}
+	encoded, _ := json.Marshal(doc)
+	code, body := postBytes(t, ts.URL+"/api/serialize/pipeline", encoded)
+	if code != 200 {
+		t.Fatalf("serialize code=%d body=%v", code, body)
+	}
+	parsed, err := pipeline.LoadPipelineFileFromBytes([]byte(body["yaml"].(string)))
+	if err != nil {
+		t.Fatalf("serialized YAML не читается: %v", err)
+	}
+	got := parsed.Pipeline.Steps[0]
+	if got.Loop != "retry_cycle" || got.LoopCondition != "steps.repeat.continue" || got.MaxIterations != 5 {
+		t.Fatalf("serialized loop fields=%+v", got)
 	}
 }
 

@@ -8,7 +8,7 @@ point for gated actions.
 
 ## Current contract
 
-- Product version: `0.34.0-lite` from [`VERSION`](VERSION)
+- Product version: `0.34.0` from [`VERSION`](VERSION)
 - Pipeline/plugin protocol: `0.2` from [`protocol/VERSION`](protocol/VERSION)
 - Primary CLI: `wedra`
 - Compatibility CLI: `tool` (legacy surface; do not add new behavior there)

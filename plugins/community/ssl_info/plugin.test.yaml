@@ -18,3 +18,9 @@ tests:
     expect:
       status: error
       error: { code: bad_port }
+
+  - name: дробный порт не усекается
+    input: { host: "example.com", port: 443.5 }
+    expect:
+      status: error
+      error: { code: bad_port }

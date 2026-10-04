@@ -1,5 +1,5 @@
 id: csv_stats
-version: 0.1.0
+version: 0.1.1
 platform_api: "^0.1"
 description: "Статистики числовой колонки CSV из текста: count/mean/min/max/sum"
 author: "community"

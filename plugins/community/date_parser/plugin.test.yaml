@@ -35,3 +35,45 @@ tests:
     input_raw: "{oops"
     expect:
       exit_code: 2
+
+  - name: числовая дата en читается как месяц/день
+    input: { text: "03/12/2024", lang: "en" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-03-12"
+        format: "en_md_y"
+
+  - name: числовая дата ru читается как день/месяц
+    input: { text: "03/12/2024", lang: "ru" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-12-03"
+        format: "ru_numeric"
+
+  - name: неоднозначный slash без lang отвергается
+    input: { text: "03/12/2024" }
+    expect:
+      status: error
+      error: { code: unparseable_date }
+
+  - name: невозможная календарная дата отвергается
+    input: { text: "31.02.2024", lang: "ru" }
+    expect:
+      status: error
+      error: { code: unparseable_date }
+
+  - name: невозможная ISO-дата отвергается
+    input: { text: "2024-02-31" }
+    expect:
+      status: error
+      error: { code: unparseable_date }
+
+  - name: en-GB использует день/месяц
+    input: { text: "03/12/2024", lang: "en-GB" }
+    expect:
+      status: ok
+      output:
+        iso: "2024-12-03"
+        format: "en_dmy_y"

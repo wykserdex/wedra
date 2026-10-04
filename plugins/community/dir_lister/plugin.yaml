@@ -1,5 +1,5 @@
 id: dir_lister
-version: 0.1.0
+version: 0.1.1
 platform_api: "^0.1"
 description: "Инвентаризация файлов в директории workspace: счёт по расширениям, суммарный размер"
 author: "community · тестер №1 (M5 — оригинал, заменил реконструкцию v0.18)"

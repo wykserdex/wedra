@@ -27,3 +27,24 @@ tests:
     expect:
       status: error
       error: { code: bad_from }
+
+  - name: диапазон 1-7 включает воскресенье и остальные дни
+    input: { expr: "0 0 * * 1-7", from: "2026-01-01T00:00:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-01-02T00:00:00" }
+
+  - name: шаг */7 по дню недели остаётся валидным
+    input: { expr: "0 0 * * */7", from: "2026-01-01T00:00:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-01-04T00:00:00" }
+
+  - name: диапазон 0-7 включает все дни
+    input: { expr: "0 0 * * 0-7", from: "2026-01-01T00:00:00" }
+    expect:
+      status: ok
+      output:
+        next: { equals: "2026-01-02T00:00:00" }

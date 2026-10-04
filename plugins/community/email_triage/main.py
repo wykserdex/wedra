@@ -1,34 +1,29 @@
 #!/usr/bin/env python3
-"""email_triage — фан-ин триаж email с optional портами.
+"""email_triage — риск-скоринг email с optional syntax/disposable результатами.
 
-Входы:
-  email (required, format email)
-  syntax_ok (optional bool) — результат syntax_mx_checker
-  disposable (optional bool) — результат disposable_checker
-
-Выходы:
-  risk (0..100), verdict (good/bad/suspicious), reasons (array)
-
-Логика для тестов:
-  - пустой email → empty_input (exit 1)
-  - syntax_ok == False → risk 90, verdict bad, reasons ["bad_syntax"]
-  - disposable == True → risk 80, verdict bad, reasons ["disposable"]
-  - оба плохих → risk 99, verdict bad, reasons ["bad_syntax","disposable"]
-  - иначе risk 10, verdict good
+Если передан syntax_ok=false, адрес всё равно возвращается в triage как bad,
+вместо того чтобы прерывать обработку локальной проверкой формата.
 """
 import json
 import sys
-import re
 
 
 def fail(code, message, exit_code=1):
-    print(json.dumps({"status": "error", "error": {"code": code, "message": message, "retryable": False}}, ensure_ascii=False))
+    print(json.dumps({"status": "error", "error": {
+        "code": code, "message": message, "retryable": False}},
+        ensure_ascii=False))
     return exit_code
 
 
 def fail_platform(code, message):
-    print(json.dumps({"status": "error", "error": {"code": code, "message": message, "retryable": False}}, ensure_ascii=False))
-    return 2
+    return fail(code, message, exit_code=2)
+
+
+def _looks_like_email(email):
+    if "@" not in email:
+        return False
+    local, domain = email.rsplit("@", 1)
+    return bool(local and domain and "." in domain)
 
 
 def main():
@@ -46,29 +41,27 @@ def main():
     if not email:
         return fail("empty_input", "поле email пустое")
 
-    # простая проверка формата (валидатор уже проверяет, но runtime guard)
-    if "@" not in email or "." not in email.split("@")[-1]:
-        return fail("bad_syntax", f"не похоже на email: {email}")
-
     syntax_ok = data.get("syntax_ok")
     disposable = data.get("disposable")
-
-    # optional порты могут отсутствовать — это нормально (проверка бага #10)
     if syntax_ok is not None and not isinstance(syntax_ok, bool):
         return fail_platform("bad_input", f"syntax_ok должен быть boolean, пришло {type(syntax_ok).__name__}")
     if disposable is not None and not isinstance(disposable, bool):
         return fail_platform("bad_input", f"disposable должен быть boolean, пришло {type(disposable).__name__}")
 
+    # Когда syntax checker уже вернул False, это входной сигнал для triage,
+    # а не повод завершать plugin с bad_syntax. Без такого сигнала сохраняем
+    # локальный guard для очевидно некорректных адресов.
+    if syntax_ok is not False and not _looks_like_email(email):
+        return fail("bad_syntax", f"не похоже на email: {email}")
+
     reasons = []
     risk = 10
-
     if syntax_ok is False:
         risk = max(risk, 90)
         reasons.append("bad_syntax")
     if disposable is True:
         risk = max(risk, 80)
         reasons.append("disposable")
-        # если оба плохих — риск 99 как в примере фидбека
         if syntax_ok is False:
             risk = 99
 
@@ -82,7 +75,9 @@ def main():
     if not reasons and verdict == "good":
         reasons = ["clean"]
 
-    print(json.dumps({"status": "ok", "output": {"risk": risk, "verdict": verdict, "reasons": reasons}}, ensure_ascii=False))
+    print(json.dumps({"status": "ok", "output": {
+        "risk": risk, "verdict": verdict, "reasons": reasons}},
+        ensure_ascii=False))
     return 0
 
 

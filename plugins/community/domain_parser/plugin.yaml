@@ -1,5 +1,5 @@
 id: domain_parser
-version: 0.1.0
+version: 0.1.1
 platform_api: "^0.1"
 description: "Разбор URL/хоста: схема, хост, порт, путь, punycode→unicode, детект IP-литерала"
 author: "community"

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""date_parser — человекочитаемые даты → ISO 8601.
+"""date_parser — человекочитаемые даты → проверенный ISO 8601.
 
-Поддерживает русские и английские форматы без внешних зависимостей.
+Неоднозначная числовая дата со слешами требует явного lang.
 stdin:  { "text": "12 марта 2024", "lang": "ru" }
 stdout: { "status": "ok", "output": { "iso": "2024-03-12", "parsed": true, "format": "ru_d_month_y" } }
 """
+import datetime
 import json
 import re
 import sys
@@ -36,42 +37,92 @@ MONTHS_EN = {
 }
 
 
+def _validated_result(year, month, day, fmt):
+    try:
+        parsed = datetime.date(year, month, day)
+    except ValueError:
+        return None
+    return parsed.isoformat(), fmt
+
+
+def _english_order(lang):
+    """Return True for month-first English, False for day-first English."""
+    if not lang:
+        return None
+    normalized = lang.lower().replace("_", "-")
+    if not normalized.startswith("en"):
+        return None
+    # English is otherwise treated as US-style; common DMY regions are explicit.
+    region = normalized.split("-", 1)[1].upper() if "-" in normalized else ""
+    return region not in {"GB", "AU", "NZ", "IE"}
+
+
 def parse_date(text: str, lang: str | None):
     text = text.strip().lower()
     if not text:
         return None
 
-    # ISO уже
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
-        return text, "iso"
+    # ISO: require a real calendar date, not merely YYYY-MM-DD-shaped text.
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        year, month, day = map(int, text.split("-"))
+        return _validated_result(year, month, day, "iso")
 
-    # ru: 12.03.2024, 12/03/2024, 12-03-2024
-    m = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$", text)
-    if m:
-        d, mon, y = map(int, m.groups())
-        return f"{y:04d}-{mon:02d}-{d:02d}", "ru_numeric"
+    numeric = re.fullmatch(r"(\d{1,2})([./-])(\d{1,2})\2(\d{4})", text)
+    if numeric:
+        first, separator, second, year = numeric.groups()
+        first, second, year = int(first), int(second), int(year)
+        month_first = _english_order(lang)
 
-    # ru: 12 марта 2024
-    m = re.match(r"^(\d{1,2})\s+(\w+)\s+(\d{4})$", text)
-    if m and (lang is None or lang.startswith("ru")):
-        d, mon_str, y = m.groups()
-        mon = MONTHS_RU.get(mon_str)
-        if mon:
-            return f"{int(y):04d}-{mon:02d}-{int(d):02d}", "ru_d_month_y"
+        if separator == "/" and lang is None:
+            # Infer only when one interpretation is impossible. For 03/12,
+            # silently choosing a locale would turn a valid date into the wrong one.
+            if first <= 12 and second <= 12:
+                return None
+            if first > 12 and second <= 12:
+                month_first = False
+            elif second > 12 and first <= 12:
+                month_first = True
+            else:
+                return None
+        elif separator == "/" and lang is not None:
+            lang_key = lang.lower().replace("_", "-")
+            if lang_key.startswith("ru"):
+                month_first = False
+            elif lang_key.startswith("en"):
+                month_first = _english_order(lang)
+            else:
+                return None
+        elif separator in ".-":
+            if lang is not None and lang.lower().startswith("en"):
+                month_first = _english_order(lang)
+            elif lang is None or lang.lower().startswith("ru"):
+                month_first = False
+            else:
+                return None
 
-    # en: March 12, 2024
-    m = re.match(r"^(\w+)\s+(\d{1,2}),?\s+(\d{4})$", text)
-    if m and (lang is None or lang.startswith("en")):
-        mon_str, d, y = m.groups()
-        mon = MONTHS_EN.get(mon_str)
-        if mon:
-            return f"{int(y):04d}-{mon:02d}-{int(d):02d}", "en_month_d_y"
+        if month_first is None:
+            return None
+        if month_first:
+            fmt = "en_md_y" if separator == "/" else "en_numeric"
+            return _validated_result(year, first, second, fmt)
+        fmt = "en_dmy_y" if lang and lang.lower().startswith("en") else "ru_numeric"
+        return _validated_result(year, second, first, fmt)
 
-    # en: 03/12/2024 (month/day/year)
-    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", text)
-    if m and (lang is None or lang.startswith("en")):
-        mon, d, y = map(int, m.groups())
-        return f"{y:04d}-{mon:02d}-{d:02d}", "en_md_y"
+    # Russian: 12 марта 2024
+    match = re.fullmatch(r"(\d{1,2})\s+(\w+)\s+(\d{4})", text)
+    if match and (lang is None or lang.lower().startswith("ru")):
+        day, month_name, year = match.groups()
+        month = MONTHS_RU.get(month_name)
+        if month:
+            return _validated_result(int(year), month, int(day), "ru_d_month_y")
+
+    # English: March 12, 2024
+    match = re.fullmatch(r"(\w+)\s+(\d{1,2}),?\s+(\d{4})", text)
+    if match and (lang is None or lang.lower().startswith("en")):
+        month_name, day, year = match.groups()
+        month = MONTHS_EN.get(month_name)
+        if month:
+            return _validated_result(int(year), month, int(day), "en_month_d_y")
 
     return None
 

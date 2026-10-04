@@ -3,8 +3,8 @@ package api
 // v0.25: редактор пайплайнов — парсинг/сериализация через Go (JS тонкий,
 // корректность YAML живёт в ядре, а не в браузере).
 //
-// Модель редактора (EditorDoc) — подмножество схемы: id/plugin/pos/bind/
-// on_error/timeout + у гейта form/actions/on_reject + input-дефолты.
+// Модель редактора (EditorDoc) покрывает схему pipeline: id/plugin/pos/bind/
+// on_error/timeout, управляющий поток, input-значения и input-схемы.
 // Позиции узлов хранятся в YAML как `pos: [x, y]` и читаются ядром.
 // v0.27: when — под управлением редактора (path/op/value, 10 операторов ядра).
 // v0.28: foreach/parallel_group/after_foreach на шаге + foreach/foreach_item/
@@ -14,9 +14,8 @@ package api
 // редактора; кросс-чек «плагин ↔ пайплайн» — валидатор ядра (warnings).
 // v0.6: network (pipeline.network — политика allow/deny) под управлением
 // редактора; кросс-чек «плагин заявил сеть + deny» — ошибка валидатора.
-// Осталось вне редактора: type-объявления в input — такие пайплайны
-// выносятся в unsupported: сохранение из редактора запрещено
-// (данные не теряются).
+// v0.7: type-объявления input (type/required/default/format/description) под
+// управлением редактора; неподдерживаемые map-значения остаются обычным JSON.
 
 import (
 	"encoding/json"
@@ -33,8 +32,14 @@ import (
 )
 
 type editorInput struct {
-	Name    string      `json:"name"`
-	Default interface{} `json:"default"`
+	Name        string      `json:"name"`
+	Default     interface{} `json:"default"`
+	Typed       bool        `json:"typed,omitempty"`
+	Type        string      `json:"type,omitempty"`
+	Required    *bool       `json:"required,omitempty"`
+	Format      string      `json:"format,omitempty"`
+	Description string      `json:"description,omitempty"`
+	HasDefault  bool        `json:"has_default"`
 }
 
 type editorFormField struct {
@@ -70,6 +75,10 @@ type editorStep struct {
 	ForeachItem   string `json:"foreach_item"`
 	AfterForeach  bool   `json:"after_foreach"`
 	ParallelGroup string `json:"parallel_group"`
+	// Управляющий цикл шага.
+	Loop          string `json:"loop"`
+	LoopCondition string `json:"loop_condition"`
+	MaxIterations int    `json:"max_iterations"`
 	// v0.29: retry (вместе с on_error: retry)
 	Retry *editorRetry `json:"retry,omitempty"`
 }
@@ -103,18 +112,22 @@ type editorDoc struct {
 	ItemFormat  string `json:"item_format"`
 }
 
+func supportedEditorInputType(typeName string) bool {
+	switch typeName {
+	case "string", "number", "boolean", "array", "object":
+		return true
+	default:
+		return false
+	}
+}
+
 func isInputTypeDeclaration(value interface{}) bool {
 	descriptor, ok := value.(map[string]interface{})
 	if !ok {
 		return false
 	}
 	typeName, ok := descriptor["type"].(string)
-	if !ok {
-		return false
-	}
-	switch typeName {
-	case "string", "number", "boolean", "array", "object":
-	default:
+	if !ok || !supportedEditorInputType(typeName) {
 		return false
 	}
 	for key, value := range descriptor {
@@ -171,10 +184,23 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 	for _, n := range names {
 		v := pf.Pipeline.Input[n]
 		if isInputTypeDeclaration(v) {
-			doc.Unsupported = append(doc.Unsupported, "input."+n+" (type-объявление, не значение)")
-			doc.Input = append(doc.Input, editorInput{Name: n, Default: ""})
+			descriptor := v.(map[string]interface{})
+			in := editorInput{Name: n, Typed: true, Type: descriptor["type"].(string)}
+			if value, ok := descriptor["default"]; ok {
+				in.Default, in.HasDefault = value, true
+			}
+			if required, ok := descriptor["required"].(bool); ok {
+				in.Required = &required
+			}
+			if format, ok := descriptor["format"].(string); ok {
+				in.Format = format
+			}
+			if description, ok := descriptor["description"].(string); ok {
+				in.Description = description
+			}
+			doc.Input = append(doc.Input, in)
 		} else {
-			doc.Input = append(doc.Input, editorInput{Name: n, Default: v})
+			doc.Input = append(doc.Input, editorInput{Name: n, Default: v, HasDefault: true})
 		}
 	}
 	for _, st := range pf.Pipeline.Steps {
@@ -207,6 +233,9 @@ func (s *Server) handleParsePipeline(w http.ResponseWriter, r *http.Request) {
 		es.ForeachItem = st.ForeachItem
 		es.AfterForeach = st.AfterForeach
 		es.ParallelGroup = st.ParallelGroup
+		es.Loop = st.Loop
+		es.LoopCondition = st.LoopCondition
+		es.MaxIterations = st.MaxIterations
 		if st.Retry != nil {
 			re := &editorRetry{Attempts: st.Retry.Attempts, Backoff: st.Retry.Backoff}
 			if st.Retry.Delay.Duration > 0 {
@@ -246,6 +275,9 @@ type outStep struct {
 	ForeachItem   string    `yaml:"foreach_item,omitempty"`
 	AfterForeach  bool      `yaml:"after_foreach,omitempty"`
 	ParallelGroup string    `yaml:"parallel_group,omitempty"`
+	Loop          string    `yaml:"loop,omitempty"`
+	LoopCondition string    `yaml:"loop_condition,omitempty"`
+	MaxIterations int       `yaml:"max_iterations,omitempty"`
 	Retry         *outRetry `yaml:"retry,omitempty"`
 }
 
@@ -315,7 +347,28 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		if in.Name == "" {
 			continue
 		}
-		pf.Pipeline.Input[in.Name] = in.Default
+		if !in.Typed {
+			pf.Pipeline.Input[in.Name] = in.Default
+			continue
+		}
+		if !supportedEditorInputType(in.Type) {
+			http.Error(w, "input "+in.Name+": type должен быть string, number, boolean, array или object", http.StatusBadRequest)
+			return
+		}
+		descriptor := map[string]interface{}{"type": in.Type}
+		if in.Required != nil {
+			descriptor["required"] = *in.Required
+		}
+		if in.HasDefault {
+			descriptor["default"] = in.Default
+		}
+		if in.Format != "" {
+			descriptor["format"] = in.Format
+		}
+		if in.Description != "" {
+			descriptor["description"] = in.Description
+		}
+		pf.Pipeline.Input[in.Name] = descriptor
 	}
 	// v0.5: secrets из doc (пустые строки UI не валиден — отбрасываем)
 	for _, k := range doc.Secrets {
@@ -384,6 +437,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		step.ForeachItem = st.ForeachItem
 		step.AfterForeach = st.AfterForeach
 		step.ParallelGroup = st.ParallelGroup
+		step.Loop = st.Loop
+		step.LoopCondition = st.LoopCondition
+		step.MaxIterations = st.MaxIterations
 		if st.Retry != nil {
 			r := &pipeline.Retry{Attempts: st.Retry.Attempts, Backoff: st.Retry.Backoff}
 			if st.Retry.Delay != "" {
@@ -440,6 +496,9 @@ func (s *Server) handleSerializePipeline(w http.ResponseWriter, r *http.Request)
 		os.ForeachItem = st.ForeachItem
 		os.AfterForeach = st.AfterForeach
 		os.ParallelGroup = st.ParallelGroup
+		os.Loop = st.Loop
+		os.LoopCondition = st.LoopCondition
+		os.MaxIterations = st.MaxIterations
 		if st.Retry != nil {
 			os.Retry = &outRetry{Attempts: st.Retry.Attempts, Delay: st.Retry.Delay.Duration.String(), Backoff: st.Retry.Backoff}
 		}

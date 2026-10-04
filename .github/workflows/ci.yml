@@ -89,6 +89,10 @@ jobs:
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: plugin regression tests
+        run: |
+          python3 -m pip install --disable-pip-version-check -r plugins/community/ssl_info/requirements.lock
+          python3 -m unittest discover -s tests/plugins -v
       - name: wedra check (fmt, vet, lint, mod, build, test, conformance, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
       - name: build legacy tool

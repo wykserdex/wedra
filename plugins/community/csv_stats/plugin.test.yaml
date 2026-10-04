@@ -35,3 +35,33 @@ tests:
     expect:
       status: error
       error: { code: no_numeric }
+
+  - name: NaN и Infinity пропускаются, JSON остаётся корректным
+    input:
+      csv_text: "value\nNaN\nInfinity\n2\n"
+      column: "value"
+    expect:
+      status: ok
+      output:
+        count: { equals: 1 }
+        mean: { equals: 2 }
+        min: { equals: 2 }
+        max: { equals: 2 }
+        sum: { equals: 2 }
+        skipped: { equals: 2 }
+
+  - name: только NaN и Infinity → no_numeric
+    input:
+      csv_text: "value\nNaN\n-Infinity\n"
+      column: "value"
+    expect:
+      status: error
+      error: { code: no_numeric }
+
+  - name: переполнение суммы возвращает ошибку, не NaN или Infinity
+    input:
+      csv_text: "value\n1e308\n1e308\n"
+      column: "value"
+    expect:
+      status: error
+      error: { code: numeric_overflow }

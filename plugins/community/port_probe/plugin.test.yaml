@@ -18,3 +18,15 @@ tests:
     expect:
       status: error
       error: { code: bad_port }
+
+  - name: дробный порт не усекается
+    input: { host: "127.0.0.1", port: 80.5 }
+    expect:
+      status: error
+      error: { code: bad_port }
+
+  - name: timeout 0 не подменяется значением по умолчанию
+    input: { host: "127.0.0.1", port: 1, timeout_s: 0 }
+    expect:
+      status: error
+      error: { code: bad_timeout }

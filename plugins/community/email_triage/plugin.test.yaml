@@ -74,3 +74,12 @@ tests:
     expect:
       exit_code: 2
       error: { code: "platform:bad_input" }
+
+  - name: syntax_ok=false возвращает triage даже для явно битого адреса
+    input: { email: "not-an-email", syntax_ok: false }
+    expect:
+      status: ok
+      output:
+        risk: { equals: 90 }
+        verdict: { equals: "bad" }
+        reasons: { contains: "bad_syntax" }

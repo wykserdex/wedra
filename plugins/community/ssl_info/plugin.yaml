@@ -1,5 +1,5 @@
 id: ssl_info
-version: 0.1.0
+version: 0.1.1
 platform_api: "^0.1"
 description: "TLS-сертификат хоста: CN, издатель, сроки, протух ли, самоподписан ли"
 author: "community"
@@ -7,7 +7,7 @@ author: "community"
 runtime:
   type: python
   entry: main.py
-  requires: []
+  requires: ["cryptography==50.0.2"]
 
 input:
   host:

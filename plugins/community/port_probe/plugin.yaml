@@ -1,5 +1,5 @@
 id: port_probe
-version: 0.1.0
+version: 0.1.1
 platform_api: "^0.1"
 description: "TCP-проба host:port: открыт/закрыт, задержка, опциональный баннер"
 author: "community"

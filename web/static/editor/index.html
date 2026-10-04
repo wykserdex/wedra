@@ -87,6 +87,19 @@
   .irow{display:flex;gap:6px;margin-bottom:6px;align-items:center}
   .irow input{flex:1}
   .irow button{padding:3px 8px}
+  .input-editor{border:1px solid var(--line);border-radius:7px;padding:7px;margin:6px 0;background:rgba(10,13,18,.35)}
+  .input-row{display:grid;grid-template-columns:minmax(0,1fr) 108px 32px;gap:6px;align-items:center}
+  .input-row input,.input-row select{width:100%;min-width:0}
+  .input-row button{padding:4px 8px}
+  .input-schema{padding-top:7px}
+  .input-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}
+  .input-meta-grid label{font-size:10px;color:var(--dim);min-width:0}
+  .input-meta-grid input,.input-meta-grid select{display:block;width:100%;min-width:0;margin-top:3px}
+  .input-value{margin-top:6px}
+  .input-value input,.input-value select,.input-value textarea{width:100%;min-width:0}
+  .input-default-toggle,.loop-toggle{display:flex;align-items:center;gap:6px;margin:8px 0 3px;font-size:11px;color:var(--dim);cursor:pointer}
+  .pblock label.loop-toggle{display:flex}
+  .input-default-toggle input,.loop-toggle input{width:auto;flex:0 0 auto;margin:0}
   .danger{color:var(--err)}
   .danger:hover{border-color:var(--err)}
   .empty{color:var(--dim);padding:24px;text-align:center;font-size:12px;line-height:1.6}
@@ -103,7 +116,7 @@
 <header>
   <h1>WEDRA <span class="dim">· редактор</span></h1>
   <select id="file-open" title="открыть существующий" style="min-width:170px"></select>
-  <input id="file-name" title="имя файла (.yaml)" style="width:150px"/>
+  <input id="file-name" title="имя файла; новое имя сохраняет копию (.yaml)" style="width:170px"/>
   <span class="badge" id="val-badge">…</span>
   <button id="btn-undo" title="Ctrl+Z">↶ undo</button>
   <button id="btn-redo" title="Ctrl+Y">↷ redo</button>

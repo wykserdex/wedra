@@ -6,7 +6,6 @@
 """
 import datetime
 import json
-import re
 import sys
 
 
@@ -75,9 +74,15 @@ def _num(token, names):
         raise ValueError(f"плохое значение {token!r}")
 
 
+def _parse_dow(text):
+    # В cron допустимы 0 и 7 для воскресенья. Сначала разбираем весь диапазон
+    # 0..7 (включая */7 и 1-7), затем канонизируем alias 7 -> 0.
+    values, wildcard = _parse_field(text, 0, 7, DOWS)
+    return {0 if value == 7 else value for value in values}, wildcard
+
+
 def _cron_match(dt, minute, hour, dom, month, dow, dom_star, dow_star):
-    # cronDow: 0 и 7 = воскресенье
-    cron_dow = (dt.isoweekday()) % 7
+    cron_dow = dt.isoweekday() % 7  # 0 = Sunday
     if dt.minute not in minute:
         return False
     if dt.hour not in hour:
@@ -111,9 +116,7 @@ def main():
         hour, _ = _parse_field(fields[1], 0, 23)
         dom, dom_star = _parse_field(fields[2], 1, 31)
         month, _ = _parse_field(fields[3], 1, 12, MONTHS)
-        dow_raw = re.sub(r"(?<![0-9])7(?![0-9])", "0",
-                         fields[4].strip().lower())
-        dow, dow_star = _parse_field(dow_raw, 0, 6, DOWS)
+        dow, dow_star = _parse_dow(fields[4])
     except ValueError as e:
         return fail("bad_expr", str(e))
 

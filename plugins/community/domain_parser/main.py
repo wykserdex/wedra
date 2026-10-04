@@ -50,11 +50,20 @@ def main():
     text = raw if "://" in raw else "//" + raw
     try:
         parts = urlsplit(text)
-    except Exception as e:
+    except ValueError as e:
         return fail("bad_target", f"не разобрать: {e}")
-    host = (parts.hostname or "").strip()
+
+    try:
+        host = (parts.hostname or "").strip()
+    except ValueError as e:
+        return fail("bad_target", f"некорректный host: {e}")
     if not host:
         return fail("bad_target", f"нет хоста в {raw!r}")
+
+    try:
+        port = parts.port
+    except ValueError as e:
+        return fail("bad_port", f"некорректный порт: {e}")
 
     try:
         ascii_host = host.encode("idna").decode("ascii")
@@ -69,7 +78,7 @@ def main():
         "scheme": parts.scheme or "",
         "host": uni_host,
         "ascii_host": ascii_host,
-        "port": parts.port or 0,
+        "port": port if port is not None else 0,
         "path": parts.path or "",
         "is_ip": _is_ip(host.strip("[]")),
     })

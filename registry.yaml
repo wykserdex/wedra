@@ -195,13 +195,6 @@ plugins:
     commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
     description: "binwalk (ReFirmLabs) v3 — поиск и извлечение данных из бинарников, JSON-отчёт. v3 ставится через cargo/Docker, pip-пакет нерабочий."
 
-  buckethacker:
-    source: https://github.com/wykserdex/wedra
-    path: plugins/community/buckethacker
-    version: v0.33c
-    commit: 178f94e7e99c50a2faa6a7a9fb583c330cef6457
-    description: "Обёртка над buckethacker (ingo60) — донора НЕ СУЩЕСТВУЕТ (PyPI 404, репозиторий 404). Требует замены донора."
-
   censys:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/censys

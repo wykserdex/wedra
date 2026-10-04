@@ -37,3 +37,21 @@ tests:
     input_raw: "{oops"
     expect:
       exit_code: 2
+
+  - name: разделитель в буквальном ключе не искажает глубину
+    input: { data: { "a.b": 1 } }
+    expect:
+      status: ok
+      output:
+        flat: { equals: { "a.b": 1 } }
+        key_count: { equals: 1 }
+        max_depth: { equals: 1 }
+
+  - name: совпавшие плоские пути дают ошибку вместо потери значения
+    input:
+      data:
+        "a.b": 1
+        a: { b: 2 }
+    expect:
+      status: error
+      error: { code: key_collision }

@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import math
 import sys
 
 
@@ -14,7 +15,9 @@ except Exception:
 
 
 def ok(output):
-    print(json.dumps({"status": "ok", "output": output}, ensure_ascii=False))
+    # Не разрешаем NaN/Infinity: это расширение Python, а не валидный JSON.
+    print(json.dumps({"status": "ok", "output": output},
+                     ensure_ascii=False, allow_nan=False))
     return 0
 
 
@@ -53,17 +56,31 @@ def main():
                                  f"{sorted(rows[0])}")
 
     vals, skipped = [], 0
-    for r in rows:
-        cell = (r.get(column) or "").strip().replace(",", ".")
+    for row in rows:
+        cell = (row.get(column) or "").strip().replace(",", ".")
         try:
-            vals.append(float(cell))
+            value = float(cell)
         except ValueError:
             skipped += 1
+            continue
+        if not math.isfinite(value):
+            skipped += 1
+            continue
+        vals.append(value)
     if not vals:
-        return fail("no_numeric", f"в колонке {column!r} нет чисел")
+        return fail("no_numeric", f"в колонке {column!r} нет конечных чисел")
 
-    total = sum(vals)
-    return ok({"count": len(vals), "mean": total / len(vals),
+    try:
+        total = math.fsum(vals)
+    except OverflowError:
+        return fail("numeric_overflow", "сумма чисел выходит за диапазон float")
+    if not math.isfinite(total):
+        return fail("numeric_overflow", "сумма чисел не является конечной")
+
+    mean = total / len(vals)
+    if not math.isfinite(mean):
+        return fail("numeric_overflow", "среднее не является конечным")
+    return ok({"count": len(vals), "mean": mean,
                "min": min(vals), "max": max(vals), "sum": total,
                "skipped": skipped})
 

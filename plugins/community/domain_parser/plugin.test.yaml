@@ -35,3 +35,15 @@ tests:
     expect:
       status: error
       error: { code: empty_input }
+
+  - name: нечисловой порт возвращает доменную ошибку, не traceback
+    input: { target: "example.com:abc" }
+    expect:
+      status: error
+      error: { code: bad_port }
+
+  - name: порт выше диапазона возвращает доменную ошибку
+    input: { target: "example.com:70000" }
+    expect:
+      status: error
+      error: { code: bad_port }

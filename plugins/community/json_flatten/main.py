@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """json_flatten — вложенный JSON → плоский map.
 
-stdin:  { "data": { "user": { "name": "Anna", "age": 30 } }, "separator": "." }
-stdout: { "status": "ok", "output": { "flat": { "user.name": "Anna", "user.age": 30 }, "key_count": 2, "max_depth": 2 } }
+Разделитель входит в буквальный ключ как есть; если разные пути дают один
+плоский ключ, плагин возвращает key_collision вместо тихой потери значения.
 """
 import json
 import sys
@@ -25,15 +25,23 @@ def flatten(obj, sep=".", prefix="", acc=None, depth=0):
     if acc is None:
         acc = {}
     if isinstance(obj, dict):
-        for k, v in obj.items():
-            new_key = f"{prefix}{sep}{k}" if prefix else k
-            flatten(v, sep, new_key, acc, depth + 1)
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            new_key = f"{prefix}{sep}{i}" if prefix else str(i)
-            flatten(v, sep, new_key, acc, depth + 1)
-    else:
-        acc[prefix] = obj
+        max_depth = depth if not obj else 0
+        for key, value in obj.items():
+            new_key = f"{prefix}{sep}{key}" if prefix else str(key)
+            _, child_depth = flatten(value, sep, new_key, acc, depth + 1)
+            max_depth = max(max_depth, child_depth)
+        return acc, max_depth
+    if isinstance(obj, list):
+        max_depth = depth if not obj else 0
+        for index, value in enumerate(obj):
+            new_key = f"{prefix}{sep}{index}" if prefix else str(index)
+            _, child_depth = flatten(value, sep, new_key, acc, depth + 1)
+            max_depth = max(max_depth, child_depth)
+        return acc, max_depth
+
+    if prefix in acc:
+        raise ValueError(f"разные пути дают плоский ключ {prefix!r}")
+    acc[prefix] = obj
     return acc, depth
 
 
@@ -47,7 +55,6 @@ def main():
 
     obj = data.get("data")
     if not isinstance(obj, dict):
-        # guard типа → платформенная ошибка (exit 2): виноват вызывающий
         print(json.dumps({"status": "error", "error": {
             "code": "bad_input", "message": "data должен быть объектом",
             "retryable": False}}, ensure_ascii=False))
@@ -57,10 +64,10 @@ def main():
     if not isinstance(sep, str) or len(sep) != 1:
         return fail("bad_input", "separator должен быть одним символом")
 
-    flat, _ = flatten(obj, sep)
-    max_depth = 0
-    for key in flat:
-        max_depth = max(max_depth, key.count(sep) + 1)
+    try:
+        flat, max_depth = flatten(obj, sep)
+    except ValueError as e:
+        return fail("key_collision", str(e))
 
     return ok({"flat": flat, "key_count": len(flat), "max_depth": max_depth})
 
