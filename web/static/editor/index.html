@@ -73,6 +73,21 @@
   .inrow .src{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
   .inrow .src.set{color:var(--ok)}
   .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
+  /* v0.36: связывание жестом — выход кликабельный, входы подсвечиваются целью */
+  .outchip[data-out]{cursor:crosshair}
+  .outchip[data-out]:hover{border-color:var(--par)}
+  .outchip.armed{background:rgba(188,140,255,.22);border-color:var(--par);color:var(--tx)}
+  .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(188,140,255,.55);outline-offset:-1px}
+  .inrow.linkable:hover{background:rgba(188,140,255,.14)}
+  .inrow.from-source{outline:1px solid rgba(139,148,158,.5);outline-offset:-1px}
+  #link-bar{position:absolute;left:0;right:0;top:0;z-index:5;display:none;gap:10px;align-items:center;
+    padding:7px 12px;background:rgba(188,140,255,.14);border-bottom:1px solid var(--par);
+    font-size:12px;color:var(--tx)}
+  #link-bar.on{display:flex}
+  #link-bar code{font-family:var(--mono);color:var(--par)}
+  #link-bar button{margin-left:auto;background:var(--bg3);color:var(--tx);border:1px solid var(--line);
+    border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer}
+  #btn-run{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
   .chips{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
   .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
   .chip button{all:unset;cursor:pointer;color:var(--dim);padding:0 2px}
@@ -122,6 +137,7 @@
   <button id="btn-redo" title="Ctrl+Y">↷ redo</button>
   <button id="btn-yaml">YAML</button>
   <button id="btn-save" class="primary">Сохранить</button>
+  <button id="btn-run">▶ Запустить</button>
   <span id="save-status" class="badge"></span>
   <a class="link" href="/" style="margin-left:auto">← консоль</a>
 </header>
@@ -141,11 +157,14 @@
     </div>
   </aside>
   <div id="canvas-wrap"><div id="canvas">
+    <div id="link-bar">Связываю из <code id="link-src"></code> — щёлкни поле на любом другом шаге. <button id="link-cancel">отмена (Esc)</button></div>
     <svg id="edges"></svg>
     <div id="canvas-hint">
-      <b>Связи — не перетаскиванием.</b> Выдели шаг и справа выбери источник
-      в поле «bind» — ребро появится само. Линии мышью тянуть нельзя:
-      в редакторе такого действия нет.
+      <b>Связи — двумя щелчками.</b> Щёлкни выход у одного шага (например
+      <span style="font-family:var(--mono)">words</span>), потом поле входа у другого —
+      ребро появится само. Линию мышью тянуть не нужно: в формате пайплайна связи
+      и есть <span style="font-family:var(--mono)">bind</span>, а он ссылается на выход
+      другого шага.
     </div>
   </div></div>
   <aside id="props"></aside>

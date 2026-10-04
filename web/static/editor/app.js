@@ -104,6 +104,9 @@ let state = {
     foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
+  // v0.36: связывание жестом — {step, field} выбранного выхода, пока ждём
+  // щелчок по полю входа; null = не вооружено.
+  link: null,
   undo: [],
   redo: [],
   yaml: '',
@@ -185,9 +188,20 @@ async function wedraSession() {
 }
 
 // ── manifest-хелперы ─────────────────────────────────────────────────────
+// Сопоставление шага пайплайна с плагином из /api/plugins.
+//
+// Разделители путей приводятся к одному виду: шаг в YAML записан как
+// `plugins/community/text_analyzer`, а API на Windows отдаёт `dir` с
+// обратными слэшами (`plugins\community\text_analyzer`). Без нормализации
+// сравнение не сходилось НИГДЕ — узлы оставались без входов и выходов, списки
+// bind были пустыми, то есть редактор на Windows был слепым.
+const slash = s => String(s || '').replace(/\\/g, '/');
+
 function pluginInfo(id) {
   if (id === 'core/human_gate') return { id, input: {}, output: {}, description: 'человек в петле' };
-  return state.plugins.find(p => p.id === id || p.dir.endsWith('/' + id)) || null;
+  const want = slash(id);
+  const tail = want.slice(want.lastIndexOf('/') + 1);
+  return state.plugins.find(p => p.id === id || p.id === tail || slash(p.dir).endsWith('/' + want) || slash(p.dir).endsWith('/' + tail)) || null;
 }
 function inFields(p) {
   const info = pluginInfo(p);
@@ -238,6 +252,7 @@ function undo() {
   state.redo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.undo.pop());
   state.sel = null;
+  state.link = null; // снимок не знает про вооружение: источник мог исчезнуть
   const fileInput = $('#file-name');
   if (fileInput) fileInput.value = state.doc.file || '';
   const fileSelect = $('#file-open');
@@ -249,6 +264,7 @@ function redo() {
   state.undo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.redo.pop());
   state.sel = null;
+  state.link = null;
   const fileInput = $('#file-name');
   if (fileInput) fileInput.value = state.doc.file || '';
   const fileSelect = $('#file-open');
@@ -346,10 +362,11 @@ function startPaletteDrag(e, pluginId) {
 function renderNodes() {
   const canvas = $('#canvas');
   canvas.querySelectorAll('.node').forEach(n => n.remove());
-  // Подсказку «связи — не перетаскиванием» показываем только на пустом
-  // холсте: дальше она перекрывала бы узлы и мешала работать.
+  // Подсказку показываем только на пустом холсте: дальше она перекрывала бы
+  // узлы и мешала работать.
   const hint = $('#canvas-hint');
   if (hint) hint.classList.toggle('hidden', state.doc.steps.length > 0);
+  const link = state.link;
   for (const st of state.doc.steps) {
     const gate = st.plugin === 'core/human_gate';
     const info = pluginInfo(st.plugin);
@@ -362,20 +379,81 @@ function renderNodes() {
       ? '<div class="inrow"><span>form</span><span class="src set">см. справа</span></div>'
       : (inFields(st.plugin).map(f => {
           const src = st.bind[f] || '';
-          return `<div class="inrow" data-field="${esc(f)}"><span>${esc(f)}</span><span class="src ${src ? 'set' : ''}">${esc(src || '—')}</span></div>`;
+          // Пока оружие «связать» заряжено, поля-цели подсвечиваются, а поля
+          // ЭТОГО шага — нет: связать шаг с самим собой бессмысленно.
+          const isTarget = link && link.step !== st.id;
+          const cls = isTarget ? ' linkable' : '';
+          return `<div class="inrow${cls}" data-field="${esc(f)}" title="${isTarget ? 'принять связь в это поле' : ''}"><span>${esc(f)}</span><span class="src ${src ? 'set' : ''}">${esc(src || '—')}</span></div>`;
         }).join('') || '<div class="inrow"><span>входов нет</span></div>');
     const outs = gate
       ? '<span class="outchip" title="выходы = поля формы">поля формы</span>'
-      : (outFields(st.plugin).map(o => `<span class="outchip" data-out="${esc(o)}">${esc(o)}</span>`).join('') || '<span class="outchip">нет</span>');
+      : (outFields(st.plugin).map(o => {
+          const armed = link && link.step === st.id && link.field === o;
+          return `<span class="outchip${armed ? ' armed' : ''}" data-out="${esc(o)}" title="щелчок — начать связь из этого выхода">${esc(o)}</span>`;
+        }).join('') || '<span class="outchip">нет</span>');
     node.innerHTML = `
       <div class="nh"><span class="nid">${esc(st.id)}</span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
       <div class="body">${ins}<div style="margin-top:6px">${outs}</div></div>
-      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? '<span title="after_foreach">⤓ post</span>' : ''}${st.loop ? '<span title="цикл шага">⟳ loop</span>' : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
+      <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? `<span title="after_foreach">⤓ post</span>` : ''}${st.loop ? `<span title="цикл шага">⟳ loop</span>` : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
     canvas.appendChild(node);
     node.addEventListener('mousedown', e => startNodeDrag(e, st));
     node.addEventListener('click', e => { e.stopPropagation(); state.sel = st.id; renderAll(); });
+    // Связывание: щелчок по выходу вооружает связь, щелчок по полю входа
+    // другого шага — принимает её. Всё остальное (перетаскивание, выделение)
+    // остаётся как было.
+    node.querySelectorAll('.outchip[data-out]').forEach(chip => {
+      chip.addEventListener('click', e => {
+        e.stopPropagation();
+        armLink(st, chip.dataset.out);
+      });
+    });
+    if (link) {
+      node.querySelectorAll('.inrow[data-field]').forEach(row => {
+        if (st.id === link.step) return;
+        row.addEventListener('click', e => {
+          e.stopPropagation();
+          applyLink(st, row.dataset.field);
+        });
+      });
+    }
   }
+  renderLinkBar();
   renderEdges();
+}
+
+// armLink — вооружить связь из (шаг, поле). Повторный щелчок по тому же выходу
+// и щелчок по другому выходу переключают источник; повторный по тому же —
+// отмена. Связь со своим шагом невозможна, поэтому клик по выходу шага,
+// который уже вооружён, просто переставляет источник.
+function armLink(st, field) {
+  const cur = state.link;
+  state.link = (cur && cur.step === st.id && cur.field === field) ? null : { step: st.id, field };
+  renderAll();
+}
+
+function applyLink(st, field) {
+  const link = state.link;
+  if (!link) return;
+  pushUndo();
+  st.bind = st.bind || {};
+  st.bind[field] = `steps.${link.step}.${link.field}`;
+  state.link = null;
+  state.sel = st.id;
+  renderAll();
+}
+
+function cancelLink() {
+  if (!state.link) return;
+  state.link = null;
+  renderAll();
+}
+
+function renderLinkBar() {
+  const bar = $('#link-bar');
+  if (!bar) return;
+  const link = state.link;
+  bar.classList.toggle('on', !!link);
+  if (link) $('#link-src').textContent = `steps.${link.step}.${link.field}`;
 }
 
 function renderEdges() {
@@ -951,6 +1029,9 @@ function initCanvas() {
   window.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
+    // Esc снимает связывание раньше всего: оно вооружено мышью, иначе
+    // отменить его можно только повторным щелчком по тому же выходу.
+    if (e.key === 'Escape' && state.link) { e.preventDefault(); cancelLink(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel && !typing) {
@@ -962,6 +1043,7 @@ function initCanvas() {
           if (src && src.startsWith('steps.' + st.id + '.')) delete s.bind[k];
         }
         state.sel = null;
+        if (state.link && state.link.step === st.id) state.link = null;
         renderAll();
       }
     }
@@ -1052,21 +1134,24 @@ function rebaseHistoryFilename(file) {
   }
 }
 
+// save() возвращает true только когда файл действительно записан на диск.
+// Кнопке запуска это нужно, чтобы не стартовать ран по несохранённому YAML:
+// иначе человек правит связи, жмёт «Запустить» и получает старый результат.
 async function save() {
   const file = normalizePipelineFilename($('#file-name').value || state.doc.file);
   const status = $('#save-status');
   if (!file) {
     status.textContent = 'некорректное имя файла'; status.className = 'badge err';
     $('#file-name').focus();
-    return;
+    return false;
   }
   $('#file-name').value = file;
   try {
     await doValidate();
   } catch {}
   if (state.validating) return;
-  if (state.unsupported.length) { alert('Нельзя сохранить: редактор не управляет полями: ' + state.unsupported.join(', ')); return; }
-  if (state.valErrs.length) { alert('Сначала исправь ошибки:\n' + state.valErrs.join('\n')); return; }
+  if (state.unsupported.length) { alert('Нельзя сохранить: редактор не управляет полями: ' + state.unsupported.join(', ')); return false; }
+  if (state.valErrs.length) { alert('Сначала исправь ошибки:\n' + state.valErrs.join('\n')); return false; }
   const st = $('#save-status');
   try {
     await apiRaw('/api/pipelines/' + encodeURIComponent(file), { method: 'PUT', body: state.yaml });
@@ -1074,9 +1159,36 @@ async function save() {
     rebaseHistoryFilename(file);
     st.textContent = 'сохранено: ' + file; st.className = 'badge ok';
     await loadFileList();
+    return true;
   } catch (e) {
     st.textContent = 'ошибка'; st.className = 'badge err';
     alert('Сохранение: ' + e.message);
+    return false;
+  }
+}
+
+// runFromEditor — сохранить и запустить, затем уйти в консоль на этот ран.
+//
+// Сначала save(): запускать несохранённый YAML — это получить результат старой
+// версии файла и потом гадать, почему правки не подействовали. Гейт оставляем
+// человеку (yes: false): редактор — место подготовки, решение всё равно за
+// человеком; автоматический прогон живёт в консоли.
+async function runFromEditor() {
+  const status = $('#save-status');
+  const btn = $('#btn-run');
+  if (!(await save())) return;
+  const file = state.doc.file;
+  btn.disabled = true;
+  status.textContent = 'запуск…'; status.className = 'badge run';
+  try {
+    const res = await api('/api/run', { method: 'POST', body: JSON.stringify({ file, yes: false }) });
+    if (res && res.run) { location.href = '/?run=' + encodeURIComponent(res.run); return; }
+    status.textContent = 'ран без id'; status.className = 'badge err';
+  } catch (e) {
+    status.textContent = 'запуск не удался'; status.className = 'badge err';
+    alert('Запуск: ' + e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -1165,6 +1277,8 @@ async function init() {
   $('#file-name').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
   $('#file-open').onchange = e => { if (e.target.value) openFile(e.target.value); };
   $('#btn-save').onclick = save;
+  $('#btn-run').onclick = runFromEditor;
+  $('#link-cancel').onclick = cancelLink;
   $('#btn-yaml').onclick = showYaml;
   $('#close-yaml').onclick = () => { $('#yaml-view').style.display = 'none'; };
   $('#btn-undo').onclick = undo;
