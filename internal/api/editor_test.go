@@ -202,7 +202,7 @@ pipeline:
 func TestEditorRejectsUnknownInputSchemaType(t *testing.T) {
 	ts, _ := gateTestServer(t)
 	doc := map[string]interface{}{
-		"name": "bad_input_schema",
+		"name":  "bad_input_schema",
 		"input": []interface{}{map[string]interface{}{"name": "value", "typed": true, "type": "mystery", "has_default": false}},
 		"steps": []interface{}{}, "unsupported": []interface{}{},
 	}
