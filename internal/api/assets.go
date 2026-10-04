@@ -252,7 +252,14 @@ func fillReserved(abs, name, ext string, src io.Reader) (assetInfo, error) {
 //     и каждая следующая попытка съедает один лимит коллизий, то есть имя
 //     ведёт себя необъяснимо.
 func sanitizeAssetName(raw string) (string, error) {
-	base := filepath.Base(filepath.FromSlash(strings.TrimSpace(raw)))
+	// Обратный слэш приводим к прямому ДО Base. filepath.Base на Unix режет
+	// строку только по «/», поэтому клиент с Windows-путём («..\..\evil.dll»,
+	// «C:\Users\me\photo.png») на macOS/Linux давал имя целиком:
+	// «windows_system32_evil.dll» вместо «evil.dll». Traversal и тут не
+	// проходил — символы не менялись, файл оставался плоским именем внутри
+	// assets/, — но поведение зависело от платформы, а имя выходило
+	// нечитаемым. Именно это уронило internal/api в CI на macOS.
+	base := filepath.Base(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
 	ext := sanitizeAssetExt(filepath.Ext(base))
 	stem := sanitizeStem(strings.TrimSuffix(base, filepath.Ext(base)))
 	if stem == "" {
