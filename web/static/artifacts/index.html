@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>WEDRA — режим артефактов</title>
+<style>
+  :root{
+    --bg0:#0d1117;--bg1:#161b22;--bg2:#1c2128;--bg3:#21262d;--line:#30363d;
+    --tx:#e6edf3;--dim:#8b949e;--acc:#58a6ff;--ok:#3fb950;--err:#f85149;--warn:#d29922;--par:#bc8cff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg0);color:var(--tx);
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg1);
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600}
+  header .sub{color:var(--dim);font-size:11px}
+  .spacer{margin-left:auto}
+  a.link{color:var(--acc);text-decoration:none;font-size:12px}
+  a.link:hover{text-decoration:underline}
+
+  /* Два режима — две страницы. Здесь только артефакты, ничего от редактора. */
+  .tabs{display:flex;gap:6px;margin-left:14px}
+  .tab{font-size:12px;padding:4px 11px;border-radius:14px;border:1px solid var(--line);
+    color:var(--dim);text-decoration:none}
+  .tab.on{background:var(--bg3);color:var(--tx);border-color:var(--acc)}
+
+  main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:16px;padding:16px;align-items:start}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+  .card{background:var(--bg1);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h2{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
+  .card p.hint{margin:0 0 10px;color:var(--dim);font-size:12px;line-height:1.5}
+
+  /* зона загрузки */
+  #drop{border:2px dashed var(--line);border-radius:10px;padding:22px 14px;text-align:center;
+    color:var(--dim);cursor:pointer;transition:.12s}
+  #drop:hover,#drop.over{border-color:var(--acc);color:var(--tx);background:rgba(88,166,255,.06)}
+  #drop b{color:var(--tx)}
+  input[type=file]{display:none}
+
+  .alist{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .a{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:8px}
+  .a.on{border-color:var(--acc);background:rgba(88,166,255,.08)}
+  .a .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .a .sz{color:var(--dim);font-size:11px;white-space:nowrap}
+  .a .in{font-family:var(--mono);font-size:10px;color:var(--acc);white-space:nowrap}
+
+  button{background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:7px;
+    padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+
+  input[type=text],input[type=search]{background:var(--bg0);color:var(--tx);border:1px solid var(--line);
+    border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--mono);width:100%}
+
+  /* цепочка */
+  .chain{display:flex;flex-direction:column;gap:0}
+  .cstep{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:8px}
+  .cstep .idx{width:20px;height:20px;border-radius:50%;background:var(--bg3);color:var(--dim);
+    display:grid;place-items:center;font-size:10px;flex:none}
+  .cstep .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .cstep .bind{font-family:var(--mono);font-size:10px;color:var(--par);white-space:nowrap}
+  .cstep .rm{background:none;border:none;color:var(--dim);padding:0 4px;font-size:15px;cursor:pointer}
+  .cstep .rm:hover{color:var(--err)}
+  .cstep .miss{font-size:10px;color:var(--warn);white-space:nowrap}
+  .cstep .amb{font-size:10px;color:var(--acc);white-space:nowrap}
+  .cstep .pick{font-family:var(--mono);font-size:10px;padding:1px 7px;margin:0 2px;
+    border-radius:9px;line-height:1.5}
+  .carrow{height:14px;margin-left:31px;border-left:2px dotted var(--line)}
+
+  .pluglist{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto;margin-top:8px}
+  .plug{display:flex;align-items:center;gap:9px;padding:7px 10px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:7px;cursor:pointer;text-align:left;width:100%}
+  .plug:hover{border-color:var(--acc)}
+  .plug .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .plug .why{font-size:10px;color:var(--dim);white-space:nowrap;font-family:var(--mono)}
+  .tag{font-size:9px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);
+    color:var(--dim);white-space:nowrap}
+  .tag.file{border-color:var(--ok);color:var(--ok)}
+  .tag.exact{border-color:var(--acc);color:var(--acc)}
+  .tag.any{border-color:var(--warn);color:var(--warn)}
+
+  .empty{color:var(--dim);font-size:12px;padding:10px 0}
+  #status{margin-top:10px;font-size:12px;min-height:18px}
+  #status.ok{color:var(--ok)}#status.err{color:var(--err)}#status.busy{color:var(--acc)}
+  pre#out{background:var(--bg0);border:1px solid var(--line);border-radius:8px;padding:10px;
+    font-family:var(--mono);font-size:11px;overflow:auto;max-height:280px;margin:10px 0 0;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>WEDRA</h1>
+  <span class="sub">режим артефактов</span>
+  <nav class="tabs">
+    <a class="tab" href="/editor/">Редактор пайплайнов</a>
+    <a class="tab on" href="/artifacts/">Артефакты</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="link" href="/">← консоль</a>
+</header>
+
+<main>
+  <!-- Левая колонка: файл -->
+  <section class="card">
+    <h2>1. Файл</h2>
+    <p class="hint">Кинь сюда фото, CSV или документ. Он сохранится рядом с пайплайнами и
+      станет входом будущего пайплайна. Редактор пайплайнов об этом не знает — это отдельный
+      режим со своей работой.</p>
+    <div id="drop">Перетащи файл<br><b>или нажми, чтоб выбрать</b></div>
+    <input type="file" id="file"/>
+    <div class="alist" id="alist"></div>
+  </section>
+
+  <!-- Правая колонка: цепочка -->
+  <section class="card">
+    <h2>2. Цепочка</h2>
+    <p class="hint">Первый шаг берёт файл, дальше редактор подставляет плагины, которые
+      принимают его выходы — по типам, объявленным в манифестах.</p>
+    <div id="chain" class="chain"></div>
+
+    <div id="picker" style="margin-top:14px">
+      <input type="search" id="q" placeholder="поиск плагина…"/>
+      <div class="pluglist" id="pluglist"></div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="primary" id="build">Собрать пайплайн</button>
+      <button id="to-editor" disabled>Открыть в редакторе</button>
+      <button id="clear">Очистить</button>
+    </div>
+    <pre id="out" hidden></pre>
+  </section>
+</main>
+
+<div id="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

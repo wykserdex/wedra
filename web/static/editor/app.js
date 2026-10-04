@@ -104,10 +104,6 @@ let state = {
     foreach: '', foreach_item: '', item_type: '', item_format: '' },
   unsupported: [],
   sel: null,
-  // v0.38: загруженные артефакты (фото, CSV) — их можно протянуть в поле входа
-  // шага, и в пайплайне появится input.<имя> с путём к файлу.
-  assets: [],
-  uploading: false,
   // Связь хранится ГОТОВЫМ значением bind, а не парой {step, field}: источником
   // может быть не только выход шага (steps.a.lines), но и вход пайплайна
   // (input.photo). С жёсткой формой steps.X.Y артефакт было бы не к чему
@@ -467,227 +463,6 @@ function armLink(st, field) {
   renderAll();
 }
 
-// ─── v0.38: артефакты (загруженные файлы) ───────────────────────────────────
-//
-// Файл, который человек бросил в редактор, становится входом пайплайна:
-// в state.doc.input появляется запись с АБСОЛЮТНЫМ путём, а карточка
-// протягивается в поле входа любого шага. Путь абсолютный не по вкусу, а
-// потому что плагин относительный разрешает от своего рабочего каталога
-// (PROTOCOL §1, plugins/community/csv_loader/main.py) и файл из assets/
-// не нашёл бы.
-
-function assetNameKey(name) {
-  // Имя входа пайплайна: безопасное идентификаторное слово. Сервер уже
-  // транслитерирует имя файла в ASCII (assets.go), поэтому здесь остаётся
-  // привести к нижнему регистру и вычистить остатки.
-  let s = String(name || '').replace(/\.[^.]*$/, '').toLowerCase();
-  s = s.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  // Пусто или «.jpg» — нейтральное имя. С нормальными файлами сюда не доходит
-  // (сервер транслитерирует), но если бы дошло, все такие файлы получили бы
-  // одно имя и молча переписали бы вход друг друга. Поэтому добавляем
-  // короткий хвост от исходного имени: имя остаётся читаемым, но разным.
-  if (!s) return 'artifact' + shortHash(String(name || ''));
-  if (/^[0-9]/.test(s)) s = 'a' + s; // начинать с цифры нельзя
-  return s;
-}
-
-// shortHash — 6 hex-символов из строки. Не крипто и не для сравнения файлов,
-// только чтобы развести имена входов.
-function shortHash(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0').slice(0, 6);
-}
-
-function ensurePipelineInput(key, value) {
-  // Вход с таким именем мог уже быть — тогда не заводим второй, а обновляем
-  // значение: перезагрузка того же файла не должна плодить дубли.
-  const found = (state.doc.input || []).find(i => i.name === key);
-  if (found) {
-    found.has_default = true;
-    found.default = value;
-    return false;
-  }
-  state.doc.input = state.doc.input || [];
-  state.doc.input.push({ name: key, typed: false, has_default: true, default: value });
-  return true;
-}
-
-async function loadAssets() {
-  try {
-    state.assets = await api('/api/assets') || [];
-  } catch (e) {
-    state.assets = [];
-    console.error('assets:', e);
-  }
-  renderAll();
-}
-
-async function uploadAssetFile(file) {
-  if (!file) return;
-  state.uploading = true;
-  renderArtifacts();
-  try {
-    const fd = new FormData();
-    fd.append('file', file, file.name);
-    const a = await api('/api/assets', { method: 'POST', body: fd });
-    state.assets = [a].concat(state.assets.filter(x => x.name !== a.name));
-    pushUndo();
-    // Сразу заводим вход пайплайна: чтобы протянуть карточку в поле шага, он
-    // должен уже существовать, иначе bind укажет в пустое место.
-    ensurePipelineInput(assetNameKey(a.name), a.path);
-    note(`загружено: ${a.name} → input.${assetNameKey(a.name)}`, 'ok');
-  } catch (e) {
-    note('не загрузилось: ' + (e && e.message ? e.message : e), 'err');
-  } finally {
-    state.uploading = false;
-    renderAll();
-  }
-}
-
-function renderArtifacts() {
-  const rail = $('#assets');
-  if (!rail) return;
-  const items = [];
-  if (state.uploading) items.push('<div class="artifact up">загружаю…</div>');
-  if (!state.assets.length && !state.uploading) {
-    items.push('<div class="artifact hint-art">Загрузи файл — карточка появится здесь, её можно протянуть в поле входа любого шага.</div>');
-  }
-  for (const a of state.assets) {
-    const key = assetNameKey(a.name);
-    items.push(`<div class="artifact" data-asset="${esc(a.name)}" title="${esc(a.path)}` +
-      ` — перетащи в поле входа шага, получится bind: input.${esc(key)}">` +
-      `<span class="aname">${esc(a.name)}</span>` +
-      `<span class="asize">${Math.max(1, Math.round(a.size / 1024))} КиБ</span>` +
-      `<span class="asrc">input.${esc(key)}</span></div>`);
-  }
-  rail.innerHTML = items.join('');
-  rail.querySelectorAll('.artifact[data-asset]').forEach(card => {
-    card.addEventListener('mousedown', e => startArtifactDrag(card.dataset.asset, e));
-  });
-}
-
-// Протяжка от карточки артефакта. Источник — не выход шага, а вход пайплайна,
-// поэтому link.value собирается сразу, и dropLink не подбирает пару полей.
-function startArtifactDrag(assetName, ev) {
-  const a = state.assets.find(x => x.name === assetName);
-  if (!a) return;
-  ev.preventDefault();
-  ev.stopPropagation();
-  const card = ev.currentTarget;
-  const r = card.getBoundingClientRect();
-  const cRect = $('#canvas').getBoundingClientRect();
-  const key = assetNameKey(a.name);
-  state.linkDrag = {
-    step: null, field: null, kind: 'asset',
-    label: a.name,
-    value: 'input.' + key,
-    x1: r.left - cRect.left + r.width, y1: r.top + r.height / 2 - cRect.top,
-    x: ev.clientX - cRect.left, y: ev.clientY - cRect.top,
-  };
-  renderAll();
-  const move = e => {
-    const c = $('#canvas').getBoundingClientRect();
-    state.linkDrag.x = e.clientX - c.left;
-    state.linkDrag.y = e.clientY - c.top;
-    drawGhost();
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const hit = el && el.closest ? el.closest('.inrow[data-field],.node[data-id]') : null;
-    const prev = $('#canvas').querySelector('.hovered');
-    if (prev) prev.classList.remove('hovered');
-    if (hit) hit.classList.add('hovered');
-  };
-  const up = e => {
-    document.removeEventListener('mousemove', move);
-    document.removeEventListener('mouseup', up);
-    const h = $('#canvas').querySelector('.hovered');
-    if (h) h.classList.remove('hovered');
-    dropLink(e);
-  };
-  document.addEventListener('mousemove', move);
-  document.addEventListener('mouseup', up);
-}
-
-// ─── v0.38: продолжение цепочки по типам ───────────────────────────────────
-//
-// Типы портов уже есть в /api/plugins (pipeline.Port{Type,Format}), поэтому
-// подсказки не требуют правки контракта манифеста.
-
-function portType(d) {
-  if (!d || typeof d !== 'object') return '';
-  return typeof d.type === 'string' ? d.type : '';
-}
-
-// suggestNext — кто способен принять выходы шага.
-//
-// Правило совместимости сознательно узкое: совпадение типа либо поле без
-// объявленного типа. Никакого «string подходит куда угодно» — иначе в
-// подсказках будет половина мусора, и человек перестанет их читать.
-function suggestNext(st) {
-  if (!st) return [];
-  const info = pluginInfo(st.plugin);
-  if (!info || !info.output) return [];
-  const outs = Object.keys(info.output)
-    .map(f => ({ field: f, type: portType(info.output[f]) }))
-    .filter(o => o.field);
-  if (!outs.length) return [];
-
-  const out = [];
-  for (const p of state.plugins) {
-    if (!p || !p.id || p.id === 'core/human_gate') continue;
-    if (p.id === st.plugin || p.dir === st.plugin) continue; // уже выбран
-    for (const field of Object.keys(p.input || {})) {
-      const want = portType(p.input[field]);
-      for (const o of outs) {
-        let score = 0;
-        if (want && o.type && want === o.type) score = 2;
-        else if (!want) score = 1; // тип не объявлен — подходит всё
-        if (!score) continue;
-        out.push({
-          plugin: p.id, dir: p.dir, field, score,
-          outField: o.field, inType: want || '?', outType: o.type || '?',
-        });
-      }
-    }
-  }
-  // Порядок стабильный, чтобы список не прыгал между рендерами.
-  out.sort((a, b) => b.score - a.score
-    || a.plugin.localeCompare(b.plugin)
-    || a.field.localeCompare(b.field));
-  const seen = new Set();
-  return out.filter(x => {
-    const k = x.plugin + '|' + x.field;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  }).slice(0, 8);
-}
-
-function renderSuggestions() {
-  const box = $('#suggest');
-  if (!box) return;
-  const st = state.sel ? stepById(state.sel) : null;
-  const list = st ? suggestNext(st) : [];
-  if (!list.length) { box.innerHTML = ''; return; }
-  box.innerHTML = `<div class="hint">Продолжить цепочку из <b>${esc(st.id)}</b> — кто принимает его выходы:</div>` +
-    list.map((s, i) => `<button class="sug" data-i="${i}"` +
-      ` title="добавить шаг и связать ${esc(s.outField)} → ${esc(s.field)}">` +
-      `${esc(String(s.plugin).split('/').pop())} <span class="arrow">←</span> ${esc(s.field)}` +
-      ` <span class="types">${esc(s.outType)} → ${esc(s.inType)}</span></button>`).join('');
-  box.querySelectorAll('.sug').forEach(b => {
-    b.addEventListener('click', () => {
-      const s = list[+b.dataset.i];
-      const src = stepById(state.sel);
-      if (!src) return;
-      const fresh = addStep(s.dir || s.plugin, Math.min(2400, (src.pos[0] || 0) + 360), src.pos[1] || 0);
-      if (!fresh) return;
-      applyLink(fresh, { value: 'steps.' + src.id + '.' + s.outField, label: src.id + '.' + s.outField }, s.field);
-    });
-  });
-}
 function cancelLink() {
   if (!state.link && !state.linkDrag && !state.linkCandidates.length) return;
   state.link = null;
@@ -791,15 +566,6 @@ function dropLink(ev) {
   const st = stepById(toStep);
   if (!st) { drawGhost(); return; }
 
-  // Источник — карточка артефакта (фото/CSV). Значение bind уже собрано
-  // (input.<имя>), и поля приёмника известны: целимся в конкретную строку
-  // входа, подбирать пару не нужно.
-  if (d.kind === 'asset') {
-    const arow = el.closest ? el.closest('.inrow[data-field]') : null;
-    if (!arow || arow.closest('.node') !== node) { drawGhost(); return; }
-    applyLink(st, { value: d.value, label: d.label }, arow.dataset.field);
-    return;
-  }
 
   // Тянем с узла целиком, а выход у него один — связываем не раздумывая.
   const outs = d.field ? [d.field] : outFields(stepById(d.step).plugin);
@@ -847,7 +613,7 @@ function renderLinkBar() {
     // Идёт протяжка: показываем, что именно тянем — с узла это «весь шаг».
     src.textContent = drag.label
       || (drag.field ? `steps.${drag.step}.${drag.field}` : `шаг ${drag.step} (выход выберется сам)`);
-    $('#link-hint').textContent = 'отпусти на поле входа · Esc — отмена';
+    $('#link-hint').textContent = 'отпусти на другом шаге · Esc — отмена';
     return;
   }
   if (cands.length) {
@@ -1430,8 +1196,6 @@ function wireProps(st) {
 function renderAll() {
   renderNodes();
   renderProps();
-  renderArtifacts();
-  renderSuggestions();
   scheduleValidate();
 }
 
@@ -1555,16 +1319,6 @@ function rebaseHistoryFilename(file) {
 
 // save() возвращает true только когда файл действительно записан на диск.
 // Кнопке запуска это нужно, чтобы не стартовать ран по несохранённому YAML:
-// note — короткое сообщение в бейдж строки состояния. Своего «toast» в
-// редакторе нет, и заводить ради одного случая лишнее: тот же бейдж уже
-// показывает результат сохранения.
-function note(text, kind) {
-  const s = $('#save-status');
-  if (!s) return;
-  s.textContent = text;
-  s.className = 'badge' + (kind ? ' ' + kind : '');
-}
-
 // иначе человек правит связи, жмёт «Запустить» и получает старый результат.
 async function save() {
   const file = normalizePipelineFilename($('#file-name').value || state.doc.file);
@@ -1707,37 +1461,23 @@ async function init() {
   $('#file-open').onchange = e => { if (e.target.value) openFile(e.target.value); };
   $('#btn-save').onclick = save;
   $('#btn-run').onclick = runFromEditor;
-  // v0.38: загрузка артефакта. Кнопка — основной путь (нативный drag&drop
-  // зависит от браузера и окна), перетаскивание файла на холст — приятный
-  // добавок.
-  $('#btn-asset').onclick = () => $('#asset-file').click();
-  $('#asset-file').onchange = e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = '';
-    uploadAssetFile(f);
-  };
-  const wrap = $('#canvas-wrap');
-  wrap.addEventListener('dragover', e => {
-    if (!e.dataTransfer || Array.from(e.dataTransfer.types || []).indexOf('Files') < 0) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    wrap.classList.add('drop-over');
-  });
-  wrap.addEventListener('dragleave', () => wrap.classList.remove('drop-over'));
-  wrap.addEventListener('drop', e => {
-    if (!e.dataTransfer) return;
-    const files = Array.from(e.dataTransfer.files || []);
-    if (!files.length) return;
-    e.preventDefault();
-    wrap.classList.remove('drop-over');
-    files.slice(0, 5).forEach(uploadAssetFile);
-  });
-  loadAssets();
   $('#link-cancel').onclick = cancelLink;
   $('#btn-yaml').onclick = showYaml;
   $('#close-yaml').onclick = () => { $('#yaml-view').style.display = 'none'; };
   $('#btn-undo').onclick = undo;
   $('#btn-redo').onclick = redo;
+  // v0.38: режим артефактов передаёт имя собранного пайплайна через
+  // sessionStorage — параметра ?open= у редактора нет, а заводить ради
+  // одного перехода второй способ открытия незачем.
+  let openNext = '';
+  try { openNext = sessionStorage.getItem('wedra.open') || ''; } catch (e) { /* приватный режим */ }
+  if (openNext) {
+    try { sessionStorage.removeItem('wedra.open'); } catch (e) { /* пусто */ }
+    // loadFileList() не возвращает признака успеха, а openFile() сам
+    // разбирается с ошибкой. Поэтому просто открываем.
+    await openFile(openNext);
+    return;
+  }
   renderAll();
 }
 init();

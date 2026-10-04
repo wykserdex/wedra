@@ -27,12 +27,15 @@ func TestGUIEmbeddedStatic(t *testing.T) {
 		// конвенции остальных кусков UI. v0.36: жест — два щелчка, а панель
 		// связи и кнопка запуска обязаны быть в раздаче.
 		{"/editor/", "Связи — протяжкой, как в канвасе"},
-		// v0.38: артефакты и подсказки цепочки
-		{"/editor/", "assets-wrap"},
-		{"/editor/", "btn-asset"},
-		{"/editor/", "id=\"suggest\""},
-		{"/editor/app.js", "loadAssets"},
-		{"/editor/app.js", "suggestNext"},
+		// v0.38: режим артефактов — ОТДЕЛЬНАЯ страница. Пины на то, что он
+		// есть, и на то, что редактор о нём не знает: смешивать два разных
+		// инструмента в один экран уже пробовали, вёрстка поехала.
+		{"/artifacts/", "режим артефактов"},
+		{"/editor/", "Режим артефактов →"}, // из редактора — ссылкой, а не панелью
+		{"/artifacts/", "id=\"drop\""},
+		{"/artifacts/app.js", "upload"},
+		{"/artifacts/app.js", "buildYAML"},
+		{"/artifacts/app.js", "suggest"},
 		{"/editor/", "link-bar"},
 		{"/editor/", "btn-run"},
 		{"/editor/app.js", "canvas-hint"}, // маркер v0.6 UI

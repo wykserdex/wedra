@@ -113,10 +113,15 @@ type FormField struct {
 
 // Manifest — контракт плагина
 type Port struct {
-	From     string `yaml:"from"`
-	Type     string `yaml:"type"`
-	Format   string `yaml:"format"`
-	Optional bool   `yaml:"optional"`
+	// json-теги обязательны: без них /api/plugins отдавал порты как
+	// {"Type":…,"Format":…}, потому что Go сериализует поля под своими
+	// именами. Остальной манифест приходит в нижнем регистре (id, version,
+	// input, output), и любая проверка «d.type» в редакторе молча читала
+	// undefined — то есть подсказки считали, что тип не объявлен ни у кого.
+	From     string `yaml:"from" json:"from"`
+	Type     string `yaml:"type" json:"type"`
+	Format   string `yaml:"format" json:"format"`
+	Optional bool   `yaml:"optional" json:"optional"`
 }
 
 type Runtime struct {

@@ -85,28 +85,6 @@
     font-size:12px;color:var(--tx)}
   #link-bar.on{display:flex}
   #link-bar code{font-family:var(--mono);color:var(--par)}
-  /* v0.38: артефакты и подсказки цепочки */
-  #assets-wrap{border-bottom:1px solid var(--line);padding:6px 10px 8px;background:var(--bg2)}
-  #assets-wrap h3{margin:0 0 6px;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
-  #assets{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch}
-  .artifact{display:flex;flex-direction:column;gap:2px;padding:5px 9px;min-width:132px;max-width:230px;
-    background:var(--bg3);border:1px solid var(--line);border-radius:8px;cursor:grab}
-  .artifact:hover{border-color:var(--acc)}
-  .artifact .aname{font-family:var(--mono);font-size:11px;color:var(--tx);overflow:hidden;
-    text-overflow:ellipsis;white-space:nowrap}
-  .artifact .asize{font-size:10px;color:var(--dim)}
-  .artifact .asrc{font-family:var(--mono);font-size:10px;color:var(--acc)}
-  .artifact.up{color:var(--dim);font-size:11px;cursor:default}
-  .artifact.hint-art{max-width:420px;color:var(--dim);font-size:11px;cursor:default;line-height:1.4}
-  #suggest{padding:0 10px}
-  #suggest:empty{display:none}
-  #suggest .hint{margin:10px 0 6px;color:var(--dim);font-size:11px}
-  .sug{display:block;width:100%;text-align:left;margin:0 0 4px;padding:5px 8px;
-    background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:7px;
-    font-family:var(--mono);font-size:11px;cursor:pointer}
-  .sug:hover{border-color:var(--acc);background:var(--bg1)}
-  .sug .arrow{color:var(--acc)}
-  .sug .types{color:var(--dim);font-size:10px}
   /* v0.37: протяжка как в канвасе — резиновая линия и кандидаты */
   .edge.ghost{fill:none;stroke:var(--par);stroke-width:2;stroke-dasharray:5 4;pointer-events:none;opacity:.9}
   .node.dragging-out{opacity:.75}
@@ -166,11 +144,10 @@
   <button id="btn-redo" title="Ctrl+Y">↷ redo</button>
   <button id="btn-yaml">YAML</button>
   <button id="btn-save" class="primary">Сохранить</button>
-  <input type="file" id="asset-file" hidden/>
-  <button id="btn-asset" title="загрузить фото/CSV/PDF и протянуть его в шаг">⤒ Файл</button>
   <button id="btn-run">▶ Запустить</button>
   <span id="save-status" class="badge"></span>
-  <a class="link" href="/" style="margin-left:auto">← консоль</a>
+  <a class="link" href="/artifacts/" style="margin-left:auto">Режим артефактов →</a>
+  <a class="link" href="/">← консоль</a>
 </header>
 <div id="app">
   <aside id="palette">
@@ -187,10 +164,6 @@
       <div class="io">in: form · out: поля формы</div>
     </div>
   </aside>
-  <div id="assets-wrap">
-    <h3>Артефакты <span style="text-transform:none">(фото, файлы — перетащи в поле входа шага)</span></h3>
-    <div id="assets"></div>
-  </div>
   <div id="canvas-wrap"><div id="canvas">
     <div id="link-bar"><span class="lbl">Связываю из <code id="link-src"></code></span><span id="link-hint"></span> <button id="link-cancel">отмена (Esc)</button></div>
     <svg id="edges"></svg>
@@ -203,7 +176,6 @@
       <span style="opacity:.75">Можно и двумя щелчками: выход, потом поле входа.</span>
     </div>
   </div></div>
-  <div id="suggest"></div>
   <aside id="props"></aside>
 </div>
 <div id="yaml-view"><div class="inner">
