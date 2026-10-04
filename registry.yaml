@@ -73,13 +73,13 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/email_triage
     version: v0.32
-    commit: cf024eb6810068d20eabec3fe2ecac432d21be09
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: классификация email
   dir_lister:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/dir_lister
     version: v0.32
-    commit: cf024eb6810068d20eabec3fe2ecac432d21be09
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: список каталога
 
   word_freq:
@@ -134,13 +134,13 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/date_parser
     version: v0.32
-    commit: cf024eb6810068d20eabec3fe2ecac432d21be09
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "Человекочитаемые даты → ISO 8601 (ru/en, частые форматы). Без сети и ключей."
   json_flatten:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/json_flatten
     version: v0.32
-    commit: cf024eb6810068d20eabec3fe2ecac432d21be09
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "JSON-объект → плоский map (точки в ключах), с лимитом глубины. Без сети и ключей."
 
   maigret:
@@ -604,14 +604,14 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/cron_next
     version: v0.33c
-    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "Ближайшее срабатывание 5-польного cron от заданного момента (UTC). Без сети."
 
   csv_stats:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/csv_stats
     version: v0.33c
-    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "Статистики числовой колонки CSV из текста: count/mean/min/max/sum. Без сети."
 
   dns_lookup:
@@ -625,7 +625,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/domain_parser
     version: v0.33c
-    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "Разбор URL/хоста: схема, хост, порт, путь, punycode→unicode, детект IP-литерала. Без сети."
 
   email_extractor:
@@ -681,7 +681,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/port_probe
     version: v0.33c
-    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "TCP-проба host:port: открыт/закрыт, задержка, опциональный баннер."
 
   regex_extract:
@@ -695,7 +695,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/ssl_info
     version: v0.33c
-    commit: abe9c1a1f1cc262712b798c01417aaa7600b0e32
+    commit: 046861222a9058d45e701aa113173ebce9f1db8c
     description: "TLS-сертификат хоста: CN, издатель, сроки, протух ли, самоподписан ли."
 presets:
   csv_foreach:

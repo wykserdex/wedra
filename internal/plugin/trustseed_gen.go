@@ -46,7 +46,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:eb263fbc63f660a2132f6ee0931ae2f1f581692ae61e5b004673801d97775b31",
 	},
 	"cron_next": {
-		"sha256:dfe6c6e83fcfa1f2b911a38615554f6ec6b97e63d856608fc177631829ed24b7",
+		"sha256:33765359ffb547f03a26fd2646e62b6f42324747308937713b659f55877a4789",
 	},
 	"crtsh": {
 		"sha256:fdd0ab01187e0eb6b3412c7ada11401f8584023826ecafa168eca3a42a00295a",
@@ -55,10 +55,10 @@ var builtinTrusted = map[string][]string{
 		"sha256:2d11450b0829c3136dd3b1ee04cc95c28ccbf9f4d36a075ea762f6d837cb295a",
 	},
 	"csv_stats": {
-		"sha256:97ea59fd4bcffdbc5364b36f60f33f749287be8927415e5c438f7da509684e5a",
+		"sha256:ab44e36aa9483aa1f45d7ac81e3c6cdfe130935e3591201e35ffaf6cd421ab52",
 	},
 	"date_parser": {
-		"sha256:3c4cf503c2cceab61d828f8825bec5c04cd7b6feeb2a024fb4bf9f94ba26d153",
+		"sha256:f11af5a9680b8d2c037f40e35b0627b6d14c49ee663a2906479673d43015e532",
 	},
 	"degoogle": {
 		"sha256:a899edc42f77775814ac4a0f54acfe3ad8cbf49d0c77156bc4bfc1b081e6d1ed",
@@ -67,7 +67,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:eb6b16a7ef74f2272038376615f07686e1076c2832af7df786f7adfd0845fce5",
 	},
 	"dir_lister": {
-		"sha256:d9a679dad037a4c5de762a4f5522229ccf7e6435813d8e038f163efb72b9949d",
+		"sha256:7411b55316d02f2f9b974bfc18b2bac131f52ea0757031a6c6477f56cd5be368",
 	},
 	"dirsearch": {
 		"sha256:d0c25eef85035f85d44aa8a209ebf0dc186b8d64adbe25747f478b6fd164a3a2",
@@ -85,7 +85,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:8d90ee2897cf872e3601ea785ef424427e18893eb61ee0d60b679e3cbc9befa4",
 	},
 	"domain_parser": {
-		"sha256:cb1820eb7bce51ace2c8bb895eed24397ee37f9d8e66b581693050074e034eaf",
+		"sha256:e77b6df0e9ccb8c180ecc75efcc9f69cffd67f5a0224f081fc286cea991e07ee",
 	},
 	"droopescan": {
 		"sha256:290fe4f136d4d806bcb5d47aba57506a6aaa5f961acc46e7a124e9b7c08efb61",
@@ -94,7 +94,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:5a937f5c276da3f69bb44973dbaaf66060475f82e05aa26e4043281f3df73387",
 	},
 	"email_triage": {
-		"sha256:fabb3381b8123d587f34eb4bb04fe8ca381309e36390b8a80d93f3660e41749f",
+		"sha256:fa506548776912ab36162ba6c0dcab447a4ddfe0be0be33b4a637ac5b7091cbf",
 	},
 	"emailfinder": {
 		"sha256:ce07da8d70389a3d38c6140eec06b4973d3b4c5b353cd2ea74fa0a0fdf269493",
@@ -163,7 +163,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:7c546414dca3d9a9f8a36382026f683366a9f9e68e4ea27e6cbd2bc72a4f92c4",
 	},
 	"json_flatten": {
-		"sha256:96d2d7ed71545820452da5f19b129f673f06c012923d610498eec004d82deadf",
+		"sha256:17c70f934a350dec53fd42e9db4e5a125713374c737d76a16e09501741821e19",
 	},
 	"jwt_decode": {
 		"sha256:cb62a45f4edf47a7898b6522c4dc596ba236b719e44bb6d274a7e98b3aa72026",
@@ -217,7 +217,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:26db1f271663270e89d0f43cc454892c98f43538ff000a27ccb757234bf5c4ff",
 	},
 	"port_probe": {
-		"sha256:7338fb4b44a5ae7be604f87d21a1bff4806bd33b3151b5e9e540486c60a2f6c1",
+		"sha256:ca67cfcf95fed5f9bf522385a940e759ae7c6613031be24cc3473818081777e3",
 	},
 	"prowler": {
 		"sha256:12be80b0981cc51ce97cec465f030b08c3a3e6701ccab7c3d7f5b21814d6a9c6",
@@ -256,7 +256,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:d72a5a8a267e8c8dbe5d03de7b8a0fb906380395eee36b5f53076915c4a794bf",
 	},
 	"ssl_info": {
-		"sha256:ef12052aba21c1d97abf67fb6094e0e3fbf7b4474ffe253eb5d4902561260ca6",
+		"sha256:98383535749e6c6eb7a2f67160448a06a5555e84b2ec1f05bb10873e982f181a",
 	},
 	"sslyze": {
 		"sha256:3d8643c678d70706821bfb33a23875397310d2e8529644a68b8d9d8cf583f1a4",
