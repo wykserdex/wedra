@@ -4,13 +4,14 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]));
 
 let state = {
-  tab: 'runs',
+  tab: 'menu',
   runs: [],
   currentRun: null,
   journal: { events: [], since: 0, total: 0 },
   autoScroll: true,
   pipelines: [],
   currentPipe: null,
+  presets: [],
   timers: {},
 };
 
@@ -91,25 +92,164 @@ async function init() {
     const h = await api('/api/health');
     $('#ver').textContent = 'v' + h.version;
   } catch { $('#ver').textContent = 'оффлайн'; }
+  $('#tab-menu').onclick = () => setTab('menu');
   $('#tab-runs').onclick = () => setTab('runs');
   $('#tab-pipelines').onclick = () => setTab('pipelines');
   $('#run-btn').onclick = startRun;
-  loadPipelines();
+  // v0.35: меню считает пайплайны («из N запустить»), поэтому список должен
+  // прийти до отрисовки, а не гонкой с ним.
+  await loadPipelines();
   tickRuns();
   state.timers.runs = setInterval(tickRuns, 2500);
-  // v0.9: ?run=<id> — ссылка из wedra mcp (гейт ждёт человека): сразу деталка рана
+  // v0.35: по умолчанию — главное меню, а не список ранов: первый вопрос
+  // новичка «с чего начать», и ответ на него должен быть на экране.
   const runParam = new URLSearchParams(location.search).get('run');
   if (runParam) { setTab('runs'); openRunDetail(runParam, true); }
+  else { setTab('menu'); renderMenu(); }
 }
 
 function setTab(t) {
   state.tab = t;
+  $('#tab-menu').classList.toggle('active', t === 'menu');
   $('#tab-runs').classList.toggle('active', t === 'runs');
   $('#tab-pipelines').classList.toggle('active', t === 'pipelines');
+  $('#menu').style.display = t === 'menu' ? '' : 'none';
   $('#runs-aside').style.display = t === 'runs' ? '' : 'none';
   $('#pip-aside').style.display = t === 'pipelines' ? '' : 'none';
   $('#detail').style.display = t === 'runs' ? '' : 'none';
   $('#pdetail').style.display = t === 'pipelines' ? '' : 'none';
+}
+
+// ── главное меню (v0.35) ──────────────────────────────────────────────────
+// Собирается из уже существующих /api/* — своего состояния у меню нет.
+// Порядок карточек — по частоте вопросов: продолжить, начать, готовое,
+// собрать, каталог.
+async function renderMenu() {
+  const [presets, runs, plugins] = await Promise.all([
+    api('/api/presets').catch(() => ({available: false, reason: 'нет связи с ядром', presets: []})),
+    api('/api/runs').catch(() => []),
+    api('/api/plugins').catch(() => []),
+  ]);
+  state.presets = presets.presets || [];
+  const lastRun = runs.find(r => r.status === 'running' || r.status === 'waiting')
+    || runs[0];
+
+  const cards = [];
+  cards.push({
+    k: 'Продолжить',
+    d: lastRun
+      ? `Ран «${lastRun.pipeline || lastRun.id}» — ${lastRun.status || '?'}. Открыть таймлайн, контекст и журнал.`
+      : 'Ранов пока нет. Запусти первый — журнал каждого шага будет здесь.',
+    go: lastRun ? 'открыть ран →' : 'начать новый ↓',
+    act: () => { setTab('runs'); if (lastRun) openRunDetail(lastRun.id, true); },
+  });
+  cards.push({
+    k: 'Начать новый запуск',
+    // count берём только если список действительно загружен: иначе на экране
+    // появилось бы «из 0 пайплайнов» — правдоподобная, но ложная цифра.
+    d: (state.pipelines.length
+      ? `Выбрать пайплайн из ${state.pipelines.length} и запустить. `
+      : 'Выбрать пайплайн и запустить. ')
+      + 'Гейт можно оставить человеку или принять автоматически.',
+    go: 'к списку пайплайнов →',
+    act: () => setTab('pipelines'),
+  });
+  cards.push({
+    k: 'Готовые сценарии',
+    d: presets.available
+      ? `${state.presets.length} пресетов из реестра с описанием. Открыть можно готовый или взять как основу.`
+      : `Реестр недоступен (${presets.reason || 'причина неизвестна'}). Пресеты показывать не из чего.`,
+    go: 'список ниже ↓',
+    act: () => {},
+  });
+  cards.push({
+    k: 'Собрать пайплайн',
+    d: 'Визуальный редактор: перетаскивание шагов, связи, входы, циклы и гейты. Round-trip через ядро, YAML не теряется.',
+    go: 'открыть редактор →',
+    act: () => { location.href = '/editor/'; },
+  });
+
+  const presetRows = state.presets.map(p => `
+    <div class="prow2">
+      <div>
+        <div class="pname" data-preset-open="${esc(p.file)}">${esc(p.file)}</div>
+        <div class="pdesc">${esc(p.description || 'без описания')}</div>
+      </div>
+      <div class="pacts">
+        ${p.installed
+          ? '<span class="mini on">установлен</span>'
+          : '<span class="mini" data-preset-missing="' + esc(p.file) + '">нет файла</span>'}
+        <button class="mini" data-preset-run="${esc(p.file)}">запустить</button>
+      </div>
+    </div>`).join('');
+
+  const plugList = (plugins || []).slice(0, 24).map(p => `
+    <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`).join('');
+
+  $('#menu').innerHTML = `
+    <p class="lead">С чего начать</p>
+    <p class="sub">WEDRA запускает плагины отдельными процессами и передаёт данные между шагами.
+      Выбери готовое, начни с нуля или открой редактор.</p>
+    <div class="cards">${cards.map((c, i) => `
+      <button class="card-btn" data-card="${i}">
+        <div class="k">${esc(c.k)}</div>
+        <div class="d">${esc(c.d)}</div>
+        <div class="go">${esc(c.go)}</div>
+      </button>`).join('')}</div>
+
+    <h4>Готовые сценарии${presets.available ? ` · реестр, ${plugins.length} плагинов` : ''}</h4>
+    ${presets.available
+      ? (presetRows || '<div class="empty">В реестре нет пресетов</div>')
+      : '<div class="empty">Реестр недоступен — поставь WEDRA из исходников, чтобы увидеть пресеты</div>'}
+
+    <h4 style="margin-top:22px">Каталог плагинов · ${plugins.length}</h4>
+    <input type="search" id="plug-search" placeholder="поиск по названию и описанию…" spellcheck="false"/>
+    <div class="plugs" id="plug-list" style="margin-top:9px">${plugList || '<div class="empty">каталог пуст</div>'}</div>
+    <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
+      в манифесте права: <span style="font-family:var(--mono)">network</span>,
+      <span style="font-family:var(--mono)">filesystem</span>,
+      <span style="font-family:var(--mono)">secrets</span>.</div>`;
+
+  cards.forEach((c, i) => { const el = $(`[data-card="${i}"]`); if (el) el.onclick = c.act; });
+  const search = $('#plug-search');
+  if (search) search.oninput = () => filterPlugins(search.value, plugins);
+  $('#menu').querySelectorAll('[data-preset-run]').forEach(b => {
+    b.onclick = () => runPreset(b.dataset.presetRun);
+  });
+  $('#menu').querySelectorAll('[data-preset-open]').forEach(el => {
+    el.onclick = () => { setTab('pipelines'); openPipeline(el.dataset.presetOpen); };
+  });
+}
+
+// Поиск по каталогу плагинов — на клиенте, без нового запроса: /api/plugins
+// уже отдаёт всё, а 99 элементов фильтруются быстрее, чем долетает сеть.
+function filterPlugins(q, plugins) {
+  const needle = q.trim().toLowerCase();
+  const hit = !needle ? plugins : plugins.filter(p =>
+    (p.id || '').toLowerCase().includes(needle) ||
+    (p.description || '').toLowerCase().includes(needle));
+  const box = $('#plug-list');
+  if (!box) return;
+  box.innerHTML = hit.length
+    ? hit.slice(0, 60).map(p => `
+        <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`).join('')
+    : '<div class="empty">Ничего не найдено</div>';
+}
+
+// Запуск пресета из меню: тот же путь, что у кнопки «Запустить» на вкладке
+// ранов, только без прыжка по вкладкам — human_gate всё равно нужен на экране.
+async function runPreset(file) {
+  setTab('runs');
+  const sel = $('#run-select');
+  if (sel && ![...sel.options].some(o => o.value === file)) {
+    // файла нет рядом — честно говорим, вместо того чтобы молча ничего не
+    // сделать: пресет из реестра ставится через `wedra pipeline install`.
+    $('#run-status').textContent = `файла ${file} нет в каталоге пайплайнов — поставь: wedra pipeline install <имя>`;
+    return;
+  }
+  if (sel) sel.value = file;
+  $('#run-gate').checked = true;
+  await startRun();
 }
 
 // ── раны ─────────────────────────────────────────────────────────────────

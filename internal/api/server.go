@@ -22,6 +22,7 @@ import (
 	"github.com/wykserdex/wedra/internal/journal"
 	"github.com/wykserdex/wedra/internal/pipeline"
 	"github.com/wykserdex/wedra/internal/plugin"
+	"github.com/wykserdex/wedra/internal/registry"
 	"github.com/wykserdex/wedra/web"
 )
 
@@ -308,6 +309,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/plugins/", s.handlePluginDetail)
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineDetail)
+	mux.HandleFunc("/api/presets", s.handlePresets)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/runs/", s.handleRunDetail)
 	mux.HandleFunc("/api/run", s.handleRunStart)
@@ -537,6 +539,53 @@ func (s *Server) handlePipelines(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
+}
+
+// handlePresets — готовые сценарии из реестра (/api/presets).
+//
+// Меню консоли начинается с вопроса «с чего начать», и на этот вопрос нужен
+// список того, что уже сделано за тебя: пресеты реестра с описанием.
+//
+// Реестр лежит в корне репозитория, а PluginsDir — его подкаталог, поэтому
+// корень восстанавливается обратным шагом. Если реестра нет (каталог без
+// исходников, как в mcp-режиме), это НЕ ошибка: отдаём пустой список с
+// причиной, чтобы меню показывало «реестр недоступен», а не 500.
+func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
+	root := filepath.Dir(s.PluginsDir)
+	if _, err := os.Stat(filepath.Join(root, registry.RegistryFile)); err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"presets": []interface{}{}, "available": false,
+			"reason": "реестр не найден: " + registry.RegistryFile,
+		})
+		return
+	}
+	handle, err := registry.Load(root)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"presets": []interface{}{}, "available": false, "reason": err.Error(),
+		})
+		return
+	}
+	list := make([]map[string]interface{}, 0, len(handle.Registry.Presets))
+	for name, entry := range handle.Registry.Presets {
+		file := filepath.Base(entry.Path)
+		// installed — лежит ли пресет рядом, в каталоге пайплайнов. Иначе
+		// меню предлагает «установить», а не «открыть».
+		_, localErr := os.Stat(filepath.Join(s.PipelinesDir, file))
+		list = append(list, map[string]interface{}{
+			"name": name, "description": entry.Description,
+			"file": file, "path": entry.Path,
+			"version": entry.Version, "commit": entry.Commit,
+			"installed": localErr == nil,
+		})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i]["name"].(string) < list[j]["name"].(string)
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"presets": list, "available": true,
+		"plugins": len(handle.Registry.Plugins),
+	})
 }
 
 func (s *Server) handlePipelineDetail(w http.ResponseWriter, r *http.Request) {
