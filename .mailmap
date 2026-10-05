@@ -1,0 +1,18 @@
+# Кто под каким именем значится в истории.
+#
+# Формат строки: <новое имя> <новая почта> <старое имя> <старая почта>.
+# То есть СПРАВА то, что лежит в коммитах, СЛЕВА то, что должно отображаться.
+# Порядок легко перепутать, и git-filter-repo применяет карту буквально: при
+# обратном порядке он смапил 233 твоих коммита на чужую личность вместо
+# исправления четырёх чужих.
+#
+# Четыре личности, которые не твои:
+#   opencode <agent@opencode.dev>        — коммит 5e7b0ac
+#   wedra-review <review@wedra.local>    — коммит 8c321e9
+#   wykse <osxhrx@gmail.com>             — три ранних коммита
+#   wykserdex <wykserdex@users.noreply.github.com> — без цифрового префикса,
+#                                            это НЕ тот же адрес, что основной
+opencode <agent@opencode.dev> wykserdex <246888851+wykserdex@users.noreply.github.com>
+wedra-review <review@wedra.local> wykserdex <246888851+wykserdex@users.noreply.github.com>
+wykse <osxhrx@gmail.com> wykserdex <246888851+wykserdex@users.noreply.github.com>
+wykserdex <wykserdex@users.noreply.github.com> wykserdex <246888851+wykserdex@users.noreply.github.com>
