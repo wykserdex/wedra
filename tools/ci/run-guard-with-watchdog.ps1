@@ -22,10 +22,10 @@
 
 [CmdletBinding()]
 param(
-    [int]$BudgetSec = 660,
+    [int]$BudgetSec = 1200,
     [int]$WorkerBudgetSec = -1,   # бюджет самого рабочего скрипта (по умолчанию BudgetSec-60)
-    [int]$PerPackageSec = 200,
-    [int]$GoTimeoutSec = 150,
+    [int]$PerPackageSec = 660,
+    [int]$GoTimeoutSec = 600,
     [switch]$KillLeakedDescendants,
     [string]$LogDir = (Join-Path $env:RUNNER_TEMP 'gotest'),
     [string]$GuardPath = '',

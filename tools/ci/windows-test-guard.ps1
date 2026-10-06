@@ -27,7 +27,7 @@
 #   pwsh ./tools/ci/windows-test-guard.ps1 -LogDir $env:TEMP\gotest -RepoDir .
 # или так же, как это делает CI, с внешней сторожкой:
 #   pwsh ./tools/ci/run-guard-with-watchdog.ps1 -LogDir $env:TEMP\gotest `
-#     -BudgetSec 660 -PerPackageSec 200 -GoTimeoutSec 150 -KillLeakedDescendants
+#     -BudgetSec 1200 -PerPackageSec 660 -GoTimeoutSec 600 -KillLeakedDescendants
 #
 # Лестница подписей в summary (её и надо читать первой):
 #   нет строки «guard start»            → встало ДО нас (шаг/шелл/раннер);
@@ -38,9 +38,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$LogDir,
-    [int]$BudgetSec = 600,
-    [int]$PerPackageSec = 200,
-    [int]$GoTimeoutSec = 150,
+    [int]$BudgetSec = 1500,
+    [int]$PerPackageSec = 660,
+    [int]$GoTimeoutSec = 600,
     [int]$ListTimeoutSec = 120,
     [int]$CensusTimeoutSec = 10,
     # Каталог репозитория (там, где go.mod). По умолчанию — текущий; задавать

@@ -223,8 +223,17 @@ gh api repos/wykserdex/wedra/check-runs/<job_id>/annotations?per_page=100
 * в CI шаг теперь такой:
 
 ```
-./tools/ci/run-guard-with-watchdog.ps1 -BudgetSec 660 -PerPackageSec 200 -GoTimeoutSec 150 -KillLeakedDescendants
+./tools/ci/run-guard-with-watchdog.ps1 -BudgetSec 1200 -PerPackageSec 660 -GoTimeoutSec 600 -KillLeakedDescendants
 ```
+
+Пределы подняты с `-BudgetSec 660 -PerPackageSec 200 -GoTimeoutSec 150` по
+замерам пакетов, а не на глаз: `internal/core` занимает 289 с локально (в CI
+раннер медленнее примерно в 1.27 раза — `internal/plugin` 96 с против 122 с),
+и при 150 с его убивал сторож, а `internal/plugin` при 122 с ходил впритык к
+пределу. `PerPackageSec` держится выше `GoTimeoutSec` намеренно: `GoTimeoutSec`
+— это `go test -timeout`, и именно он печатает дамп горутин, поэтому внешний
+предел должен срабатывать позже, а не вместо него. Исчерпание `BudgetSec`
+даёт `BUDGET-SKIP` и `exit 1` — непроверенный пакет падает явно.
 
 (шаг с `shell: pwsh`; `-RepoDir` не передаётся намеренно — шаг стартует из корня
 репозитория, и это же проверяется по наличию `go.mod`)

@@ -314,10 +314,11 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    # Зависание должно быть дешёвым: бюджет джоба заметно меньше общего бюджета
-    # шага (13) плюс запас на выгрузку и сборку. Раньше здесь было 20 при
-    # timeout-minutes шага 20 — то есть шаг мог прожить дольше джоба.
-    timeout-minutes: 18
+    # Инвариант: бюджет ДЖОБА заметно больше бюджета ШАГА. Обратный порядок
+    # отменяет джоб раньше шага, и тогда лог шага не выгружается вовсе
+    # (проверено: BlobNotFound у отменённого джоба). Прежние 18 при 13 шагали
+    # этот инвариант соблюдали; ниже он сохранён.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -345,10 +346,26 @@ jobs:
       #  * DETACHED/SURVIVOR в summary отвечает на вопрос «какой процесс переживает
       #    тест» на любом прогоне, включая зелёный; найденные оторванные потомки
       #    убиваются, чтобы не держать пайпы раннера и не терять лог шага.
+      #
+      # Пределы заданы по замерам, а не «на глаз». По пакетам (локально, Go 1.27;
+      # в CI Go 1.26.x и раннер медленнее — internal/plugin 96 с против 122 с,
+      # то есть примерно в 1.27 раза):
+      #
+      #   internal/core    289 с   <- был убит сторожем на 150 с
+      #   internal/plugin   96 с   <- проходил за 122 с, ровно впритык к 150 с
+      #   остальные 20      <=19 с
+      #   сумма всех 22    470 с
+      #
+      # GoTimeoutSec — это `go test -timeout`, и именно он даёт дамп горутин,
+      # поэтому PerPackageSec держится ВЫШЕ него: сначала должен отработать
+      # go test, внешний предел — только страховка. Исчерпание BudgetSec
+      # даёт BUDGET-SKIP и exit 1 (windows-test-guard.ps1:415), то есть
+      # непроверенный пакет падает явно, а не зелёным молчанием — поэтому
+      # бюджет обязан быть заметно больше суммы пакетов.
       - name: go test (per package, with orphan census)
         shell: pwsh
-        timeout-minutes: 13
-        run: ./tools/ci/run-guard-with-watchdog.ps1 -BudgetSec 660 -PerPackageSec 200 -GoTimeoutSec 150 -KillLeakedDescendants
+        timeout-minutes: 30
+        run: ./tools/ci/run-guard-with-watchdog.ps1 -BudgetSec 1200 -PerPackageSec 660 -GoTimeoutSec 600 -KillLeakedDescendants
 
       # Диагностика должна пережить отмену джоба.
       - name: upload per-package logs
