@@ -182,21 +182,68 @@ process (`elevated: false`), using `SetNamedSecurityInfo` with
   directory lives in `%LOCALAPPDATA%\Temp`). Any Windows backend must therefore
   restrict only directories it created itself.
 
-The real remaining blocker is not the DACL but the **integrity level**. A real
-AppContainer token was created via `CreateAppContainerProfile` and a child
-process was launched under it with `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`.
-The container token is still denied: AppContainer tokens run at low integrity,
-the candidate directories are at medium, and the resulting write-up is refused.
-This is a mandatory-label (SACL) decision, not a DACL one. Lowering the label is
-not available to a non-elevated owner — `icacls /setintegritylevel` returns
-`Access is denied` because it needs `WRITE_OWNER`.
+The real remaining blocker is not the integrity level. That diagnosis was wrong as
+well, and it came from a probe that never created an AppContainer process at
+all. Measured on a **different** host — Windows 10 build 19041, non-elevated
+(`elevated: false`), *not* the Enterprise 22H2 VM the measurements above come from
+— a low-integrity AppContainer token wrote into medium-integrity directories with
+no SACL change, no `WRITE_OWNER` and no elevated step:
 
-Windows therefore stays fail-closed, but the requirement is now narrow and
-specific rather than "host ACL state": a Windows backend needs one directory it
-owns created at **low integrity**, which in practice means either an install-time
-or elevated step, or hosting the sandbox root somewhere the OS already creates
-at low integrity. Until that exists, the ACL work above is necessary but not
-sufficient, and the platform stays closed.
+- `CreateAppContainerProfile` plus `CreateProcessW` with
+  `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` (`0x00020009`) started a real
+  interpreter: CPython 3.14.4 ran to completion inside the container.
+- Granted a single read+execute / modify ACE to the container SID, writes into
+  medium-integrity directories **succeeded**. The mandatory label is not the gate.
+  Per Microsoft's AppContainer documentation the permitted access is the
+  *intersection* of the user/group grants and the AppContainer grants, and a
+  medium-or-lower label does not veto a DACL grant — so the earlier
+  "write-up is refused" result has no mechanism behind it.
+- Eleven of eleven behavioural checks matched expectations: the plugin directory
+  was readable but neither writable nor modifiable (no self-rewrite, which is the
+  property the Linux backend provides via `--ro-bind`), only the granted scratch
+  was writable, a directory with no grant was unreachable, an outbound connection
+  was refused with `PermissionError`.
+
+So a Windows backend is implementable by a non-elevated process, with no
+install-time or elevated step. What the previous text called a blocker is a set
+of ordinary implementation requirements, all of which were satisfied:
+
+- **The runtime must belong to the sandbox.** A per-user Python under
+  `%LOCALAPPDATA%` stays unreachable even with a read+execute grant on every
+  ancestor directory — `CreateProcessW` answers `ERROR_PATH_NOT_FOUND`. A full
+  installation is 2.3 GB; its core alone (interpreter, `DLLs/`, stdlib, without
+  `site-packages`) is 33 MB and is what the sandbox should use. Granting read on
+  the user's own Python would hand the container the user's site-packages too.
+- **The environment block needs `USERPROFILE` and `LOCALAPPDATA`.** AppContainer
+  derives the profile path from them. A syntactically valid block missing either
+  fails with `ERROR_ENVVAR_NOT_FOUND`, and the *same* block is accepted outside a
+  container, which makes the failure look inexplicable otherwise.
+- **`PYTHONDONTWRITEBYTECODE=1`**, or the interpreter cannot import from a
+  read-only plugin directory, because it writes `__pycache__` beside the modules.
+- **Egress is decided by capabilities.** With none requested, outbound
+  connections fail. Omitting `internetClient` is the mechanism, not a side effect.
+- **ACL writes must go through `golang.org/x/sys/windows`** (`ACLFromEntries` plus
+  `SetNamedSecurityInfo`, as in `internal/plugin/windows_acl_test.go`). A
+  hand-written `SetEntriesInAclW` path returned success while adding no ACE at
+  all: `UNPROTECTED_DACL_SECURITY_INFORMATION` is `0x20000000`, and with the
+  wrong constant the DACL write is silently discarded.
+- **Cleanup must not live only in deferred functions.** A non-zero exit path skips
+  defers and leaks one AppContainer profile per run.
+
+What this is **not**: a verified boundary for hostile code. The probe ran `cmd.exe`
+and `python -c`, not a plugin. The loopback check proved nothing — nothing was
+listening on the target port, and `ConnectionRefusedError` is what both a closed
+sandbox and an absent listener produce. Read isolation, per-destination egress
+filtering and resource limits are still absent; the last needs job objects, which
+are **not** a security boundary (`JobObjectSecurityLimitInformation` was removed
+in Windows Vista, `JOB_OBJECT_SET_SECURITY_ATTRIBUTES` is unsupported) — they
+bound CPU, memory and process count and nothing else.
+
+Windows therefore stays fail-closed: the backend is unwritten and
+`sandbox_other.go` returns `ErrSandboxUnsupported`. The reason is now "not
+implemented", not "the platform forbids it". The measurements above are not
+reproducible from this tree — the probe and its Go prototype are not committed —
+so treat them as recorded findings, not as a test.
 
 If the backend is missing, or the host forbids creating one, the run stops
 with `platform:sandbox_unavailable` before any process is created. The
