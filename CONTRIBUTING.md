@@ -16,6 +16,36 @@ registry policy, CLI compatibility, or repository structure.
    `.wedra` locks, binaries, or local registry state.
 5. Use `wedra` for new documentation and CI checks. `tool` is a compatibility
    command and should not define new behavior.
+6. Record every product or CI change in [CHANGELOG.md](CHANGELOG.md), in the
+   section of the current product version. See "Changelog entries" below — this
+   step is part of the change, not a follow-up.
+
+## Changelog entries
+
+The rule exists because it was once missed on purpose and nobody noticed for
+ten commits: code for an unreleased version keeps landing in `main` with no
+binary behind it, which is exactly the state where the changelog quietly rots.
+
+- **The entry goes into the section named by `VERSION`, not into `Unreleased`.**
+  `Unreleased` is for work with no decided version yet. A version that has code
+  in `main` but no binary has a section — it is the version being prepared.
+- **A date is written only when the release actually exists.** In this file a
+  date means "released": `0.33c - 2026-10-01` matches the GitHub release
+  `v0.33c` of the same day. Work in progress is undated and uses an em dash
+  with a descriptor (`0.31b — post-audit hardening (in progress)`). Adding a
+  date to an unreleased section misrepresents the state of the repository.
+- **CI and infrastructure changes are changelog material.** Timeouts, guard
+  scripts, and test harnesses already have entries here. A change that only
+  developers see is still a change someone has to be able to read about.
+- **Never claim more than was measured.** If a fix is a hypothesis, a partial
+  reproduction, or measured on a host that is not the reference one, say so in
+  the entry. Entries written for the 0.34 sandbox work say which Windows build,
+  that the probe is not committed, and that the hang was not reproduced rather
+  than fixed.
+- **After any plugin change, regenerate the pins and the trust seed** —
+  `registry validate --local-source=.`, `go run ./internal/plugin/cmd/genseed`.
+  Trust is granted by tree hash against the pin, so a stale pin installs old
+  code under a trusted label.
 
 ## Product and protocol versions
 
