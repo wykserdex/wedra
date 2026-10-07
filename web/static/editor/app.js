@@ -113,6 +113,10 @@ let state = {
   // «зажат узел целиком»: выход выбирается сам, если он один.
   // v0.38: + value/label — для протяжки от карточки артефакта (input.<имя>).
   linkDrag: null,
+  // Слой редактора: 'inputs' — только входные значения, 'pipeline' — только
+  // шаги и связи. Первый экран — входы: с них начинается работа с пайплайном.
+  layer: 'inputs',
+  palQuery: '',
   undo: [],
   redo: [],
   yaml: '',
@@ -321,6 +325,111 @@ function pickFile(idx) {
   el.click();
 }
 
+// «Собрать цепочку» для входа. Раньше на этом месте было меню, которое ничего
+// не открывало: слоя входа не существовало, а цепочка не выбиралась. Теперь
+// показываются готовые сценарии реестра, и подходящий по типу входа можно
+// поставить одним действием — шаги добавятся, а вход свяжется с первым полем.
+async function buildChainFor(idx) {
+  const inp = state.doc.input[idx];
+  if (!inp) return;
+  const m = $('#ctxmenu');
+  if (!m) return;
+  let list = [];
+  try {
+    const r = await api('/api/presets');
+    list = (r.presets || []).filter(p => p.installed);
+  } catch (e) {
+    note('реестр сценариев недоступен: ' + (e.message || e), true);
+    return;
+  }
+  if (!list.length) { note('в реестре нет сценариев', true); return; }
+  m.innerHTML = '<div class="cap">считаю сценарии…</div>';
+  m.style.display = 'block';
+  const r0 = m.getBoundingClientRect();
+  m.style.left = '120px';
+  m.style.top = '120px';
+
+  // Для каждого сценария смотрим, в какое поле ПЕРВОГО шага попадёт значение.
+  // Показывать надо «сценарий → поле», а не просто сценарий: подходящих по
+  // ТИПУ полей много, а по смыслу — одно. Без этого вход молча уезжал, скажем,
+  // в delimiter csv-сценария: тип строковый, и никакой ошибки.
+  const spec = inputSpec(inp);
+  const rows = await Promise.all(list.map(async p => {
+    try {
+      const yamlText = await apiRaw('/api/pipelines/' + encodeURIComponent(p.file));
+      const parsed = await api('/api/parse/pipeline', {
+        method: 'POST', headers: { 'Content-Type': 'application/yaml' }, body: yamlText,
+      });
+      const doc = parsed.doc || parsed;
+      const st = (doc.steps || [])[0];
+      if (!st) return null;
+      const ins = (pluginInfo(st.plugin) || {}).input || {};
+      const keys = Object.keys(ins);
+      const fit = keys.filter(f => outFits(inp.name, spec, f, ins[f]));
+      if (!fit.length) return null;
+      // приоритет: поле названо как вход, потом поле берёт значение из input.*,
+      // потом первое совместимое
+      const fromName = f => String(ins[f].from || '');
+      fit.sort((a, b) => {
+        const sa = (a === inp.name ? 2 : 0) + (/^input\./.test(fromName(a)) ? 1 : 0);
+        const sb = (b === inp.name ? 2 : 0) + (/^input\./.test(fromName(b)) ? 1 : 0);
+        return sb - sa;
+      });
+      return { file: p.file, step: st.id, field: fit[0], doc, exact: fit[0] === inp.name };
+    } catch (e) { return null; }
+  }));
+  const good = rows.filter(Boolean).sort((a, b) => (b.exact - a.exact));
+  if (!good.length) {
+    m.innerHTML = '<div class="cap">ни один сценарий не принимает этот вход</div>';
+    return;
+  }
+  m.innerHTML = '<div class="cap">сценарий и поле, куда попадёт значение</div>'
+    + good.map((g, i) => `<button data-row="${i}">${esc(g.file.replace(/\.ya?ml$/i, ''))}`
+      + ` <span style="color:var(--faint)">→ ${esc(g.step)}.${esc(g.field)}</span></button>`).join('');
+  m.querySelectorAll('[data-row]').forEach(b => {
+    b.onclick = () => {
+      m.style.display = 'none';
+      const g = good[+b.dataset.row];
+      applyPreset(g.file, inp.name, g);
+    };
+  });
+}
+
+async function applyPreset(file, inputName, pre) {
+  try {
+    let doc = pre && pre.doc;
+    if (!doc) {
+      const yamlText = await apiRaw('/api/pipelines/' + encodeURIComponent(file));
+      const parsed = await api('/api/parse/pipeline', {
+        method: 'POST', headers: { 'Content-Type': 'application/yaml' }, body: yamlText,
+      });
+      doc = parsed.doc || parsed;
+    }
+    if (!doc.steps || !doc.steps.length) { note('в сценарии нет шагов', true); return; }
+    pushUndo();
+    // разводим шаги по холсту, чтобы они не налезали друг на друга
+    doc.steps.forEach((st, i) => {
+      st.pos = [120 + (i % 3) * 300, 90 + Math.floor(i / 3) * 220];
+      if (!st.id) st.id = st.plugin.split(/[\\/]/).pop().replace(/[^\w]/g, '_') + '_' + (i + 1);
+    });
+    state.doc.steps = doc.steps;
+    if (doc.gates) state.doc.gates = doc.gates;
+    const first = doc.steps[0];
+    const key = pre ? pre.field : Object.keys((pluginInfo(first.plugin) || {}).input || {})[0];
+    if (key) {
+      first.bind = first.bind || {};
+      first.bind[key] = 'input.' + inputName;
+    }
+    setLayer('pipeline');
+    renderAll();
+    note(key
+      ? 'сценарий ' + file + ': вход → ' + first.id + '.' + key
+      : 'сценарий ' + file + ' собран; вход подключи справа у поля', !key);
+  } catch (e) {
+    note('сценарий не собран: ' + (e.message || e), true);
+  }
+}
+
 function openCtxMenu(x, y) {
   const m = $('#ctxmenu');
   if (!m) return;
@@ -393,7 +502,10 @@ function renderInputNodes() {
              <span class="fp" title="${esc(val)}">${esc(val ? val.split(/[\\/]/).pop() : 'файл не выбран')}</span></div>`
         : `<input class="ival" data-ival="${i}" value="${esc(val)}" spellcheck="false"
              placeholder="${inp.type === 'number' ? '0' : 'значение'}"${inp.type === 'number' ? ' inputmode="decimal"' : ''}/>`}
-      <span class="handle" title="тяни к полю шага"></span>
+      <div class="iacts">
+        <button data-build="${i}">собрать цепочку</button>
+        <button data-topipeline="${i}">в пайплайн →</button>
+      </div>
     </div>`;
   }).join('');
   host.querySelectorAll('[data-ival]').forEach(el => {
@@ -403,35 +515,14 @@ function renderInputNodes() {
   host.querySelectorAll('[data-pick]').forEach(b => {
     b.onclick = () => pickFile(+b.dataset.pick);
   });
-  host.querySelectorAll('.inode').forEach(node => {
-    node.querySelector('.handle').addEventListener('mousedown', e => {
-      const i = +node.dataset.inp;
-      const nm = state.doc.input[i].name;
-      state.linkDrag = { input: nm, step: null, field: null, label: 'input.' + nm };
-      state.linkDrag.x = e.clientX; state.linkDrag.y = e.clientY;
-      node.classList.add('dragging');
-      drawGhost();
-      const move = ev => {
-        state.linkDrag.x = ev.clientX;
-        state.linkDrag.y = ev.clientY;
-        drawGhost();
-        const t = document.elementFromPoint(ev.clientX, ev.clientY);
-        const hit = t && t.closest ? t.closest('.inrow[data-field]') : null;
-        const prev = $('#canvas').querySelector('.hovered');
-        if (prev) prev.classList.remove('hovered');
-        if (hit) hit.classList.add('hovered');
-      };
-      const up = ev => {
-        document.removeEventListener('mousemove', move);
-        document.removeEventListener('mouseup', up);
-        node.classList.remove('dragging');
-        dropInputLink(state.doc.input[i], ev);
-      };
-      document.addEventListener('mousemove', move);
-      document.addEventListener('mouseup', up);
-      e.preventDefault();
-      e.stopPropagation();
-    });
+  // Слои раздельны, поэтому вход НЕ тянется к шагу: связь через экран была бы
+  // ровно тем смешением, ради которого слои и разделены. Вход подключается
+  // списком источника в правой панели, а отсюда — кнопками.
+  host.querySelectorAll('[data-build]').forEach(b => {
+    b.onclick = () => buildChainFor(+b.dataset.build);
+  });
+  host.querySelectorAll('[data-topipeline]').forEach(b => {
+    b.onclick = () => setLayer('pipeline');
   });
 }
 
@@ -530,21 +621,72 @@ function addStep(plugin, x, y) {
   return st; // v0.38: подсказкам цепочки нужен созданный шаг, чтобы связать его
 }
 
+// Категория плагина — по тому, с чем он работает. Порядок проверок важен:
+// фото и файлы проверяются первыми, иначе «всё, где есть file_ref» ушло бы в
+// «Текст» (у exifread поле file — это строка).
+const PLUG_CATS = [
+  ['Фото и изображения', p => /(exif|photo|image|фото|изображен|картин)/i.test(p._hay)],
+  ['Файлы и документы', p => /(file_ref|\.pdf|документ|файл(?!ы))/i.test(p._hay)],
+  ['Таблицы и CSV', p => /(csv|таблиц|excel|xlsx)/i.test(p._hay)],
+  ['Сеть, домены, IP', p => /(domain|\bip\b|ipv|dns|mx\b|whois|url|http|сайт|домен)/i.test(p._hay)],
+  ['LLM и текст', p => /(llm|gpt|openai|anthropic|gemini|текст|промпт)/i.test(p._hay)],
+  ['Числа и списки', p => /^\s*$/.test(p._numOnly ? 'x' : '') || false],
+];
+
+function plugCat(p) {
+  const ins = p.input || {};
+  const keys = Object.keys(ins);
+  const fmts = keys.map(k => (ins[k].format || '') + ' ' + (ins[k].type || '')).join(' ');
+  p._hay = ((p.id || '') + ' ' + (p.description || '') + ' ' + fmts).toLowerCase();
+  p._cat = keys.length === 0 ? 'Без входа'
+    : keys.every(k => (ins[k].type === 'number')) ? 'Числа'
+      : keys.every(k => (ins[k].type === 'array' || ins[k].type === 'object')) ? 'Списки и структуры'
+        : null;
+  if (p._cat) return p._cat;
+  if (/(file_ref)/i.test(fmts)) return 'Фото и изображения';
+  if (keys.some(k => ins[k].type === 'array')) return 'Списки и структуры';
+  if (keys.some(k => ins[k].type === 'number')) return 'Числа';
+  return 'Текст';
+}
+
+const CAT_ORDER = ['Текст', 'Фото и изображения', 'Файлы и документы', 'Таблицы и CSV',
+  'Сеть, домены, IP', 'LLM и текст', 'Числа', 'Списки и структуры', 'Без входа'];
+
 function renderPalette() {
   const el = $('#plugin-list');
-  el.innerHTML = state.plugins.map(p => {
-    const ins = Object.keys(p.input || {}).length, outs = Object.keys(p.output || {}).length;
-    return `<div class="plug" data-plugin="${esc(p.id)}">
-      <b>${esc(p.id)}</b>
-      <small>${esc(p.description || '')}</small>
-      <div class="io">in: ${ins} · out: ${outs}</div>
-    </div>`;
-  }).join('') || '<div class="empty">плагинов нет</div>';
+  const q = (state.palQuery || '').trim().toLowerCase();
+  const hit = state.plugins.filter(p => {
+    if (!q) return true;
+    return ((p.id || '') + ' ' + (p.description || '')).toLowerCase().includes(q);
+  }).map(p => Object.assign({}, p));
+  const groups = new Map();
+  for (const p of hit) {
+    const c = plugCat(p);
+    (groups.get(c) || groups.set(c, []).get(c)).push(p);
+  }
+  const cats = [...groups.keys()].sort((a, b) => {
+    const ia = CAT_ORDER.indexOf(a), ib = CAT_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  if (!hit.length) { el.innerHTML = '<div class="empty">ничего не найдено</div>'; bindPalette(); return; }
+  el.innerHTML = cats.map(c => `<div class="pcat">${esc(c)} <span>${groups.get(c).length}</span></div>`
+    + groups.get(c).map(p => {
+      const ins = Object.keys(p.input || {}).length, outs = Object.keys(p.output || {}).length;
+      return `<div class="plug" data-plugin="${esc(p.id)}">
+        <b>${esc(p.id)}</b>
+        <small>${esc(p.description || '')}</small>
+        <div class="io">in: ${ins} · out: ${outs}</div>
+      </div>`;
+    }).join('')).join('');
+  bindPalette();
+}
+
+function bindPalette() {
   // v0.8a: mouse-based drag (нативный DnD мёртв в sandboxed iframe)
   //
   // Область сбора — вся палитра (#palette), а не только #plugin-list. Карточка
   // core/human_gate лежит в разметке РЯДОМ с #plugin-list (index.html), и
-  // раньше подписывалась только #plugin-list — то есть гейт нельзя было ни
+  // раньше подписывался только #plugin-list — то есть гейт нельзя было ни
   // перетащить, ни добавить кликом, хотя выглядел он как остальные.
   document.querySelectorAll('#palette .plug').forEach(el2 => {
     el2.addEventListener('mousedown', e => startPaletteDrag(e, el2.dataset.plugin));
@@ -558,6 +700,9 @@ function renderPalette() {
 function startPaletteDrag(e, pluginId) {
   if (e.button !== 0) return;
   e.preventDefault(); // запрет выделения текста при волочении
+  // Плагины живут на слое пайплайна: перетащили из палитры — значит человек
+  // уже строит цепочку, и переключать слой молча не надо. Переключаем явно.
+  if (state.layer !== 'pipeline') setLayer('pipeline');
   const startX = e.clientX, startY = e.clientY;
   const wrap = $('#canvas-wrap'), canvas = $('#canvas');
   let moved = false;
@@ -1433,14 +1578,49 @@ function wireProps(st) {
   if (ndeny) ndeny.onchange = () => { pushUndo(); state.doc.network = ndeny.checked ? 'deny' : ''; renderAll(); };
 }
 
+// ── слои: входы и пайплайн ────────────────────────────────────────────────
+// Два разных экрана, а не две колонки на одном холсте. На слое входа есть
+// только точки со значениями; на слое пайплайна — только шаги и связи. Вход
+// подключается к шагу НЕ протяжкой через экран, а списком источника в правой
+// панели: так слои остаются раздельными и связь всё равно видна в подписи поля.
+function setLayer(l) {
+  state.layer = l === 'inputs' ? 'inputs' : 'pipeline';
+  const app = $('#app');
+  if (app) app.dataset.layer = state.layer;
+  const bIn = $('#layer-inputs'), bPipe = $('#layer-pipeline');
+  if (bIn) bIn.classList.toggle('active', state.layer === 'inputs');
+  if (bPipe) bPipe.classList.toggle('active', state.layer === 'pipeline');
+  const inp = $('#inlayer');
+  if (inp) inp.style.display = state.layer === 'inputs' ? '' : 'none';
+  renderAll();
+}
+
 function renderAll() {
-  renderNodes();
-  renderInputNodes();
+  const onInputs = state.layer === 'inputs';
+  if (!onInputs) {
+    renderNodes();
+    renderEdges();
+  }
+  if (onInputs) renderInputNodes();
   renderProps();
-  // Подсказка — только для по-настоящему пустого холста. Раньше она стояла
-  // всегда и налезала на входные узлы, которые живут ровно в этой колонке.
+  // Подсказка — только для по-настоящему пустого слоя. Раньше она стояла
+  // всегда и налезала ровно на колонку входов.
   const hint = $('#canvas-hint');
-  if (hint) hint.classList.toggle('hidden', !!(state.doc.input.length || state.doc.steps.length));
+  if (hint) {
+    const empty = onInputs
+      ? !state.doc.input.length
+      : !state.doc.steps.length;
+    hint.classList.toggle('hidden', !empty);
+    hint.innerHTML = onInputs
+      ? '<b>Слой входов.</b> Здесь только то, что пайплайн получает: текст или ник,'
+        + ' число, фото или файл. Правой кнопкой по холсту — то же самое.'
+        + '<br><span style="opacity:.75">Дальше переключись на «Пайплайн» и свяжи вход'
+        + ' с шагом: в правой панели у поля выбери источник input.*</span>'
+      : '<b>Слой пайплайна.</b> Здесь шаги и связи. Перетащи плагин слева'
+        + ' на холст, протяни связь от выхода шага к полю другого.'
+        + '<br><span style="opacity:.75">Значения, которые пайплайн получает, задаются'
+        + ' на слое «Входы»; подключить их можно у любого поля в правой панели.</span>';
+  }
   // Стрелки связей живут в отдельном SVG и не перерисуются сами: без этого
   // вызова после загрузки, связывания или любого ререндера связей не видно,
   // хотя данные в bind уже есть.
@@ -1471,6 +1651,10 @@ function initCanvas() {
   $('#input-add').querySelectorAll('[data-add-in]').forEach(b => {
     b.onclick = () => addInput(b.dataset.addIn);
   });
+  $('#layer-inputs').onclick = () => setLayer('inputs');
+  $('#layer-pipeline').onclick = () => setLayer('pipeline');
+  const ps = $('#pal-search');
+  if (ps) ps.oninput = () => { state.palQuery = ps.value; renderPalette(); };
   window.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';

@@ -49,6 +49,34 @@
   a.link:hover{color:var(--bone)}
   /* Разделы консоли одной строкой: редактор — не ссылка в углу, а такая же
      вкладка, как «Раны» или «Артефакты». */
+  /* Переключатель слоёв: входы и пайплайн — разные экраны, а не две колонки
+     на одном. Смешанный холст и был причиной «не с чего начать»: рядом с
+     готовыми шагами лежали точки, ещё ни к чему не привязанные. */
+  nav.layers{display:flex;gap:14px;align-self:stretch;padding-right:14px;
+    border-right:1px solid var(--hair)}
+  nav.layers button{all:unset;cursor:pointer;display:flex;align-items:center;
+    font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);
+    margin-bottom:-1px;border-bottom:1px solid transparent;padding:0 1px}
+  nav.layers button:hover{color:var(--ash)}
+  nav.layers button.active{color:var(--bone);border-bottom-color:var(--bone)}
+  /* на слое входа палитра плагинов не показывается вовсе */
+  #app[data-layer="inputs"] #plugin-list,
+  #app[data-layer="inputs"] .pcat,
+  #app[data-layer="inputs"] #pal-search,
+  #app[data-layer="inputs"] .pal-head{display:none}
+
+  /* поиск по плагинам и заголовки категорий */
+  #pal-search{width:100%;background:var(--sunken);color:var(--bone);
+    border:1px solid var(--hair);border-radius:var(--r);padding:6px 8px;
+    font-size:11.5px;font-family:inherit;margin:2px 0 8px}
+  #pal-search:focus{outline:0;border-color:var(--hair2)}
+  .pcat{display:flex;align-items:center;gap:7px;margin:12px 0 3px;
+    font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .pcat::after{content:"";height:1px;flex:1;background:var(--hair)}
+  .pcat span{order:3;letter-spacing:0;text-transform:none;font-size:10px;color:#4f4f4f}
+  .pal-head{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin:20px 0 8px;font-weight:500}
+
   nav.sec{margin-left:auto;display:flex;gap:16px;align-self:stretch;flex:none}
   nav.sec a{color:var(--ash);text-decoration:none;font-size:10px;letter-spacing:.13em;
     text-transform:uppercase;white-space:nowrap;display:flex;align-items:center;
@@ -78,6 +106,11 @@
   aside h3::after{content:"";height:1px;flex:1;background:var(--hair)}
   aside h3:first-child{margin-top:0}
   aside h3 span{text-transform:none;letter-spacing:0;font-size:10.5px;color:var(--faint)}
+  .inode .iacts{display:flex;gap:5px;margin-top:3px}
+  .inode .iacts button{background:transparent;border:0;color:var(--faint);
+    padding:2px 0;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    cursor:pointer;font-family:inherit;border-bottom:1px solid transparent}
+  .inode .iacts button:hover{color:var(--bone);border-bottom-color:var(--hair2)}
   #input-add{display:flex;flex-direction:column;gap:4px}
   #input-add button{background:transparent;border:1px solid var(--hair);color:var(--ash);
     border-radius:var(--r);padding:6px 9px;font-size:10.5px;letter-spacing:.06em;
@@ -107,7 +140,7 @@
   #inlayer{position:absolute;inset:0;pointer-events:none}
   #inlayer .inode{pointer-events:auto}
   .inode{position:absolute;left:20px;width:196px;display:flex;flex-direction:column;gap:3px}
-  .inode .ihead{display:flex;align-items:center;gap:7px;cursor:grab}
+  .inode .ihead{display:flex;align-items:center;gap:7px}
   .inode .ihead .dot{width:7px;height:7px;border-radius:50%;background:var(--ver);flex:none}
   .inode .ihead b{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--bone)}
   .inode .ihead .itype{font-family:var(--mono);font-size:9px;color:var(--faint);
@@ -335,6 +368,10 @@
   <button id="btn-save" class="primary">Сохранить</button>
   <button id="btn-run">▶ Запустить</button>
   <span id="save-status" class="badge"></span>
+  <nav class="layers">
+    <button id="layer-inputs" class="active">Входы</button>
+    <button id="layer-pipeline">Пайплайн</button>
+  </nav>
   <nav class="sec">
     <a href="/#menu">Главная</a>
     <a href="/#runs">Раны</a>
@@ -359,7 +396,8 @@
       <button data-add-in="number">Число</button>
       <button data-add-in="file">Фото или файл</button>
     </div>
-    <h3>Плагины <span style="text-transform:none">(перетащи на холст)</span></h3>
+    <h3 class="pal-head">Плагины</h3>
+    <input id="pal-search" type="search" placeholder="поиск по названию…" spellcheck="false"/>
     <div id="plugin-list"></div>
     <h3>Встроенные</h3>
     <!-- draggable убран: обработчики dragstart/drop удалены ещё в v0.8a, но

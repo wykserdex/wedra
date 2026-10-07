@@ -276,7 +276,7 @@ const ctx = vm.createContext({
 
 const src = fs.readFileSync(SRC, 'utf8');
 vm.runInContext(src, ctx, { filename: 'app.js' });
-const ed = vm.runInContext('({state, renderAll, startLinkDrag, dropLink, applyLink, cancelLink, armLink, stepById, outFields, inFields, pushUndo})', ctx);
+const ed = vm.runInContext('({state, renderAll, setLayer, startLinkDrag, dropLink, applyLink, cancelLink, armLink, stepById, outFields, inFields, pushUndo})', ctx);
 
 // Подменяем document-реестр на наш: startLinkDrag вешает mousemove/mouseup
 // на document, а не на window.
@@ -299,6 +299,9 @@ async function main() {
       { id: 'b', plugin: 'plugins/community/two_in', pos: [460, 200] },
     ],
   };
+  // Слои: стенд проверяет связывание ШАГОВ, поэтому явно встаём на слой
+  // пайплайна. На слое входов renderAll узлы не рисует вовсе — намеренно.
+  ed.setLayer('pipeline');
   ed.renderAll();
 
   ok('три узла нарисовано', byId.canvas.children.length === 3, byId.canvas.children.length);
