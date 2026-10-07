@@ -239,6 +239,202 @@ function compatibleOuts(srcStep, inName, inSpec) {
   ok.sort((a, b) => (a === inName ? -1 : 0) - (b === inName ? -1 : 0));
   return ok;
 }
+// ── входные узлы ─────────────────────────────────────────────────────────
+// Слой ввода слева: значение, которое человек отдаёт пайплайну. Это не шаг и не
+// плагин, а запись pipeline.input — плагины уже умеют брать значения из
+// input.*, поэтому ядро менять не пришлось. Позиция не хранится: схема input
+// это map, и положить туда pos некуда, поэтому раскладка считается по порядку.
+const IN_Y0 = 56, IN_STEP = 88;
+
+function inputSpec(i) {
+  return { type: i.typed ? (i.type || 'string') : 'string', format: i.format || '' };
+}
+
+function isFileInput(i) {
+  return i.format === 'file_ref'
+    || /\.(jpg|jpeg|png|gif|webp|bmp|tiff?|heic|pdf|csv|json|txt|md|docx?|xlsx?)$/i.test(String(i.default || ''));
+}
+
+function freeInputName() {
+  let n = state.doc.input.length + 1;
+  while (state.doc.input.some(i => i.name === 'field' + n)) n++;
+  return 'field' + n;
+}
+
+function addInput(kind) {
+  pushUndo();
+  // typed: false — узел-вход это ЗНАЧЕНИЕ, а не схема. При typed: true сервер
+  // пишет в pipeline.input дескриптор {type, default, format}, и тогда
+  // input.nick резолвится в объект: ядро отвечает «тип string несовместим с
+  // выходом input.nick (object)». Примеры в examples/ так и сделаны —
+  // input.dir_before: "testdata/before", голое значение.
+  const want = kind === 'file' ? 'file' : (kind === 'number' ? 'count' : 'nick');
+  const name = state.doc.input.some(i => i.name === want) ? freeInputName() : want;
+  state.doc.input.push(kind === 'file'
+    ? { name, default: '', typed: false, type: 'string', format: 'file_ref', has_default: true }
+    : kind === 'number'
+      ? { name, default: 0, typed: false, type: 'number', has_default: true }
+      : { name, default: '', typed: false, type: 'string', has_default: true });
+  renderAll();
+  note('вход «' + name + '» добавлен — тяни его точку в поле шага');
+}
+
+// Значение пишется прямо в узел. Файл сначала заливается на сервер: плагину
+// нужен абсолютный путь (PROTOCOL §1 — относительный разрешился бы в
+// каталоге плагина, и файл он не нашёл бы).
+async function setInputValue(idx, raw) {
+  const inp = state.doc.input[idx];
+  if (!inp) return;
+  if (inp.format === 'file_ref') {
+    if (!raw) { pushUndo(); inp.default = ''; inp.has_default = false; renderAll(); return; }
+    const fd = new FormData();
+    fd.append('file', raw);
+    try {
+      const a = await api('/api/assets', { method: 'POST', body: fd });
+      pushUndo();
+      inp.default = a.path;
+      inp.has_default = true;
+      renderAll();
+      note('файл загружен: ' + a.name);
+    } catch (e) {
+      note('файл не загрузился: ' + (e.message || e), true);
+    }
+    return;
+  }
+  pushUndo();
+  if (inp.type === 'number') {
+    const n = Number(String(raw).replace(',', '.'));
+    inp.default = Number.isFinite(n) ? n : 0;
+  } else if (inp.type === 'boolean') {
+    inp.default = raw === true || raw === 'true';
+  } else {
+    inp.default = String(raw);
+  }
+  inp.has_default = true;
+  scheduleValidate();
+}
+
+function pickFile(idx) {
+  const el = document.createElement('input');
+  el.type = 'file';
+  el.onchange = () => { if (el.files && el.files[0]) setInputValue(idx, el.files[0]); };
+  el.click();
+}
+
+function openCtxMenu(x, y) {
+  const m = $('#ctxmenu');
+  if (!m) return;
+  m.innerHTML = '<div class="cap">вход</div>'
+    + '<button data-kind="text">Текст или ник</button>'
+    + '<button data-kind="number">Число</button>'
+    + '<button data-kind="file">Фото или файл</button>'
+    + '<div class="sep"></div>'
+    + '<div class="cap">шаг</div>'
+    + '<button data-open="palette">Выбрать плагин слева…</button>';
+  m.style.display = 'block';
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  m.querySelectorAll('[data-kind]').forEach(b => {
+    b.onclick = () => { m.style.display = 'none'; addInput(b.dataset.kind); };
+  });
+  const op = m.querySelector('[data-open]');
+  if (op) op.onclick = () => {
+    m.style.display = 'none';
+    const p = $('#palette .plug');
+    if (p) { p.scrollIntoView({ block: 'center' }); p.focus(); }
+    note('плагины — слева, перетащи на холст');
+  };
+}
+
+// Тянем от точки входа к полю шага. Проверка типов та же, что и у шаг→шаг:
+// вход — это источник, у него объявлены тип и формат.
+function dropInputLink(inp, ev) {
+  const d = state.linkDrag;
+  state.linkDrag = null;
+  if (!d || !inp) return;
+  drawGhost();
+  const el = document.elementFromPoint(ev.clientX, ev.clientY);
+  const row = el && el.closest ? el.closest('.inrow[data-field]') : null;
+  const node = row && row.closest('.node');
+  if (!row || !node || !node.dataset || !node.dataset.id) {
+    note('отпусти на поле входа шага', true);
+    return;
+  }
+  const st = stepById(node.dataset.id);
+  if (!st) return;
+  const info = pluginInfo(st.plugin) || {};
+  const spec = (info.input || {})[row.dataset.field] || {};
+  const src = inputSpec(inp);
+  if (!outFits(inp.name, src, row.dataset.field, spec)) {
+    note('вход «' + inp.name + '» (' + (src.format || src.type) + ') не подходит в поле '
+      + row.dataset.field + ' (' + (spec.format || spec.type || '?') + ')', true);
+    return;
+  }
+  pushUndo();
+  st.bind = st.bind || {};
+  st.bind[row.dataset.field] = 'input.' + inp.name;
+  state.sel = st.id;
+  renderAll();
+}
+
+function renderInputNodes() {
+  const host = $('#inlayer');
+  if (!host) return;
+  host.innerHTML = state.doc.input.map((inp, i) => {
+    const spec = inputSpec(inp);
+    const file = isFileInput(inp);
+    const val = inp.default == null ? '' : String(inp.default);
+    return `<div class="inode" data-inp="${i}" style="top:${IN_Y0 + i * IN_STEP}px">
+      <div class="ihead"><span class="dot"></span><b>${esc(inp.name)}</b>
+        <span class="itype">${esc(inp.format || spec.type)}</span></div>
+      ${file
+        ? `<div class="ifile"><button data-pick="${i}">выбрать</button>
+             <span class="fp" title="${esc(val)}">${esc(val ? val.split(/[\\/]/).pop() : 'файл не выбран')}</span></div>`
+        : `<input class="ival" data-ival="${i}" value="${esc(val)}" spellcheck="false"
+             placeholder="${inp.type === 'number' ? '0' : 'значение'}"${inp.type === 'number' ? ' inputmode="decimal"' : ''}/>`}
+      <span class="handle" title="тяни к полю шага"></span>
+    </div>`;
+  }).join('');
+  host.querySelectorAll('[data-ival]').forEach(el => {
+    el.onchange = () => setInputValue(+el.dataset.ival, el.value);
+    el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } };
+  });
+  host.querySelectorAll('[data-pick]').forEach(b => {
+    b.onclick = () => pickFile(+b.dataset.pick);
+  });
+  host.querySelectorAll('.inode').forEach(node => {
+    node.querySelector('.handle').addEventListener('mousedown', e => {
+      const i = +node.dataset.inp;
+      const nm = state.doc.input[i].name;
+      state.linkDrag = { input: nm, step: null, field: null, label: 'input.' + nm };
+      state.linkDrag.x = e.clientX; state.linkDrag.y = e.clientY;
+      node.classList.add('dragging');
+      drawGhost();
+      const move = ev => {
+        state.linkDrag.x = ev.clientX;
+        state.linkDrag.y = ev.clientY;
+        drawGhost();
+        const t = document.elementFromPoint(ev.clientX, ev.clientY);
+        const hit = t && t.closest ? t.closest('.inrow[data-field]') : null;
+        const prev = $('#canvas').querySelector('.hovered');
+        if (prev) prev.classList.remove('hovered');
+        if (hit) hit.classList.add('hovered');
+      };
+      const up = ev => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        node.classList.remove('dragging');
+        dropInputLink(state.doc.input[i], ev);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  });
+}
+
 function stepById(id) {
   return state.doc.steps.find(s => s.id === id) || null;
 }
@@ -1239,7 +1435,12 @@ function wireProps(st) {
 
 function renderAll() {
   renderNodes();
+  renderInputNodes();
   renderProps();
+  // Подсказка — только для по-настоящему пустого холста. Раньше она стояла
+  // всегда и налезала на входные узлы, которые живут ровно в этой колонке.
+  const hint = $('#canvas-hint');
+  if (hint) hint.classList.toggle('hidden', !!(state.doc.input.length || state.doc.steps.length));
   // Стрелки связей живут в отдельном SVG и не перерисуются сами: без этого
   // вызова после загрузки, связывания или любого ререндера связей не видно,
   // хотя данные в bind уже есть.
@@ -1254,6 +1455,21 @@ function initCanvas() {
   // нативный dragover/drop не работает в sandboxed iframe (превью)
   canvas.addEventListener('mousedown', e => {
     if (e.target === canvas || e.target.id === 'edges') { state.sel = null; renderAll(); }
+  });
+  // Правая кнопка на холсте — точка входа без поиска глазами: «с чего начать»
+  // стоит под курсором, а не в панели свойств. Те же три пункта, что и в палитре,
+  // потому что второй способ добавления одного и того же учить не за чем.
+  canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    openCtxMenu(e.clientX, e.clientY);
+  });
+  document.addEventListener('mousedown', e => {
+    const m = $('#ctxmenu');
+    if (m && !m.contains(e.target)) m.style.display = 'none';
+  });
+
+  $('#input-add').querySelectorAll('[data-add-in]').forEach(b => {
+    b.onclick = () => addInput(b.dataset.addIn);
   });
   window.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
