@@ -339,6 +339,15 @@ func ValidateIssues(pf *PipelineFile, eng Engine) []Issue {
 				continue
 			}
 			src.Name = srcPath
+			// Пустое значение в input.* проходило валидацию так же чисто, как
+			// заполненное: бейдж показывал «валиден», а ран падал уже в плагине
+			// (maigret: empty_username). Значение вводит человек, и пустой вход
+			// почти всегда — забытый ввод, а не намерение. Предупреждение, не
+			// ошибка: пустое значение законно там, где поле необязательное или
+			// значение подставляется при запуске.
+			if !port.Optional && isEmptySourceValue(src, pf) {
+				v.warn(W_PORT_EMPTY_SOURCE, st.ID, portName, srcPath, "введите значение на слое «Входы» или отвяжите порт", nil, "шаг %s, порт %s: значение %s пустое — плагин получит пустую строку", st.ID, portName, srcPath)
+			}
 			if src.Type != "" && port.Type != "" && src.Type != port.Type {
 				cands := compatibleOutputs(prior, port.Type, port.Format)
 				v.err(E_TYPE_MISMATCH, st.ID, portName, srcPath, fmt.Sprintf("нужен тип %q, пришёл %q", port.Type, src.Type), &Fix{Op: "bind", Target: "steps." + st.ID + "." + portName, Candidates: cands}, "шаг %s, порт %s: тип %s несовместим с выходом %q (%s)", st.ID, portName, port.Type, src.Name, src.Type)
@@ -552,6 +561,24 @@ func LintIssues(pf *PipelineFile, eng Engine, projectRoot string) []Issue {
 
 // resolveSourceCoded — resolveSource + код Issue. Все ошибки резолва
 // источника (нет поля input, шаг не выше, плагин не объявляет выход,
+// isEmptySourceValue — значение, дошедшее до порта, пустое: пустая строка,
+// ноль или пустой список/объект. Отличать «не задано вовсе» (это ловит
+// E_PORT_UNBOUND) от «задано пустое».
+func isEmptySourceValue(src srcInfo, pf *PipelineFile) bool {
+	switch val := src.Literal.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(val) == ""
+	case []interface{}:
+		return len(val) == 0
+	case map[string]interface{}:
+		return len(val) == 0
+	default:
+		return false
+	}
+}
+
 // кривой путь) — E_PORT_SOURCE: для агента это один класс «перепривяжи».
 func resolveSourceCoded(path string, prior map[string]priorStep, pf *PipelineFile, st *Step) (srcInfo, string, string) {
 	src, perr := resolveSource(path, prior, pf, st)

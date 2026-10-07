@@ -111,6 +111,37 @@ func TestValidateTypeMismatch(t *testing.T) {
 	expectErr(t, errs, "несовместим")
 }
 
+func TestValidateEmptyInputSourceWarns(t *testing.T) {
+	// v0.34: связь есть, значение пустое. Раньше такой пайплайн проходил
+	// валидацию так же чисто, как заполненный, и падал уже в раннере
+	// (maigret: empty_username) — то есть редактор показывал «валиден».
+	cons := mxConsumerManifest(false)
+	cons.Input["mx"] = Port{From: "input.mx", Type: "array"}
+	pf := validForeachPipeline()
+	pf.Pipeline.Input["mx"] = []interface{}{}
+
+	_, warns := Validate(pf, engineWith(syntaxManifest(), cons))
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w, "пустое") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("пустое значение в input.* должно давать предупреждение, получено: %v", warns)
+	}
+
+	// заполненное значение — тихо
+	pf2 := validForeachPipeline()
+	pf2.Pipeline.Input["mx"] = []interface{}{"mx.example.com"}
+	_, warns2 := Validate(pf2, engineWith(syntaxManifest(), cons))
+	for _, w := range warns2 {
+		if strings.Contains(w, "пустое") {
+			t.Fatalf("заполненный вход не должен давать предупреждение о пустом: %v", warns2)
+		}
+	}
+}
+
 func TestValidateSkipSafety(t *testing.T) {
 	// skip-able продюсер → потребитель обязан объявить вход optional
 	pf := validForeachPipeline()
