@@ -126,21 +126,91 @@ $script:InterestingNames = @(
 )
 $script:Ours = @{}
 
+function Ensure-Toolhelp {
+    if (-not $script:IsWin) { return }
+    if ('Wedra.Toolhelp' -as [type]) { return }
+    # -TypeDefinition, а не -MemberDefinition: using-директивы легальны только
+    # на верхнем уровне исходника. Тип тот же — Wedra.Toolhelp.
+    Add-Type -TypeDefinition @'
+        using System;
+        using System.Collections.Generic;
+        using System.Runtime.InteropServices;
+
+        namespace Wedra { public static class Toolhelp {
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct PROCESSENTRY32W {
+            public uint dwSize;
+            public uint cntUsage;
+            public uint th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID;
+            public uint cntThreads;
+            public uint th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
+        }
+
+        public class ProcEntry {
+            public int Pid;
+            public int Ppid;
+            public string Name;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        public static List<ProcEntry> Snapshot() {
+            var list = new List<ProcEntry>();
+            IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
+            if (snap == IntPtr.Zero || snap == new IntPtr(-1)) {
+                return list;
+            }
+            try {
+                PROCESSENTRY32W pe = new PROCESSENTRY32W();
+                pe.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
+                if (Process32FirstW(snap, ref pe)) {
+                    do {
+                        list.Add(new ProcEntry {
+                            Pid = (int)pe.th32ProcessID,
+                            Ppid = (int)pe.th32ParentProcessID,
+                            Name = pe.szExeFile ?? ""
+                        });
+                    } while (Process32NextW(snap, ref pe));
+                }
+            } finally {
+                CloseHandle(snap);
+            }
+            return list;
+        }
+        } }
+'@
+}
+
 function Get-Census {
     $table = @{}
     if ($script:IsWin) {
         try {
-            $procs = Get-CimInstance Win32_Process -OperationTimeoutSec $CensusTimeoutSec -ErrorAction Stop
-            foreach ($p in $procs) {
-                $table[[int]$p.ProcessId] = [pscustomobject]@{
-                    Pid = [int]$p.ProcessId; Ppid = [int]$p.ParentProcessId
-                    Name = $p.Name; Cmd = $p.CommandLine
+            Ensure-Toolhelp
+            foreach ($p in [Wedra.Toolhelp]::Snapshot()) {
+                $table[[int]$p.Pid] = [pscustomobject]@{
+                    Pid = [int]$p.Pid; Ppid = [int]$p.Ppid
+                    Name = $p.Name; Cmd = ''
                 }
             }
             return $table
         } catch {
-            # WMI недоступен или задумался — падаем на Get-Process: командной
-            # строки и родителя там нет, но факт «процесс жив» и имя остаются.
             foreach ($p in Get-Process -ErrorAction SilentlyContinue) {
                 $table[[int]$p.Id] = [pscustomobject]@{
                     Pid = [int]$p.Id; Ppid = -1; Name = $p.ProcessName; Cmd = ''
@@ -216,6 +286,10 @@ function Test-Interesting {
     # с одним и тем же элементом списка, иначе правило зависит от ОС.
     $base = [System.IO.Path]::GetFileNameWithoutExtension($Proc.Name)
     if (-not $base) { $base = $Proc.Name }
+    # Go-бинарники тестов (core.test.exe, plugin.test.exe) раньше ловились по
+    # командной строке через InterestingCmd. После перехода census на Toolhelp
+    # командной строки нет (Cmd = ''), поэтому ловим их по суффиксу имени.
+    if ($base.ToLowerInvariant() -match '\.test$') { return $true }
     return ($script:InterestingNames -contains $base.ToLowerInvariant())
 }
 

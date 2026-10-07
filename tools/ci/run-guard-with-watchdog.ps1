@@ -52,45 +52,130 @@ function Write-Both {
     if ($StepSummary) { Add-Content -Path $StepSummary -Value $Text -ErrorAction SilentlyContinue }
 }
 
-# Сбрасываем HANDLE_FLAG_INHERIT со стандартных дескрипторов (stdin/stdout/stderr)
-# текущего процесса pwsh.exe ДО запуска любых дочерних процессов.
-#
-# Почему одного редиректа `cmd.exe /c "... > out 2> err"` было недостаточно:
-#  1. Runner.Worker (GitHub Actions) передаёт верхнему pwsh.exe анонимные пайпы
-#     шага в STD_OUTPUT_HANDLE и STD_ERROR_HANDLE с флагом HANDLE_FLAG_INHERIT=1.
-#  2. .NET Process.Start при UseShellExecute=$false ВСЕГДА вызывает CreateProcessW
-#     с bInheritHandles=TRUE, а cmd.exe при редиректе `>` / `2>` сначала сохраняет
-#     исходные stdout/stderr через CRT _dup() (DuplicateHandle с bInheritHandle=TRUE)
-#     в дескрипторы 3 и 4, после чего запускает дочерний pwsh.exe с bInheritHandles=TRUE.
-#  3. В итоге ВСЕ потомки (pwsh, cmd, go, conhost.exe и др.) наследуют в свою
-#     таблицу хендлов открытые write-концы пайпов Runner.Worker! И если любой
-#     такой процесс (например conhost.exe или rel=0) переживает шаг, Runner.Worker
-#     в ProcessInvoker.cs ждёт EOF пайпа до самого джобового таймаута + 5 минут
-#     CancelTimeout, после чего убивается без лога (BlobNotFound) и без артефактов.
-#
-# Сброс HANDLE_FLAG_INHERIT не мешает самому верхнему pwsh.exe писать в лог
-# шага, но гарантирует на уровне ядра Windows, что ни один дочерний процесс
-# физически не получит копию пайпов Runner.Worker.
-function Disable-StdHandleInheritance {
+function Ensure-Win32Helpers {
     if (-not $script:IsWin) { return }
-    try {
-        if (-not ('Wedra.NativeHandle' -as [type])) {
-            Add-Type -Namespace 'Wedra' -Name 'NativeHandle' -MemberDefinition @'
-                [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-                public static extern System.IntPtr GetStdHandle(int nStdHandle);
-                [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-                public static extern bool SetHandleInformation(System.IntPtr hObject, uint dwMask, uint dwFlags);
-'@
+    if ('Wedra.Win32Guard' -as [type]) { return }
+    # -TypeDefinition, а не -MemberDefinition: using-директивы легальны только
+    # на верхнем уровне исходника. Тип тот же — Wedra.Win32Guard.
+    Add-Type -TypeDefinition @'
+        using System;
+        using System.Collections.Generic;
+        using System.Diagnostics;
+        using System.IO;
+        using System.Runtime.InteropServices;
+
+        namespace Wedra { public static class Win32Guard {
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct PROCESSENTRY32W {
+            public uint dwSize;
+            public uint cntUsage;
+            public uint th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID;
+            public uint cntThreads;
+            public uint th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
         }
-        foreach ($std in @(-10, -11, -12)) {
-            $h = [Wedra.NativeHandle]::GetStdHandle($std)
-            if ($h -ne [System.IntPtr]::Zero -and $h -ne [System.IntPtr](-1)) {
-                [void][Wedra.NativeHandle]::SetHandleInformation($h, 1, 0)
+
+        public class ProcEntry {
+            public int Pid;
+            public int Ppid;
+            public string Name;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr GetStdHandle(int nStdHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetStdHandle(int nStdHandle, IntPtr hHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr CreateFileW(string name, uint access, uint share,
+            IntPtr sec, uint disp, uint flags, IntPtr tmpl);
+
+        // Запускает дочерний процесс так, чтобы CreateProcessW ни через таблицу
+        // дескрипторов (bInheritHandles=TRUE), ни через BasepStandardHandleInit
+        // (NtDuplicateObject с OBJ_INHERIT, когда STARTF_USESTDHANDLES не задан)
+        // не смог продублировать пайпы Runner.Worker в дочерний процесс.
+        public static Process StartDetachedFromStdPipes(ProcessStartInfo psi) {
+            IntPtr hIn  = GetStdHandle(-10);
+            IntPtr hOut = GetStdHandle(-11);
+            IntPtr hErr = GetStdHandle(-12);
+            foreach (IntPtr h in new IntPtr[] { hIn, hOut, hErr }) {
+                if (h != IntPtr.Zero && h != new IntPtr(-1)) {
+                    SetHandleInformation(h, 1, 0);
+                }
+            }
+            // NUL открываем через CreateFileW напрямую: FileStream("NUL") в
+            // .NET Framework (PowerShell 5.1) бросает NotSupportedException,
+            // а CreateFileW работает везде.
+            const uint RW = 0xC0000000;
+            IntPtr hNul = CreateFileW("NUL", RW, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+            if (hNul == IntPtr.Zero || hNul == new IntPtr(-1)) {
+                return Process.Start(psi); // откат: запуск как раньше
+            }
+            SetHandleInformation(hNul, 1, 0);
+            try {
+                SetStdHandle(-10, hNul);
+                SetStdHandle(-11, hNul);
+                SetStdHandle(-12, hNul);
+                return Process.Start(psi);
+            } finally {
+                SetStdHandle(-10, hIn);
+                SetStdHandle(-11, hOut);
+                SetStdHandle(-12, hErr);
+                CloseHandle(hNul);
             }
         }
-    } catch {
-        Write-Both ("watchdog: warn SetHandleInformation: {0}" -f $_.Exception.Message)
-    }
+
+        // Снимок процессов через ядро (CreateToolhelp32Snapshot) без WMI/DCOM:
+        // Get-CimInstance Win32_Process ходит в сервис Winmgmt и ReadProcessMemory
+        // чужих PEB, где локальный COM-вызов может зависнуть навсегда мимо
+        // -OperationTimeoutSec.
+        public static List<ProcEntry> SnapshotProcesses() {
+            var list = new List<ProcEntry>();
+            IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
+            if (snap == IntPtr.Zero || snap == new IntPtr(-1)) {
+                return list;
+            }
+            try {
+                PROCESSENTRY32W pe = new PROCESSENTRY32W();
+                pe.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
+                if (Process32FirstW(snap, ref pe)) {
+                    do {
+                        list.Add(new ProcEntry {
+                            Pid = (int)pe.th32ProcessID,
+                            Ppid = (int)pe.th32ParentProcessID,
+                            Name = pe.szExeFile ?? ""
+                        });
+                    } while (Process32NextW(snap, ref pe));
+                }
+            } finally {
+                CloseHandle(snap);
+            }
+            return list;
+        }
+        } }
+'@
 }
 
 function Kill-Tree {
@@ -116,9 +201,10 @@ function Kill-Tree {
 function Get-CensusText {
     if ($script:IsWin) {
         try {
-            return (Get-CimInstance Win32_Process -OperationTimeoutSec 10 -ErrorAction Stop |
-                Sort-Object ProcessId |
-                ForEach-Object { "pid={0} ppid={1} {2} :: {3}" -f $_.ProcessId, $_.ParentProcessId, $_.Name, ($_.CommandLine -replace '\s+', ' ') })
+            Ensure-Win32Helpers
+            return ([Wedra.Win32Guard]::SnapshotProcesses() |
+                Sort-Object Pid |
+                ForEach-Object { "pid={0} ppid={1} {2}" -f $_.Pid, $_.Ppid, $_.Name })
         } catch {
             return (Get-Process -ErrorAction SilentlyContinue |
                 ForEach-Object { "pid={0} {1}" -f $_.Id, $_.ProcessName })
@@ -151,7 +237,7 @@ $err = Join-Path $LogDir 'guard.err.txt'
 
 $hostExe = (Get-Process -Id $PID).Path
 $killArg = if ($KillLeakedDescendants) { ' -KillLeakedDescendants' } else { '' }
-Disable-StdHandleInheritance
+Ensure-Win32Helpers
 Write-Both ("watchdog: host=$hostExe budget=${BudgetSec}s workerBudget=${WorkerBudgetSec}s guard=$GuardPath")
 
 # Рабочий скрипт — отдельный процесс, вывод уходит в ФАЙЛЫ (никаких пайпов).
@@ -170,15 +256,16 @@ if ($script:IsWin) {
     $psi.FileName = $env:ComSpec
     $psi.Arguments = '/c ""{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}" -LogDir "{2}" -BudgetSec {3} -PerPackageSec {4} -GoTimeoutSec {5}{6} > "{7}" 2> "{8}""' -f `
         $hostExe, $GuardPath, $LogDir, $WorkerBudgetSec, $PerPackageSec, $GoTimeoutSec, $killArg, $out, $err
+    $worker = [Wedra.Win32Guard]::StartDetachedFromStdPipes($psi)
 } else {
     # Ветка только для прогона сторожки вне Windows (проверка логики).
     $psi.FileName = '/bin/sh'
     $psi.Arguments = "-c ""exec '{0}' -NoProfile -File '{1}' -LogDir '{2}' -BudgetSec {3} -PerPackageSec {4} -GoTimeoutSec {5}{6} > '{7}' 2> '{8}'""" -f `
         $hostExe, $GuardPath, $LogDir, $WorkerBudgetSec, $PerPackageSec, $GoTimeoutSec, $killArg, $out, $err
+    $worker = [System.Diagnostics.Process]::Start($psi)
 }
 # Handle кэшируется до чтения ExitCode: без этого свойство может быть пустым
 # (та же причина, что и у Start-Process -PassThru в 10d78eb).
-$worker = [System.Diagnostics.Process]::Start($psi)
 $null = $worker.Handle
 Write-Both ("watchdog: worker pid={0}" -f $worker.Id)
 
