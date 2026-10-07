@@ -186,35 +186,16 @@ async function renderMenu() {
     act: () => { location.href = '/editor/'; },
   });
 
-  const presetRows = state.presets.map(p => `
-    <div class="prow2">
-      <div>
-        <div class="pname" data-preset-open="${esc(p.file)}">${esc(p.file)}</div>
-        <div class="pdesc">${esc(p.description || 'без описания')}</div>
-      </div>
+  const presetCards = state.presets.map(p => `
+    <div class="pcard">
+      <div class="pname" data-preset-open="${esc(p.file)}">${esc(p.file.replace(/\.ya?ml$/i, ''))}</div>
+      <div class="pdesc">${esc(p.description || 'без описания')}</div>
       <div class="pacts">
-        ${p.installed
-          ? '<span class="mini on">установлен</span>'
-          : '<span class="mini" data-preset-missing="' + esc(p.file) + '">нет файла</span>'}
-        <button class="mini" data-preset-run="${esc(p.file)}">запустить</button>
+        <button class="mini" data-preset-open="${esc(p.file)}">открыть</button>
+        <button class="mini go" data-preset-run="${esc(p.file)}"
+          ${p.installed ? '' : 'disabled title="файла нет в examples/"'}>запустить</button>
       </div>
     </div>`).join('');
-
-  const plugItem = p => {
-    const trusted = !!p.trusted;
-    const dot = trusted
-      ? '<span class="tdot ok" title="доверен: хэш содержимого в allow-list"></span>'
-      : `<span class="tdot" title="${esc(p.blocked_reason || 'вне allow-list — запуск только в песочнице')}"></span>`;
-    const net = (p.permissions && p.permissions.network && p.permissions.network.length)
-      ? '<span class="ptag net">net</span>' : '';
-    const aw = p.agent_written ? '<span class="ptag agent">агент</span>' : '';
-    return `<div class="plug"><div class="prow">${dot}<b>${esc(p.id)}</b>`
-      + `<span class="prt">${esc(p.runtime || '')}</span>${net}${aw}</div>`
-      + `<span>${esc((p.description || '').slice(0, 90))}</span></div>`;
-  };
-  const plugList = (plugins || []).slice(0, 24).map(plugItem).join('');
-  // expose для поиска без дублирования разметки
-  window.__plugItem = plugItem;
 
   const trustedN = (plugins || []).filter(p => p.trusted).length;
   const stat = (v, l) => `<span class="stat"><b>${v}</b>${l}</span>`;
@@ -244,46 +225,27 @@ async function renderMenu() {
 
     <h4>Готовые сценарии${presets.available ? ` · реестр, ${plugins.length} плагинов` : ''}</h4>
     ${presets.available
-      ? (presetRows || '<div class="empty">В реестре нет пресетов</div>')
+      ? (presetCards ? `<div class="pcards">${presetCards}</div>` : '<div class="empty">В реестре нет пресетов</div>')
       : '<div class="empty">Реестр недоступен — поставь WEDRA из исходников, чтобы увидеть пресеты</div>'}
 
-    <button class="sectbtn" id="plug-toggle">
+    <button class="sectbtn" id="goto-plugins">
       <span>Каталог плагинов</span><span class="cnt">${plugins.length}</span>
-      <span class="tsub">${trustedN} доверенных</span><span class="chev">▾</span>
+      <span class="tsub">${trustedN} доверенных · поиск, манифест, установка зависимостей</span><span class="chev">→</span>
     </button>
-    <div id="plug-wrap">
-      <input type="search" id="plug-search" placeholder="поиск по названию и описанию…" spellcheck="false"/>
-      <div class="plugs" id="plug-list" style="margin-top:9px">${plugList || '<div class="empty">каталог пуст</div>'}</div>
-      <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
+    <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
         в манифесте права: <span style="font-family:var(--mono)">network</span>,
         <span style="font-family:var(--mono)">filesystem</span>,
-        <span style="font-family:var(--mono)">secrets</span>.</div>
-    </div>`;
+        <span style="font-family:var(--mono)">secrets</span>.</div>`;
 
   cards.forEach((c, i) => { const el = $(`[data-card="${i}"]`); if (el) el.onclick = c.act; });
-  const search = $('#plug-search');
-  if (search) search.oninput = () => filterPlugins(search.value, plugins);
+  const gotoPl = $('#goto-plugins');
+  if (gotoPl) gotoPl.onclick = () => { setTab('plugins'); loadPluginsTab(); };
   $('#menu').querySelectorAll('[data-preset-run]').forEach(b => {
     b.onclick = () => runPreset(b.dataset.presetRun);
   });
   $('#menu').querySelectorAll('[data-preset-open]').forEach(el => {
     el.onclick = () => { setTab('pipelines'); openPipeline(el.dataset.presetOpen); };
   });
-}
-
-// Поиск по каталогу плагинов — на клиенте, без нового запроса: /api/plugins
-// уже отдаёт всё, а 99 элементов фильтруются быстрее, чем долетает сеть.
-function filterPlugins(q, plugins) {
-  const needle = q.trim().toLowerCase();
-  const hit = !needle ? plugins : plugins.filter(p =>
-    (p.id || '').toLowerCase().includes(needle) ||
-    (p.description || '').toLowerCase().includes(needle));
-  const box = $('#plug-list');
-  if (!box) return;
-  box.innerHTML = hit.length
-    ? hit.slice(0, 60).map(window.__plugItem || (p => `
-        <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`)).join('')
-    : '<div class="empty">Ничего не найдено</div>';
 }
 
 // Запуск пресета из меню: тот же путь, что у кнопки «Запустить» на вкладке
@@ -412,9 +374,9 @@ async function openPluginDetail(id) {
     : '<span class="badge err">вне allow-list</span>'
       + (d.blocked_reason ? `<div class="hint">${esc(d.blocked_reason)}</div>` : '');
   const depsBlock = reqs.length
-    ? `<div class="prow2" style="margin-top:6px"><div><div class="pname mono">${reqs.map(esc).join('<br>')}</div>
-       <div class="pdesc">точные пины из манифеста — ставится только это</div></div>
-       <div class="pacts"><button class="mini" id="deps-install">установить</button></div></div>
+    ? `<div class="dbox"><div class="dlist">${reqs.map(esc).join('<br>')}</div>
+       <div class="dsub">точные пины из манифеста — ставится только это</div>
+       <button class="mini" id="deps-install">установить</button></div>
        <div class="hint" id="deps-status"></div>
        <pre class="jnl" id="deps-out" style="display:none;max-height:220px"></pre>`
     : '<div class="hint">Зависимостей не объявлено (runtime.requires пуст) — ставить нечего.</div>';
