@@ -101,7 +101,8 @@ async function init() {
   try {
     const h = await api('/api/health');
     $('#ver').textContent = 'v' + h.version;
-  } catch { $('#ver').textContent = 'оффлайн'; }
+    state.version = h.version;
+  } catch { $('#ver').textContent = 'оффлайн'; state.version = ''; }
   $('#tab-menu').onclick = () => setTab('menu');
   $('#tab-runs').onclick = () => setTab('runs');
   $('#tab-pipelines').onclick = () => setTab('pipelines');
@@ -146,6 +147,7 @@ async function renderMenu() {
 
   const cards = [];
   cards.push({
+    ic: '▶', tone: 'acc',
     k: 'Продолжить',
     d: lastRun
       ? `Ран «${lastRun.pipeline || lastRun.id}» — ${lastRun.status || '?'}. Открыть таймлайн, контекст и журнал.`
@@ -154,6 +156,7 @@ async function renderMenu() {
     act: () => { setTab('runs'); if (lastRun) openRunDetail(lastRun.id, true); },
   });
   cards.push({
+    ic: '+', tone: 'ok',
     k: 'Начать новый запуск',
     // count берём только если список действительно загружен: иначе на экране
     // появилось бы «из 0 пайплайнов» — правдоподобная, но ложная цифра.
@@ -165,6 +168,7 @@ async function renderMenu() {
     act: () => setTab('pipelines'),
   });
   cards.push({
+    ic: '▤', tone: 'par',
     k: 'Готовые сценарии',
     d: presets.available
       ? `${state.presets.length} пресетов из реестра с описанием. Открыть можно готовый или взять как основу.`
@@ -173,6 +177,7 @@ async function renderMenu() {
     act: () => {},
   });
   cards.push({
+    ic: '✎', tone: 'skip',
     k: 'Собрать пайплайн',
     d: 'Визуальный редактор: перетаскивание шагов, связи, входы, циклы и гейты. Round-trip через ядро, YAML не теряется.',
     go: 'открыть редактор →',
@@ -193,18 +198,46 @@ async function renderMenu() {
       </div>
     </div>`).join('');
 
-  const plugList = (plugins || []).slice(0, 24).map(p => `
-    <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`).join('');
+  const plugItem = p => {
+    const trusted = !!p.trusted;
+    const dot = trusted
+      ? '<span class="tdot ok" title="доверен: хэш содержимого в allow-list"></span>'
+      : `<span class="tdot" title="${esc(p.blocked_reason || 'вне allow-list — запуск только в песочнице')}"></span>`;
+    const net = (p.permissions && p.permissions.network && p.permissions.network.length)
+      ? '<span class="ptag net">net</span>' : '';
+    const aw = p.agent_written ? '<span class="ptag agent">агент</span>' : '';
+    return `<div class="plug"><div class="prow">${dot}<b>${esc(p.id)}</b>`
+      + `<span class="prt">${esc(p.runtime || '')}</span>${net}${aw}</div>`
+      + `<span>${esc((p.description || '').slice(0, 90))}</span></div>`;
+  };
+  const plugList = (plugins || []).slice(0, 24).map(plugItem).join('');
+  // expose для поиска без дублирования разметки
+  window.__plugItem = plugItem;
+
+  const trustedN = (plugins || []).filter(p => p.trusted).length;
+  const stat = (v, l) => `<span class="stat"><b>${v}</b>${l}</span>`;
+  const heroStats = stat(esc(state.version ? 'v' + state.version : '—'), 'ядро')
+    + stat(`${trustedN}/${plugins.length}`, 'доверенных')
+    + stat(`${state.presets.length}`, 'пресетов')
+    + stat(`${(runs || []).length}`, 'ранов');
 
   $('#menu').innerHTML = `
-    <p class="lead">С чего начать</p>
-    <p class="sub">WEDRA запускает плагины отдельными процессами и передаёт данные между шагами.
-      Выбери готовое, начни с нуля или открой редактор.</p>
+    <div class="hero">
+      <div class="htext">
+        <p class="lead">WEDRA · консоль контрактных цепочек</p>
+        <p class="sub">Плагины — отдельные процессы, данные — между шагами, человек — в гейте.
+          Выбери готовое, начни с нуля или открой редактор.</p>
+        <div class="hstats">${heroStats}</div>
+      </div>
+    </div>
     <div class="cards">${cards.map((c, i) => `
       <button class="card-btn" data-card="${i}">
-        <div class="k">${esc(c.k)}</div>
-        <div class="d">${esc(c.d)}</div>
-        <div class="go">${esc(c.go)}</div>
+        <span class="ic ${esc(c.tone || '')}">${esc(c.ic || '·')}</span>
+        <span class="cb">
+          <div class="k">${esc(c.k)}</div>
+          <div class="d">${esc(c.d)}</div>
+          <div class="go">${esc(c.go)}</div>
+        </span>
       </button>`).join('')}</div>
 
     <h4>Готовые сценарии${presets.available ? ` · реестр, ${plugins.length} плагинов` : ''}</h4>
@@ -212,7 +245,7 @@ async function renderMenu() {
       ? (presetRows || '<div class="empty">В реестре нет пресетов</div>')
       : '<div class="empty">Реестр недоступен — поставь WEDRA из исходников, чтобы увидеть пресеты</div>'}
 
-    <h4 style="margin-top:22px">Каталог плагинов · ${plugins.length}</h4>
+    <h4 style="margin-top:22px">Каталог плагинов · ${plugins.length} <span class="tsub">${trustedN} доверенных</span></h4>
     <input type="search" id="plug-search" placeholder="поиск по названию и описанию…" spellcheck="false"/>
     <div class="plugs" id="plug-list" style="margin-top:9px">${plugList || '<div class="empty">каталог пуст</div>'}</div>
     <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
@@ -241,8 +274,8 @@ function filterPlugins(q, plugins) {
   const box = $('#plug-list');
   if (!box) return;
   box.innerHTML = hit.length
-    ? hit.slice(0, 60).map(p => `
-        <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`).join('')
+    ? hit.slice(0, 60).map(window.__plugItem || (p => `
+        <div class="plug"><b>${esc(p.id)}</b><span>${esc((p.description || '').slice(0, 90))}</span></div>`)).join('')
     : '<div class="empty">Ничего не найдено</div>';
 }
 
