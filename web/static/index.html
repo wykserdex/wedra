@@ -54,17 +54,15 @@
   .badge.skip{color:var(--skip);border-color:rgba(193,154,74,.45)}
   @keyframes pulse{50%{opacity:.45}}
   nav{display:flex;gap:20px;align-self:stretch;margin-left:6px}
-  nav button{all:unset;cursor:pointer;display:flex;align-items:center;
+  nav button,nav a{all:unset;cursor:pointer;display:flex;align-items:center;
     font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--ash);
-    margin-bottom:-1px;border-bottom:1px solid transparent;padding:0 1px}
-  nav button:hover{color:var(--bone)}
-  nav button.active{color:var(--bone);border-bottom-color:var(--bone)}
-  /* ссылки на соседние инструменты: редактор и артефакты — ровни, а не
-     подстраницы друг друга */
-  header .links{display:flex;gap:16px;align-items:center;margin-left:auto}
-  a.link{color:var(--ash);text-decoration:none;font-size:11px;letter-spacing:.08em;
-    text-transform:uppercase;white-space:nowrap}
-  a.link:hover{color:var(--bone)}
+    margin-bottom:-1px;border-bottom:1px solid transparent;padding:0 1px;
+    text-decoration:none}
+  nav button:hover,nav a:hover{color:var(--bone)}
+  nav button.active,nav a.active{color:var(--bone);border-bottom-color:var(--bone)}
+  /* делитель между разделами этой страницы и соседними инструментами: и те и
+     другие — равноправные разделы, но у первых переключение мгновенное */
+  nav .div{width:1px;background:var(--hair);margin:9px 0 8px;flex:none}
 
   main{display:grid;grid-template-columns:minmax(300px,340px) 1fr;height:calc(100vh - var(--hdr))}
   aside{border-right:1px solid var(--hair);overflow-y:auto;background:var(--ink)}
@@ -347,7 +345,7 @@
   .cards .card-btn:nth-child(3){animation-delay:.09s}
   .cards .card-btn:nth-child(4){animation-delay:.135s}
 
-  nav button,a.link,.btn,button.primary,.mini,.sectbtn,.autochip,.rtabs button,
+  nav button,nav a,.btn,button.primary,.mini,.sectbtn,.autochip,.rtabs button,
   select,input[type=search],.run-item,.pitem,.plug,.card-btn,.badge,.tl .ev{
     transition:color .16s ease,background-color .16s ease,border-color .16s ease,
       box-shadow .18s ease,transform .18s ease,opacity .16s ease}
@@ -385,11 +383,10 @@
     <button id="tab-runs">Раны</button>
     <button id="tab-pipelines">Пайплайны</button>
     <button id="tab-plugins">Плагины</button>
+    <span class="div"></span>
+    <a href="/editor/">Редактор</a>
+    <a href="/artifacts/">Артефакты</a>
   </nav>
-  <span class="links">
-    <a class="link" href="/editor/">редактор →</a>
-    <a class="link" href="/artifacts/">артефакты →</a>
-  </span>
 </header>
 
 <main>

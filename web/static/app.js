@@ -114,8 +114,15 @@ async function init() {
   // v0.35: по умолчанию — главное меню, а не список ранов: первый вопрос
   // новичка «с чего начать», и ответ на него должен быть на экране.
   const runParam = new URLSearchParams(location.search).get('run');
+  // Разделы консоли — вкладки одной страницы, поэтому из редактора и режима
+  // артефактов на них приходится приходить адресом: /#runs открывает «Раны».
+  const hash = (location.hash || '').replace('#', '');
   if (runParam) { setTab('runs'); openRunDetail(runParam, true); }
-  else { setTab('menu'); renderMenu(); }
+  else if (['runs', 'pipelines', 'plugins', 'menu'].includes(hash)) {
+    setTab(hash);
+    if (hash === 'menu') renderMenu();
+    else if (hash === 'plugins') loadPluginsTab();
+  } else { setTab('menu'); renderMenu(); }
 }
 
 function setTab(t) {

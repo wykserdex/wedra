@@ -50,6 +50,15 @@
   a.link{color:var(--ash);text-decoration:none;font-size:10.5px;letter-spacing:.12em;
     text-transform:uppercase;white-space:nowrap}
   a.link:hover{color:var(--bone)}
+  /* Разделы консоли одной строкой: редактор — не ссылка в углу, а такая же
+     вкладка, как «Раны» или «Артефакты». */
+  nav.sec{margin-left:auto;display:flex;gap:16px;align-self:stretch;flex:none}
+  nav.sec a{color:var(--ash);text-decoration:none;font-size:10px;letter-spacing:.13em;
+    text-transform:uppercase;white-space:nowrap;display:flex;align-items:center;
+    margin-bottom:-1px;border-bottom:1px solid transparent}
+  nav.sec a:hover{color:var(--bone)}
+  nav.sec a.active{color:var(--bone);border-bottom-color:var(--bone)}
+  nav.sec .div{width:1px;background:var(--hair);margin:9px 0 8px;flex:none}
   button{background:transparent;color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);
     padding:5px 11px;cursor:pointer;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
     font-family:inherit;white-space:nowrap}
@@ -256,8 +265,15 @@
   <button id="btn-save" class="primary">Сохранить</button>
   <button id="btn-run">▶ Запустить</button>
   <span id="save-status" class="badge"></span>
-  <a class="link" href="/artifacts/" style="margin-left:auto">Режим артефактов →</a>
-  <a class="link" href="/">← консоль</a>
+  <nav class="sec">
+    <a href="/#menu">Главная</a>
+    <a href="/#runs">Раны</a>
+    <a href="/#pipelines">Пайплайны</a>
+    <a href="/#plugins">Плагины</a>
+    <span class="div"></span>
+    <a class="active" href="/editor/">Редактор</a>
+    <a href="/artifacts/">Артефакты</a>
+  </nav>
 </header>
 <div id="app">
   <aside id="palette">
@@ -277,11 +293,11 @@
   <div id="canvas-wrap"><div id="canvas">
     <svg id="edges"></svg>
     <div id="canvas-hint">
-      <b>Связи — протяжкой, как в канвасе.</b> Зажми на выходе шага
+      <b>Связи — протяжкой, как в канвасе.</b> Захми на выходе шага
       (например <span style="font-family:var(--mono)">words</span>), веди линию к
-      другому шагу и отпусти на поле входа — ребро появится само, имя поля вводить
-      не надо. Зажми на самом узле: выход выберется сам, а если вариантов
-      несколько, сверху выпадут пары, между которыми достаточно щёлкнуть.
+      другому шагу и отпусти — ребро появится само, имя поля вводить не надо.
+      Захми на самом узле: свяжется с первым выходом и с тем полем входа, куда
+      ещё никто не входил.
       <span style="opacity:.75">Можно и двумя щелчками: выход, потом поле входа.</span>
     </div>
   </div></div>
