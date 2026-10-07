@@ -413,7 +413,45 @@ async function applyPreset(file, inputName, pre) {
       if (!st.id) st.id = st.plugin.split(/[\\/]/).pop().replace(/[^\w]/g, '_') + '_' + (i + 1);
     });
     state.doc.steps = doc.steps;
+    // Управляющий поток сценария ОБЯЗАТЕЛЕН, а не украшение: в csv_foreach
+    // foreach_item = row, и поля внутри цикла пишутся как input.row.name.
+    // Сборщик цепочки их терял, и на холсте появлялись стрелки в никуда, а
+    // валидатор писал «в input пайплайна нет поля row»: переменная цикла не
+    // вход, а имя элемента foreach.
     if (doc.gates) state.doc.gates = doc.gates;
+    state.doc.foreach = doc.foreach || '';
+    state.doc.foreach_item = doc.foreach_item || '';
+    state.doc.item_type = doc.item_type || '';
+    state.doc.item_format = doc.item_format || '';
+    // ссылки input.X создаём входами, кроме переменной цикла — она не вход
+    const loopVar = String(doc.foreach_item || '');
+    const wanted = new Map();
+    for (const st of doc.steps) {
+      const ins = (pluginInfo(st.plugin) || {}).input || {};
+      for (const [field, src] of Object.entries(st.bind || {})) {
+        // ловим и вложенные ссылки вида input.row.name: первый сегмент — это
+        // всё равно поле верхнего уровня, которое надо создать
+        const m = String(src || '').match(/^input\.([\w-]+)/);
+        if (m) wanted.set(m[1], ins[field] || null);
+      }
+    }
+    const have = new Set(state.doc.input.map(i => i.name));
+    let added = 0;
+    for (const [nm, spec] of wanted) {
+      if (have.has(nm) || nm === loopVar) continue;
+      // создаём по образцу принимающего поля: строковый вход без format в
+      // поле с format: text ядро справедливо не принимает («формат источника
+      // "" не покрывает "text"»)
+      state.doc.input.push({
+        name: nm,
+        default: '',
+        typed: false,
+        type: (spec && spec.type) || 'string',
+        ...(spec && spec.format ? { format: spec.format } : {}),
+        has_default: true,
+      });
+      added++;
+    }
     const first = doc.steps[0];
     const key = pre ? pre.field : Object.keys((pluginInfo(first.plugin) || {}).input || {})[0];
     if (key) {
@@ -422,9 +460,10 @@ async function applyPreset(file, inputName, pre) {
     }
     setLayer('pipeline');
     renderAll();
-    note(key
-      ? 'сценарий ' + file + ': вход → ' + first.id + '.' + key
-      : 'сценарий ' + file + ' собран; вход подключи справа у поля', !key);
+    const missing = added;
+    note('сценарий ' + file + ': вход → ' + first.id + '.' + key
+      + (missing ? '; добавлено входов: ' + missing : '')
+      + (loopVar ? '; цикл по элементу «' + loopVar + '»' : ''));
   } catch (e) {
     note('сценарий не собран: ' + (e.message || e), true);
   }
@@ -1019,6 +1058,7 @@ function renderEdges() {
     return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
   };
   let s = '';
+  let stubs = ''; // подписанные начала связей input.* — они с другого слоя
   for (const st of state.doc.steps) {
     for (const [field, src] of Object.entries(st.bind || {})) {
       if (!src) continue;
@@ -1043,14 +1083,22 @@ function renderEdges() {
           x1 = sRect.right - cRect.left + 4; y1 = sRect.top - cRect.top + sRect.height / 2;
         }
       } else {
-        ok = false; // input.* — рисуем с левого края холста
-        x1 = 8; y1 = y2 - 14;
+        // input.* — вход живёт на другом слое, поэтому линия начинается у левого
+        // края. Раньше она начиналась в ничем, и на экране это выглядело как
+        // стрелки из пустоты. Теперь у начала стоит подписанная точка с именем
+        // входа: видно, откуда связь и что это вход, а не оставшийся рёбер.
+        const im = String(src).match(/^input\.([\w-]+)/);
+        ok = false;
+        x1 = 96; y1 = y2;
+        const lbl = esc(im ? im[1] : String(src));
+        stubs += `<circle cx="10" cy="${y2}" r="3" fill="#c9482f"/>`
+          + `<text x="18" y="${y2 + 3.5}" class="estub">${lbl}</text>`;
       }
       s += `<path class="edge${ok ? '' : ' hi'}" d="${path(x1, y1, x2, y2)}"`
         + ` marker-end="url(#${ok ? 'edge-arr' : 'edge-arr-hi'})"/>`;
     }
   }
-  svg.innerHTML = EDGE_DEFS + s;
+  svg.innerHTML = EDGE_DEFS + stubs + s;
   // Резиновая линия протяжки живёт в этом же svg, а innerHTML его снёс.
   // Восстанавливаем, если протяжка ещё идёт.
   drawGhost();
@@ -1597,6 +1645,15 @@ function setLayer(l) {
 
 function renderAll() {
   const onInputs = state.layer === 'inputs';
+  // Слои обязаны быть видно раздельно, а не «примерно». Переключение слоя не
+  // очищало старые узлы: на слое вход продолжал лежать шаг, и два слоя
+  // выглядели смешанными — ровно то, от чего мы уходили.
+  const canvas = $('#canvas');
+  if (canvas) {
+    canvas.querySelectorAll('.node').forEach(n => n.remove());
+    const svg = $('#edges');
+    if (svg) svg.innerHTML = '';
+  }
   if (!onInputs) {
     renderNodes();
     renderEdges();
