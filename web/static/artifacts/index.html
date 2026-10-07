@@ -5,105 +5,174 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>WEDRA — режим артефактов</title>
 <style>
+  /* Третий экран — тот же язык: чернила, костяная бумага, один акцент.
+     Здесь акцент тратится на «горячее» в подборе цепочки: точное совпадение
+     типа, чужая зависимость и активный шаг. ───────────────────────────── */
   :root{
-    --bg0:#0d1117;--bg1:#161b22;--bg2:#1c2128;--bg3:#21262d;--line:#30363d;
-    --tx:#e6edf3;--dim:#8b949e;--acc:#58a6ff;--ok:#3fb950;--err:#f85149;--warn:#d29922;--par:#bc8cff;
+    --ink:#0b0b0c; --ink2:#131314; --ink3:#1a1a1c; --ink4:#222224;
+    --sunken:#070708;
+    --bone:#e9e5dd; --ash:#8d8981; --faint:#5c5955;
+    --hair:rgba(233,229,221,.11); --hair2:rgba(233,229,221,.20);
+    --acc:#e9e5dd; --ver:#c9482f; --warn:#c19a4a;
+    --ok:#8ea07c; --err:#cf5344; --par:#9b8cb8;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:2px; --hdr:46px;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg0);color:var(--tx);
-    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  header{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg1);
-    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
-  header h1{font-size:15px;margin:0;font-weight:600}
-  header .sub{color:var(--dim);font-size:11px}
+  body{margin:0;background:var(--ink);color:var(--bone);
+    font:13px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cfilter%20id='g'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='4'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='180'%20height='180'%20filter='url(%23g)'/%3E%3C/svg%3E")}
+  ::selection{background:rgba(201,72,47,.35)}
+  *{scrollbar-width:thin;scrollbar-color:#3a3936 transparent}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2c2b29;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#454340;background-clip:content-box}
+  :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
+
+  header{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
+    background:linear-gradient(180deg,#101011,var(--ink));border-bottom:1px solid var(--hair);
+    position:sticky;top:0;z-index:10;flex-wrap:nowrap;overflow-x:auto}
+  header h1{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:16px;
+    margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase}
+  header h1 .mark{display:inline-flex;opacity:.9}
+  header h1 .mark svg{display:block}
+  header .sub{color:var(--ash);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase}
   .spacer{margin-left:auto}
-  a.link{color:var(--acc);text-decoration:none;font-size:12px}
-  a.link:hover{text-decoration:underline}
+  a.link{color:var(--ash);text-decoration:none;font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;white-space:nowrap}
+  a.link:hover{color:var(--bone)}
 
-  /* Два режима — две страницы. Здесь только артефакты, ничего от редактора. */
-  .tabs{display:flex;gap:6px;margin-left:14px}
-  .tab{font-size:12px;padding:4px 11px;border-radius:14px;border:1px solid var(--line);
-    color:var(--dim);text-decoration:none}
-  .tab.on{background:var(--bg3);color:var(--tx);border-color:var(--acc)}
+  /* Переключатель режимов — текстом с подчёркиванием, а не «таблетками» */
+  .tabs{display:flex;gap:18px;align-self:stretch;margin-left:8px}
+  .tab{display:flex;align-items:center;font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--ash);text-decoration:none;margin-bottom:-1px;border-bottom:1px solid transparent;
+    padding:0 1px;white-space:nowrap}
+  .tab:hover{color:var(--bone)}
+  .tab.on{color:var(--bone);border-bottom-color:var(--bone)}
 
-  main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:16px;padding:16px;align-items:start}
+  main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:18px;padding:20px;
+    align-items:start;max-width:1500px;margin:0 auto}
   @media (max-width:900px){main{grid-template-columns:1fr}}
-  .card{background:var(--bg1);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .card h2{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
-  .card p.hint{margin:0 0 10px;color:var(--dim);font-size:12px;line-height:1.5}
+  .card{background:var(--ink2);border:1px solid var(--hair);border-radius:var(--r);padding:16px}
+  .card h2{margin:0 0 6px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+    font-weight:500;display:flex;align-items:center;gap:9px}
+  .card h2::after{content:"";height:1px;flex:1;background:var(--hair)}
+  .card p.hint{margin:0 0 13px;color:var(--ash);font-size:12px;line-height:1.65}
 
-  /* зона загрузки */
-  #drop{border:2px dashed var(--line);border-radius:10px;padding:22px 14px;text-align:center;
-    color:var(--dim);cursor:pointer;transition:.12s}
-  #drop:hover,#drop.over{border-color:var(--acc);color:var(--tx);background:rgba(88,166,255,.06)}
-  #drop b{color:var(--tx)}
+  #drop{border:1px dashed var(--hair2);border-radius:var(--r);padding:26px 14px;text-align:center;
+    color:var(--ash);cursor:pointer;transition:border-color .12s,background .12s,color .12s;
+    background:var(--sunken)}
+  #drop:hover,#drop.over{border-color:var(--ver);color:var(--bone);background:rgba(201,72,47,.05)}
+  #drop b{color:var(--bone);font-weight:600}
   input[type=file]{display:none}
 
-  .alist{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-  .a{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);
-    border:1px solid var(--line);border-radius:8px}
-  .a.on{border-color:var(--acc);background:rgba(88,166,255,.08)}
-  .a .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+  .alist{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .a{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--ink3);
+    border:1px solid var(--hair);border-left:2px solid var(--hair2);border-radius:var(--r)}
+  .a.on{border-left-color:var(--ver);background:var(--ink4)}
+  .a .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  .a .sz{color:var(--dim);font-size:11px;white-space:nowrap}
-  .a .in{font-family:var(--mono);font-size:10px;color:var(--acc);white-space:nowrap}
+  .a .sz{color:var(--faint);font-size:10.5px;white-space:nowrap;font-family:var(--mono)}
+  .a .in{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--par);white-space:nowrap}
 
-  button{background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:7px;
-    padding:6px 11px;font-size:12px;cursor:pointer;font-family:inherit}
-  button:hover{border-color:var(--acc)}
-  button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
-  button:disabled{opacity:.5;cursor:default}
+  button{background:transparent;color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);
+    padding:6px 12px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;
+    font-family:inherit}
+  button:hover{border-color:var(--bone)}
+  button.primary{background:var(--bone);border-color:var(--bone);color:var(--ink);font-weight:600}
+  button.primary:hover{background:#fff;border-color:#fff}
+  button:disabled{opacity:.4;cursor:default}
 
-  input[type=text],input[type=search]{background:var(--bg0);color:var(--tx);border:1px solid var(--line);
-    border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--mono);width:100%}
+  input[type=text],input[type=search]{background:var(--sunken);color:var(--bone);border:1px solid var(--hair);
+    border-radius:var(--r);padding:7px 10px;font-size:12px;font-family:var(--mono);width:100%}
+  input[type=text]:focus,input[type=search]:focus{outline:none;border-color:var(--ver)}
+  input::placeholder{color:var(--faint)}
 
-  /* цепочка */
+  /* Цепочка: шаги пронумерованы и соединены нитью, как список в блокноте */
   .chain{display:flex;flex-direction:column;gap:0}
-  .cstep{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--bg2);
-    border:1px solid var(--line);border-radius:8px}
-  .cstep .idx{width:20px;height:20px;border-radius:50%;background:var(--bg3);color:var(--dim);
-    display:grid;place-items:center;font-size:10px;flex:none}
-  .cstep .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+  .cstep{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--ink3);
+    border:1px solid var(--hair);border-left:2px solid var(--hair2);border-radius:var(--r)}
+  .cstep .idx{width:20px;height:20px;border-radius:50%;background:var(--sunken);color:var(--faint);
+    display:grid;place-items:center;font-size:10px;flex:none;font-family:var(--mono);
+    border:1px solid var(--hair2)}
+  .cstep .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .cstep .bind{font-family:var(--mono);font-size:10px;color:var(--par);white-space:nowrap}
-  .cstep .rm{background:none;border:none;color:var(--dim);padding:0 4px;font-size:15px;cursor:pointer}
-  .cstep .rm:hover{color:var(--err)}
-  .cstep .miss{font-size:10px;color:var(--warn);white-space:nowrap}
-  .cstep .amb{font-size:10px;color:var(--acc);white-space:nowrap}
+  .cstep .rm{background:none;border:none;color:var(--faint);padding:0 4px;font-size:15px;cursor:pointer;
+    letter-spacing:0}
+  .cstep .rm:hover{color:var(--err);border:none}
+  .cstep .miss{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);white-space:nowrap}
+  .cstep .amb{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ver);white-space:nowrap}
   .cstep .pick{font-family:var(--mono);font-size:10px;padding:1px 7px;margin:0 2px;
-    border-radius:9px;line-height:1.5}
-  .carrow{height:14px;margin-left:31px;border-left:2px dotted var(--line)}
+    border:1px solid var(--hair2);border-radius:var(--r);line-height:1.5;color:var(--bone);
+    background:var(--sunken)}
+  .carrow{height:16px;margin-left:32px;border-left:1px dashed var(--hair2)}
 
-  .pluglist{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto;margin-top:8px}
-  .plug{display:flex;align-items:center;gap:9px;padding:7px 10px;background:var(--bg2);
-    border:1px solid var(--line);border-radius:7px;cursor:pointer;text-align:left;width:100%}
-  .plug:hover{border-color:var(--acc)}
-  .plug .nm{font-family:var(--mono);font-size:12px;flex:1;min-width:0;overflow:hidden;
+  .pluglist{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto;margin-top:10px}
+  .plug{display:flex;align-items:center;gap:10px;padding:8px 11px;background:var(--ink3);
+    border:1px solid var(--hair);border-radius:var(--r);cursor:pointer;text-align:left;width:100%;
+    font-family:inherit;letter-spacing:0;text-transform:none;font-size:12px}
+  .plug:hover{border-color:var(--hair2);background:var(--ink4)}
+  .plug .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  .plug .why{font-size:10px;color:var(--dim);white-space:nowrap;font-family:var(--mono)}
-  .tag{font-size:9px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);
-    color:var(--dim);white-space:nowrap}
-  .tag.file{border-color:var(--ok);color:var(--ok)}
-  .tag.exact{border-color:var(--acc);color:var(--acc)}
-  .tag.any{border-color:var(--warn);color:var(--warn)}
-  .tag.ext{border-color:var(--err);color:var(--err)}
+  .plug .why{font-size:10px;color:var(--faint);white-space:nowrap;font-family:var(--mono)}
+  .tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:1px 6px;
+    border:1px solid var(--hair2);border-radius:var(--r);color:var(--faint);white-space:nowrap;flex:none}
+  .tag.file{border-color:rgba(142,160,124,.5);color:var(--ok)}
+  .tag.exact{border-color:var(--ver);color:var(--ver)}
+  .tag.any{border-color:rgba(193,154,74,.5);color:var(--warn)}
+  .tag.ext{border-color:rgba(207,83,68,.5);color:var(--err)}
   .extw{font-size:10px;color:var(--err);white-space:nowrap}
 
-  .empty{color:var(--dim);font-size:12px;padding:10px 0}
-  #status{margin-top:10px;padding:7px 10px;border-radius:7px;font-size:12px;
-    background:var(--bg2);border:1px solid var(--line);min-height:18px}
+  .empty{color:var(--faint);font-size:12.5px;padding:14px 0;line-height:1.7}
+  #status{margin-top:12px;padding:8px 11px;border-radius:var(--r);font-size:12px;
+    background:var(--sunken);border:1px solid var(--hair);min-height:18px}
   #status:empty{display:none}
-  #status.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
-  #status.err{color:var(--err);border-color:rgba(248,81,73,.4)}
-  #status.busy{color:var(--acc);border-color:rgba(88,166,255,.4)}
-  pre#out{background:var(--bg0);border:1px solid var(--line);border-radius:8px;padding:10px;
-    font-family:var(--mono);font-size:11px;overflow:auto;max-height:280px;margin:10px 0 0;white-space:pre-wrap}
+  #status.ok{color:var(--ok);border-color:rgba(142,160,124,.4)}
+  #status.err{color:var(--err);border-color:rgba(207,83,68,.4)}
+  #status.busy{color:var(--bone);border-color:var(--ver)}
+  pre#out{background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);padding:11px;
+    font-family:var(--mono);font-size:11px;overflow:auto;max-height:280px;margin:12px 0 0;
+    white-space:pre-wrap;color:#c6c2ba;line-height:1.6}
+
+  /* ── переходы ───────────────────────────────────────────────────────────
+     Цепочка и список плагинов перерисовываются при каждом изменении выбора,
+     поэтому у шагов — только transition. Анимируется то, что появляется на
+     действие: ответ сервера, выгрузка YAML, состояние перетаскивания. ── */
+  @keyframes pageIn{from{opacity:0}to{opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  body{animation:pageIn .3s ease-out}
+  #status,#out,.empty{animation:fadeIn .28s ease-out}
+  button,a.link,.tab,.plug,.a,.cstep,.tag{
+    transition:color .16s ease,background-color .16s ease,border-color .16s ease,
+      box-shadow .18s ease,opacity .16s ease}
+  #drop{transition:border-color .16s ease,color .16s ease,background-color .16s ease}
+  .a,.cstep{transition:border-color .16s ease,background-color .16s ease}
+
+  /* подчёркивание активного режима растягивается под ним */
+  .tab{position:relative}
+  .tab::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:var(--bone);transform:scaleX(0);transform-origin:left center;
+    transition:transform .24s cubic-bezier(.22,.61,.36,1)}
+  .tab.on{border-bottom-color:transparent}
+  .tab.on::after{transform:scaleX(1)}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
+      transition-duration:.001s!important}
+  }
+</style>
+</head>
 </style>
 </head>
 <body>
 <header>
-  <h1>WEDRA</h1>
+  <h1><span class="mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 20 20"><path d="M10 1.5v17" stroke="currentColor" stroke-width="1.1"/><path d="M9.4 6.2 2.5 2.8l1.9 4.6zM9.4 12 2.5 8.6l1.9 4.6zM10.6 6.2l6.9-3.4-1.9 4.6zM10.6 12l6.9-3.4-1.9 4.6z" fill="currentColor"/></svg></span>WEDRA</h1>
   <span class="sub">режим артефактов</span>
   <nav class="tabs">
     <a class="tab" href="/editor/">Редактор пайплайнов</a>

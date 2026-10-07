@@ -153,17 +153,15 @@ function sessionOverlay() {
   if (document.getElementById('wedra-session-box')) return;
   const box = document.createElement('div');
   box.id = 'wedra-session-box';
-  box.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,.94);display:flex;align-items:center;justify-content:center;z-index:9999';
+  // стили — в editor/index.html (#wedra-session-box): разметка не тащит цвета в JS
   box.innerHTML =
-    '<div style="background:#161b22;border:1px solid #2d333b;border-radius:10px;padding:24px;max-width:440px;font-family:system-ui,sans-serif">' +
-    '<h2 style="margin:0 0 10px;font-size:15px;color:#e6edf3">Вход в WEDRA</h2>' +
-    '<p style="color:#8b949e;font-size:13px;line-height:1.6;margin:0 0 14px">' +
-    'Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
+    '<div class="sbox">' +
+    '<h2>Вход в WEDRA</h2>' +
+    '<p>Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
     'обменяется на cookie, и редактор перезагрузится сам.</p>' +
-    '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" ' +
-    'style="width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #2d333b;border-radius:6px;padding:9px 11px;font-family:ui-monospace,monospace;font-size:14px"/>' +
-    '<div id="wedra-code-err" style="color:#f85149;font-size:12px;margin-top:8px;min-height:16px"></div>' +
-    '<button id="wedra-code-go" style="margin-top:10px;width:100%;background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:9px;font-size:14px;cursor:pointer">Войти</button>' +
+    '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off"/>' +
+    '<div id="wedra-code-err" class="serr"></div>' +
+    '<button id="wedra-code-go">Войти</button>' +
     '</div>';
   document.body.appendChild(box);
   const input = box.querySelector('#wedra-code');
@@ -634,6 +632,28 @@ function renderLinkBar() {
   if (link) $('#link-src').textContent = link.label || link.value;
 }
 
+// Маркеры-стрелки едут вместе с рёбрами: `svg.innerHTML = s` ниже сносит
+// содержимое #edges целиком, поэтому <defs>, объявленные в HTML, исчезали бы
+// после первого же рендера.
+const EDGE_DEFS =
+  '<defs>' +
+  '<marker id="edge-arr" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="6.5" markerHeight="6.5" orient="auto">' +
+  '<path d="M0.5,0.5 L8.5,4.5 L0.5,8.5 z" fill="rgba(233,229,221,.55)"/></marker>' +
+  '<marker id="edge-arr-hi" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="6.5" markerHeight="6.5" orient="auto">' +
+  '<path d="M0.5,0.5 L8.5,4.5 L0.5,8.5 z" fill="#9b8cb8"/></marker>' +
+  '</defs>';
+
+// edgesTouch — есть ли у шага хоть одно ребро: входящее (его bind ссылается на
+// другой шаг или на input.*) или исходящее (на него ссылается чужой bind).
+// Если рёбер нет, при перетаскивании пересчитывать нечего.
+function edgesTouch(id) {
+  const self = state.doc.steps.find(s => s.id === id);
+  if (self && Object.values(self.bind || {}).some(v => v)) return true;
+  const tag = `steps.${id}.`;
+  return state.doc.steps.some(s =>
+    Object.values(s.bind || {}).some(v => String(v || '').startsWith(tag)));
+}
+
 function renderEdges() {
   const svg = $('#edges');
   const cRect = $('#canvas').getBoundingClientRect();
@@ -649,7 +669,14 @@ function renderEdges() {
       const dstEl = document.querySelector(`.node[data-id="${st.id}"] .inrow[data-field="${field}"]`);
       if (!dstEl) continue;
       const dRect = dstEl.getBoundingClientRect();
-      const x2 = dRect.left - cRect.left - 4, y2 = dRect.top - cRect.top + dRect.height / 2;
+      // Точка входа — левый край шага, а не строка поля внутри него: узел
+      // непрозрачный и нарисован поверх рёбер, поэтому конец линии (и стрелка)
+      // в поле входа целиком уходили под корпус, и связь была видна только
+      // обрывком в зазоре между шагами. По y остаётся центр поля входа — по
+      // нему и видно, в какое именно поле пришла связь.
+      const dstNode = dstEl.closest('.node');
+      const nRect = dstNode ? dstNode.getBoundingClientRect() : dRect;
+      const x2 = nRect.left - cRect.left - 6, y2 = dRect.top - cRect.top + dRect.height / 2;
       let x1 = 0, y1 = 0, ok = true;
       if (m) {
         const chip = document.querySelector(`.node[data-id="${m[1]}"] .outchip[data-out="${m[2]}"]`);
@@ -662,10 +689,11 @@ function renderEdges() {
         ok = false; // input.* — рисуем с левого края холста
         x1 = 8; y1 = y2 - 14;
       }
-      s += `<path class="edge${ok ? '' : ' hi'}" d="${path(x1, y1, x2, y2)}"/>`;
+      s += `<path class="edge${ok ? '' : ' hi'}" d="${path(x1, y1, x2, y2)}"`
+        + ` marker-end="url(#${ok ? 'edge-arr' : 'edge-arr-hi'})"/>`;
     }
   }
-  svg.innerHTML = s;
+  svg.innerHTML = EDGE_DEFS + s;
   // Резиновая линия протяжки живёт в этом же svg, а innerHTML его снёс.
   // Восстанавливаем, если протяжка ещё идёт.
   drawGhost();
@@ -1246,11 +1274,24 @@ function startNodeDrag(e, st) {
   const startX = e.clientX, startY = e.clientY;
   const ox = st.pos[0], oy = st.pos[1];
   let moved = false;
+  // Рёбра цепляются к узлу живьём. Раньше при протяжке менялись только
+  // left/top самого узла, а renderEdges() вызывался лишь на отпускании:
+  // линия всё время перетаскивания стояла на старом месте и «отрывалась» от
+  // шага. Рисуем не чаще кадра — mousemove приходит чаще, чем браузер рисует.
+  const hasEdges = edgesTouch(st.id);
+  let frame = 0;
+  const scheduleEdges = () => {
+    if (frame) return;
+    frame = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame(() => { frame = 0; renderEdges(); })
+      : setTimeout(() => { frame = 0; renderEdges(); }, 16);
+  };
   const mm = ev => {
     const dx = ev.clientX - startX, dy = ev.clientY - startY;
     if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
     node.style.left = (ox + dx) + 'px';
     node.style.top = (oy + dy) + 'px';
+    if (hasEdges) scheduleEdges();
   };
   const mu = ev => {
     document.removeEventListener('mousemove', mm);

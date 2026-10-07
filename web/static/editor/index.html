@@ -5,139 +5,259 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>WEDRA — редактор пайплайнов</title>
 <style>
+  /* Тот же язык, что и у консоли: чернила и костяная бумага с баннера,
+     один цветной акцент (--ver) — только там, где интерфейс «живой»:
+     связывание шагов, ожидание человека, ошибка. ─────────────────────── */
   :root{
-    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2330; --line:#2d333b;
-    --tx:#e6edf3; --dim:#8b949e; --acc:#58a6ff;
-    --ok:#3fb950; --err:#f85149; --skip:#d29922; --par:#bc8cff;
+    --ink:#0b0b0c; --ink2:#131314; --ink3:#1a1a1c; --ink4:#222224;
+    --sunken:#070708;
+    --bone:#e9e5dd; --ash:#8d8981; --faint:#5c5955;
+    --hair:rgba(233,229,221,.11); --hair2:rgba(233,229,221,.20);
+    --acc:#e9e5dd; --ver:#c9482f;
+    --ok:#8ea07c; --err:#cf5344; --skip:#c19a4a; --par:#9b8cb8;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:2px; --hdr:46px;
   }
   *{box-sizing:border-box}
-  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--tx);font-size:14px}
-  header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg2);flex-wrap:wrap}
-  header h1{font-size:14px;margin:0;font-weight:600;white-space:nowrap}
-  header h1 .dim{color:var(--dim);font-weight:400}
-  .badge:empty{display:none} /* пустой бейдж рисовал рамку-кружок в шапке */
-  .badge{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--dim);font-family:var(--mono);white-space:nowrap}
-  .badge.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
-  .badge.err{color:var(--err);border-color:rgba(248,81,73,.4)}
-  .badge.run{color:var(--acc);border-color:rgba(88,166,255,.4)}
-  a.link{color:var(--dim);text-decoration:none;font-size:12px}
-  a.link:hover{color:var(--acc)}
-  button{background:var(--bg3);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;font-size:12px}
-  button:hover{border-color:var(--acc)}
-  button.primary{background:#1f6feb;border-color:#1f6feb;font-weight:600}
-  button:disabled{opacity:.45;cursor:default}
-  input,select,textarea{background:#0a0d12;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;font-family:var(--mono)}
-  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
-  #app{display:grid;grid-template-columns:270px 1fr 340px;height:calc(100vh - 45px)}
-  aside{overflow-y:auto;padding:12px}
-  #palette{border-right:1px solid var(--line)}
-  #props{border-left:1px solid var(--line)}
-  aside h3{margin:14px 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);font-size:13px;
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cfilter%20id='g'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='4'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='180'%20height='180'%20filter='url(%23g)'/%3E%3C/svg%3E")}
+  ::selection{background:rgba(201,72,47,.35)}
+  *{scrollbar-width:thin;scrollbar-color:#3a3936 transparent}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#2c2b29;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#454340;background-clip:content-box}
+  :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
+
+  header{display:flex;align-items:center;gap:10px;height:var(--hdr);padding:0 14px;
+    border-bottom:1px solid var(--hair);background:linear-gradient(180deg,#101011,var(--ink));
+    flex-wrap:nowrap;overflow-x:auto}
+  header h1{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-size:16px;
+    margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap}
+  header h1 .mark{display:inline-flex;opacity:.9}
+  header h1 .mark svg{display:block}
+  header h1 .dim{font-family:var(--sans);font-size:11px;font-weight:400;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ash)}
+  .badge:empty{display:none}
+  .badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:1px 7px;
+    border:1px solid var(--hair2);border-radius:var(--r);color:var(--ash);white-space:nowrap}
+  .badge.ok{color:var(--ok);border-color:rgba(142,160,124,.45)}
+  .badge.err{color:var(--err);border-color:rgba(207,83,68,.45)}
+  .badge.run{color:var(--ver);border-color:rgba(201,72,47,.5)}
+  a.link{color:var(--ash);text-decoration:none;font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;white-space:nowrap}
+  a.link:hover{color:var(--bone)}
+  button{background:transparent;color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);
+    padding:5px 11px;cursor:pointer;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    font-family:inherit;white-space:nowrap}
+  button:hover{border-color:var(--bone)}
+  button.primary{background:var(--bone);border-color:var(--bone);color:var(--ink);font-weight:600}
+  button.primary:hover{background:#fff;border-color:#fff}
+  button:disabled{opacity:.4;cursor:default}
+  input,select,textarea{background:var(--sunken);color:var(--bone);border:1px solid var(--hair2);
+    border-radius:var(--r);padding:6px 8px;font-size:12px;font-family:var(--mono)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ver)}
+  input::placeholder,textarea::placeholder{color:var(--faint)}
+  input[type=checkbox]{accent-color:var(--ver);width:auto}
+
+  #app{display:grid;grid-template-columns:270px 1fr 340px;height:calc(100vh - var(--hdr))}
+  aside{overflow-y:auto;padding:14px}
+  #palette{border-right:1px solid var(--hair)}
+  #props{border-left:1px solid var(--hair)}
+  aside h3{margin:20px 0 10px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--faint);font-weight:500;display:flex;align-items:center;gap:8px}
+  aside h3::after{content:"";height:1px;flex:1;background:var(--hair)}
   aside h3:first-child{margin-top:0}
-  .plug{padding:8px 10px;margin:5px 0;background:var(--bg2);border:1px solid var(--line);border-radius:8px;cursor:grab;font-size:12px}
-  .plug:hover{border-color:var(--acc)}
-  .plug b{display:block;font-family:var(--mono);font-size:12px}
-  .plug small{color:var(--dim);display:block;margin-top:2px;line-height:1.4}
-  .plug .io{font-family:var(--mono);font-size:10px;color:var(--par);margin-top:3px}
-  .plug.gate{border-color:rgba(188,140,255,.4)}
-  /* canvas */
-  .plug-ghost{position:fixed;z-index:99;pointer-events:none;opacity:.9;padding:5px 10px;background:var(--bg3);border:1px solid var(--acc);border-radius:8px;font-family:var(--mono);font-size:11px;color:var(--par)}
-  #canvas-wrap.drop-over{outline:2px dashed var(--acc);outline-offset:-8px}
-  #canvas-wrap{overflow:auto;position:relative;background:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size:20px 20px;background-color:var(--bg)}
-#canvas{position:relative;width:2600px;height:1700px}
-#edges{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
-/* Подсказка живёт, только пока холст пуст: на непустом она налезала бы на
-   узлы. Скрывает renderNodes().
-   Позиция — левый верхний угол со смещением, а НЕ центр: холст 2600x1700 и
-   при центрировании на 50% подсказка оказывалась за пределами того, что
-   видно без прокрутки. */
-#canvas-hint{position:absolute;left:60px;top:60px;
-  max-width:420px;padding:18px 22px;border:1px solid var(--acc);border-radius:8px;
-  background:var(--bg2);color:var(--dim);font-size:13px;line-height:1.6;
-  pointer-events:none}
-#canvas-hint b{color:var(--tx)}
-#canvas-hint.hidden{display:none}
-  .edge{stroke:#484f58;stroke-width:1.4;fill:none}
-  .edge.hi{stroke:var(--acc)}
-  .node{position:absolute;width:230px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.35)}
-  .node.selected{border-color:var(--acc);box-shadow:0 0 0 2px rgba(88,166,255,.25)}
-  .node .nh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;cursor:move;border-bottom:1px solid var(--line)}
-  .node .nh .nid{font-family:var(--mono);font-weight:600}
-  .node .nh .nplug{color:var(--dim);font-family:var(--mono);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .node.gate .nh{background:rgba(188,140,255,.07)}
-  .node .body{padding:8px 10px}
-  .inrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 6px;margin:3px 0;background:var(--bg3);border-radius:5px;font-family:var(--mono);font-size:11px}
-  .inrow .src{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+  aside h3 span{text-transform:none;letter-spacing:0;font-size:11px;color:var(--faint)}
+  .plug{padding:9px 11px;margin:6px 0;background:var(--ink2);border:1px solid var(--hair);
+    border-left:2px solid var(--hair2);border-radius:var(--r);cursor:grab;font-size:12px;
+    transition:border-color .12s,background .12s}
+  .plug:hover{border-color:var(--hair2);background:var(--ink3)}
+  .plug:active{cursor:grabbing}
+  .plug b{display:block;font-family:var(--mono);font-size:11.5px;font-weight:600}
+  .plug small{color:var(--ash);display:block;margin-top:3px;line-height:1.5;font-size:11px}
+  .plug .io{font-family:var(--mono);font-size:10px;color:var(--par);margin-top:4px}
+  .plug.gate{border-left-color:var(--par)}
+
+  /* ── холст: миллиметровка на чернилах, шаги — бумажки с полями ввода ── */
+  .plug-ghost{position:fixed;z-index:99;pointer-events:none;opacity:.92;padding:5px 10px;
+    background:var(--ink4);border:1px solid var(--par);border-radius:var(--r);
+    font-family:var(--mono);font-size:11px;color:var(--bone)}
+  #canvas-wrap{overflow:auto;position:relative;
+    background-image:linear-gradient(rgba(233,229,221,.035) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(233,229,221,.035) 1px,transparent 1px),
+      linear-gradient(rgba(233,229,221,.07) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(233,229,221,.07) 1px,transparent 1px);
+    background-size:20px 20px,20px 20px,100px 100px,100px 100px;background-color:var(--sunken)}
+  #canvas-wrap.drop-over{outline:2px dashed var(--ver);outline-offset:-8px}
+  #canvas{position:relative;width:2600px;height:1700px}
+  #edges{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+  #canvas-hint{position:absolute;left:60px;top:60px;max-width:420px;padding:18px 22px;
+    border:1px solid var(--hair2);border-left:2px solid var(--ver);border-radius:var(--r);
+    background:var(--ink2);color:var(--ash);font-size:12.5px;line-height:1.7;pointer-events:none;
+    box-shadow:0 20px 40px -30px #000}
+  #canvas-hint b{color:var(--bone);font-weight:600}
+  #canvas-hint.hidden{display:none}
+  /* Рёбра — это структура цепочки, и они должны читаться, а не угадываться:
+     #3a3936 на фоне #070708 давал контраст ~1.7:1, то есть связь формально
+     была нарисована и визуально отсутствовала. */
+  .edge{stroke:rgba(233,229,221,.55);stroke-width:1.6;fill:none}
+  .edge.hi{stroke:rgba(155,140,184,.85)}
+  .node{position:absolute;width:230px;background:var(--ink2);border:1px solid var(--hair2);
+    border-radius:var(--r);font-size:12px;box-shadow:0 14px 30px -24px #000}
+  .node.selected{border-color:var(--bone);box-shadow:0 0 0 1px rgba(233,229,221,.35),0 18px 34px -26px #000}
+  .node .nh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;
+    cursor:move;border-bottom:1px solid var(--hair);background:var(--ink3)}
+  .node .nh .nid{font-family:var(--mono);font-weight:600;letter-spacing:.02em}
+  .node .nh .nplug{color:var(--faint);font-family:var(--mono);font-size:10px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .node.gate .nh{background:rgba(155,140,184,.10);border-bottom-color:rgba(155,140,184,.35)}
+  .node .body{padding:9px 10px}
+  .inrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 7px;
+    margin:4px 0;background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);
+    font-family:var(--mono);font-size:10.5px}
+  .inrow .src{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
   .inrow .src.set{color:var(--ok)}
-  .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
-  /* v0.36: связывание жестом — выход кликабельный, входы подсвечиваются целью */
+  .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:transparent;
+    border:1px solid var(--hair2);border-radius:var(--r);font-family:var(--mono);font-size:10px;
+    color:var(--par)}
   .outchip[data-out]{cursor:crosshair}
   .outchip[data-out]:hover{border-color:var(--par)}
-  .outchip.armed{background:rgba(188,140,255,.22);border-color:var(--par);color:var(--tx)}
-  .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(188,140,255,.55);outline-offset:-1px}
-  .inrow.linkable:hover{background:rgba(188,140,255,.14)}
-  .inrow.from-source{outline:1px solid rgba(139,148,158,.5);outline-offset:-1px}
+  .outchip.armed{background:rgba(155,140,184,.22);border-color:var(--par);color:var(--bone)}
+  .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(155,140,184,.55);outline-offset:-1px}
+  .inrow.linkable:hover{background:rgba(155,140,184,.14)}
+  .inrow.from-source{outline:1px solid var(--hair2);outline-offset:-1px}
   #link-bar{position:absolute;left:0;right:0;top:0;z-index:5;display:none;gap:10px;align-items:center;
-    padding:7px 12px;background:rgba(188,140,255,.14);border-bottom:1px solid var(--par);
-    font-size:12px;color:var(--tx)}
+    padding:8px 12px;background:rgba(155,140,184,.14);border-bottom:1px solid var(--par);
+    font-size:12px;color:var(--bone);backdrop-filter:blur(6px)}
   #link-bar.on{display:flex}
-  #link-bar code{font-family:var(--mono);color:var(--par)}
-  /* v0.37: протяжка как в канвасе — резиновая линия и кандидаты */
-  .edge.ghost{fill:none;stroke:var(--par);stroke-width:2;stroke-dasharray:5 4;pointer-events:none;opacity:.9}
-  .node.dragging-out{opacity:.75}
-  .inrow.hovered{background:rgba(188,140,255,.22);outline:1px solid var(--par);outline-offset:-1px}
-  #link-hint .cand{background:var(--bg3);color:var(--tx);border:1px solid var(--par);border-radius:10px;
-    padding:2px 9px;margin:0 6px 0 0;font-family:var(--mono);font-size:11px;cursor:pointer}
-  #link-hint .cand:hover{background:rgba(188,140,255,.22)}
-  #link-bar button{margin-left:auto;background:var(--bg3);color:var(--tx);border:1px solid var(--line);
-    border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer}
-  #btn-run{background:#1f6feb;border-color:#1f6feb;color:#fff;font-weight:600}
+  #link-bar code{font-family:var(--mono);color:var(--bone)}
+  /* Резиновая линия протяжки: drawGhost() ставит класс ровно «ghost», так что
+     селектор .edge.ghost не совпадал никогда — линия рисовалась заливкой по
+     умолчанию (чёрной) и на тёмном холсте её не было видно. */
+  #edges .ghost{fill:none;stroke:var(--par);stroke-width:2;stroke-dasharray:5 4;
+    pointer-events:none;opacity:.95}
+  .node.dragging-out{opacity:.72}
+  .inrow.hovered{background:rgba(155,140,184,.22);outline:1px solid var(--par);outline-offset:-1px}
+  #link-hint .cand{background:var(--ink4);color:var(--bone);border:1px solid var(--par);
+    border-radius:var(--r);padding:2px 9px;margin:0 6px 0 0;font-family:var(--mono);font-size:11px;cursor:pointer}
+  #link-hint .cand:hover{background:rgba(155,140,184,.24)}
+  #link-bar button{margin-left:auto;background:transparent;color:var(--bone);border:1px solid var(--hair2);
+    border-radius:var(--r);padding:3px 10px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    cursor:pointer;font-family:inherit}
+  /* запуск — единственная «живая» кнопка в шапке: акцент тратится на неё */
+  #btn-run{background:var(--ver);border-color:var(--ver);color:#fff;font-weight:600}
+  #btn-run:hover{background:#e05539;border-color:#e05539}
   .chips{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
-  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:10px;color:var(--par)}
-  .chip button{all:unset;cursor:pointer;color:var(--dim);padding:0 2px}
-  .chip button:hover{color:var(--err,#e5534b)}
-  .node .foot{padding:6px 10px;border-top:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:10px;display:flex;gap:10px}
-  /* props */
-  .pblock{margin-bottom:14px}
-  .pblock label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:transparent;
+    border:1px solid var(--hair2);border-radius:var(--r);font-family:var(--mono);font-size:10px;
+    color:var(--par)}
+  .chip button{all:unset;cursor:pointer;color:var(--faint);padding:0 2px}
+  .chip button:hover{color:var(--err)}
+  .node .foot{padding:6px 10px;border-top:1px solid var(--hair);color:var(--faint);
+    font-family:var(--mono);font-size:10px;display:flex;gap:10px;background:var(--ink3)}
+
+  /* ── правая панель: свойства шага ── */
+  .pblock{margin-bottom:16px}
+  .pblock label{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:5px}
   .pblock input,.pblock select,.pblock textarea{width:100%}
   .prow{display:flex;gap:8px}
   .prow .pblock{flex:1}
   .irow{display:flex;gap:6px;margin-bottom:6px;align-items:center}
   .irow input{flex:1}
   .irow button{padding:3px 8px}
-  .input-editor{border:1px solid var(--line);border-radius:7px;padding:7px;margin:6px 0;background:rgba(10,13,18,.35)}
+  .input-editor{border:1px solid var(--hair);border-left:2px solid var(--hair2);border-radius:var(--r);
+    padding:9px;margin:7px 0;background:rgba(7,7,8,.5)}
   .input-row{display:grid;grid-template-columns:minmax(0,1fr) 108px 32px;gap:6px;align-items:center}
   .input-row input,.input-row select{width:100%;min-width:0}
   .input-row button{padding:4px 8px}
   .input-schema{padding-top:7px}
   .input-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}
-  .input-meta-grid label{font-size:10px;color:var(--dim);min-width:0}
+  .input-meta-grid label{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);min-width:0}
   .input-meta-grid input,.input-meta-grid select{display:block;width:100%;min-width:0;margin-top:3px}
   .input-value{margin-top:6px}
   .input-value input,.input-value select,.input-value textarea{width:100%;min-width:0}
-  .input-default-toggle,.loop-toggle{display:flex;align-items:center;gap:6px;margin:8px 0 3px;font-size:11px;color:var(--dim);cursor:pointer}
+  .input-default-toggle,.loop-toggle{display:flex;align-items:center;gap:6px;margin:9px 0 3px;
+    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);cursor:pointer}
   .pblock label.loop-toggle{display:flex}
-  .input-default-toggle input,.loop-toggle input{width:auto;flex:0 0 auto;margin:0}
-  .danger{color:var(--err)}
-  .danger:hover{border-color:var(--err)}
-  .empty{color:var(--dim);padding:24px;text-align:center;font-size:12px;line-height:1.6}
-  #banner{display:none;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.4);color:var(--skip);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px;line-height:1.5}
-  pre#yaml-pre{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:11.5px;overflow:auto;max-height:100%;white-space:pre}
-  #yaml-view{position:fixed;inset:0;background:rgba(4,6,10,.85);display:none;z-index:50;padding:30px}
-  #yaml-view .inner{background:var(--bg2);border:1px solid var(--line);border-radius:12px;height:100%;display:flex;flex-direction:column}
-  #yaml-view .hd{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
-  #val-err{margin-top:10px;font-size:11px;color:var(--err);line-height:1.5;display:none}
-  .hint{font-size:11px;color:var(--dim);line-height:1.5;margin-top:8px}
+  .input-default-toggle input,.loop-toggle input{width:auto;flex:0 0 auto;margin:0;accent-color:var(--ver)}
+  .danger{color:var(--err);border-color:rgba(207,83,68,.45)}
+  .danger:hover{border-color:var(--err);color:var(--err)}
+  .empty{color:var(--faint);padding:26px;text-align:center;font-size:12.5px;line-height:1.7}
+  #banner{display:none;background:rgba(193,154,74,.09);border:1px solid rgba(193,154,74,.4);
+    color:var(--skip);border-radius:var(--r);padding:9px 12px;font-size:11.5px;margin-bottom:12px;
+    line-height:1.6}
+  pre#yaml-pre{background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);padding:13px;
+    font-size:11.5px;overflow:auto;max-height:100%;white-space:pre;font-family:var(--mono);
+    line-height:1.65;color:#c6c2ba}
+  #yaml-view{position:fixed;inset:0;background:rgba(7,7,8,.9);display:none;z-index:50;padding:34px}
+  #yaml-view .inner{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
+    height:100%;display:flex;flex-direction:column;box-shadow:0 40px 80px -50px #000}
+  #yaml-view .hd{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;
+    border-bottom:1px solid var(--hair);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--faint)}
+  #val-err{margin-top:10px;font-size:11px;color:var(--err);line-height:1.6;display:none}
+  .hint{font-size:11.5px;color:var(--ash);line-height:1.7;margin-top:9px}
+
+  /* вход по одноразовому коду (разметка собирается в editor/app.js) */
+  #wedra-session-box{position:fixed;inset:0;background:rgba(7,7,8,.94);display:flex;
+    align-items:center;justify-content:center;z-index:9999;padding:20px}
+  #wedra-session-box .sbox{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
+    padding:26px;max-width:440px;width:100%;box-shadow:0 30px 60px -40px #000}
+  #wedra-session-box h2{font-family:var(--serif);margin:0 0 10px;font-size:20px;font-weight:600}
+  #wedra-session-box p{color:var(--ash);font-size:12.5px;line-height:1.7;margin:0 0 16px}
+  #wedra-session-box input{width:100%;box-sizing:border-box;background:var(--sunken);color:var(--bone);
+    border:1px solid var(--hair2);border-radius:var(--r);padding:10px 11px;font-family:var(--mono);
+    font-size:14px;letter-spacing:.14em}
+  #wedra-session-box input:focus{outline:none;border-color:var(--ver)}
+  #wedra-session-box .serr{color:var(--err);font-size:11.5px;margin-top:9px;min-height:16px}
+  #wedra-session-box button{margin-top:12px;width:100%;background:var(--bone);color:var(--ink);
+    border:1px solid var(--bone);border-radius:var(--r);padding:11px;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;font-weight:600;cursor:pointer;font-family:inherit}
+  #wedra-session-box button:hover{background:#fff}
+
+  /* ── переходы ───────────────────────────────────────────────────────────
+     Узлы и панель свойств перерисовываются целиком на каждый renderAll() —
+     в том числе при перетаскивании и выборе шага, — поэтому у них только
+     transition (border, тень, opacity), без входной анимации: иначе холст
+     мигал бы под мышью. Анимируется то, что появляется на смену режима:
+     панель связывания, подсказка, модальное YAML, баннер round-trip. ── */
+  @keyframes pageIn{from{opacity:0}to{opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+  @keyframes popIn{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:none}}
+  body{animation:pageIn .3s ease-out}
+  #link-bar.on{animation:slideDown .22s cubic-bezier(.22,.61,.36,1)}
+  #canvas-hint:not(.hidden){animation:fadeIn .35s ease-out}
+  #yaml-view{animation:fadeIn .22s ease-out}
+  #yaml-view .inner{animation:popIn .26s cubic-bezier(.22,.61,.36,1)}
+  #banner,#val-err{animation:slideDown .24s cubic-bezier(.22,.61,.36,1)}
+  .empty{animation:fadeIn .3s ease-out}
+
+  button,a.link,.plug,.chip,.outchip,.inrow,.cand,.danger,.input-row,#link-bar button{
+    transition:color .16s ease,background-color .16s ease,border-color .16s ease,
+      box-shadow .18s ease,opacity .16s ease}
+  .plug{transition:border-color .16s ease,background-color .16s ease,color .16s ease}
+  .node{transition:border-color .18s ease,box-shadow .18s ease,opacity .18s ease}
+  .edge{transition:stroke .2s ease}
+  .chip button{transition:color .16s ease}
+  .input-default-toggle,.loop-toggle,.input-meta-grid label,.pblock label{
+    transition:color .16s ease}
+  #link-bar{transition:background-color .2s ease,border-color .2s ease}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
+      transition-duration:.001s!important}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>WEDRA <span class="dim">· редактор</span></h1>
+  <h1><span class="mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 20 20"><path d="M10 1.5v17" stroke="currentColor" stroke-width="1.1"/><path d="M9.4 6.2 2.5 2.8l1.9 4.6zM9.4 12 2.5 8.6l1.9 4.6zM10.6 6.2l6.9-3.4-1.9 4.6zM10.6 12l6.9-3.4-1.9 4.6z" fill="currentColor"/></svg></span>WEDRA <span class="dim">· редактор</span></h1>
   <select id="file-open" title="открыть существующий" style="min-width:170px"></select>
   <input id="file-name" title="имя файла; новое имя сохраняет копию (.yaml)" style="width:170px"/>
   <span class="badge" id="val-badge">…</span>

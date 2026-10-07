@@ -52,17 +52,15 @@ function sessionOverlay() {
   if (document.getElementById('wedra-session-box')) return;
   const box = document.createElement('div');
   box.id = 'wedra-session-box';
-  box.style.cssText = 'position:fixed;inset:0;background:rgba(13,17,23,.94);display:flex;align-items:center;justify-content:center;z-index:9999';
+  // стили — в index.html (#wedra-session-box): разметка не тащит цвета в JS
   box.innerHTML =
-    '<div style="background:#161b22;border:1px solid #2d333b;border-radius:10px;padding:24px;max-width:440px;font-family:system-ui,sans-serif">' +
-    '<h2 style="margin:0 0 10px;font-size:15px;color:#e6edf3">Вход в WEDRA</h2>' +
-    '<p style="color:#8b949e;font-size:13px;line-height:1.6;margin:0 0 14px">' +
-    'Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
+    '<div class="sbox">' +
+    '<h2>Вход в WEDRA</h2>' +
+    '<p>Код входа одноразовый и напечатан в терминале, где запущен wedra. Он нужен один раз: ' +
     'обменяется на cookie, и страница перезагрузится сама.</p>' +
-    '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off" ' +
-    'style="width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #2d333b;border-radius:6px;padding:9px 11px;font-family:ui-monospace,monospace;font-size:14px"/>' +
-    '<div id="wedra-code-err" style="color:#f85149;font-size:12px;margin-top:8px;min-height:16px"></div>' +
-    '<button id="wedra-code-go" style="margin-top:10px;width:100%;background:#1f6feb;color:#fff;border:0;border-radius:6px;padding:9px;font-size:14px;cursor:pointer">Войти</button>' +
+    '<input id="wedra-code" placeholder="XXXX-XXXX-XXXX" autocomplete="off"/>' +
+    '<div id="wedra-code-err" class="serr"></div>' +
+    '<button id="wedra-code-go">Войти</button>' +
     '</div>';
   document.body.appendChild(box);
   const input = box.querySelector('#wedra-code');
@@ -790,7 +788,7 @@ function drawDag(dag) {
   const width = 40 + layers.length * (W + GX) + 40;
   const height = padTop * 2 + maxCol * (H + GY) + 60;
   let s = `<svg id="dag" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#484f58"/></marker></defs>`;
+    `<defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" style="fill:rgba(233,229,221,.45)"/></marker></defs>`;
   // параллельные группы: рамка
   const groups = {};
   for (const n of dag.nodes) if (n.parallel_group) (groups[n.parallel_group] = groups[n.parallel_group] || []).push(n);
