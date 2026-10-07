@@ -5,7 +5,7 @@ platform_api: "^0.1"
 runtime:
   type: python
   entry: main.py
-  requires: []
+  requires: ["dnspython==2.8.0"]
 
 input:
   email:

@@ -75,7 +75,15 @@
   .autochip{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:1px 7px;cursor:pointer;margin-left:8px}
   .autochip.on{color:var(--acc);border-color:var(--acc)}
   /* v0.35: главное меню — точка входа «с чего начать» */
-  #menu{padding:22px 26px;overflow-y:auto;max-width:1180px;grid-column:1 / -1}
+  #menu{padding:22px 26px;overflow-y:auto;max-width:1180px;grid-column:1 / -1;margin:0 auto;width:100%}
+  /* каталог плагинов свёрнут под кнопку */
+  .sectbtn{display:flex;align-items:center;gap:10px;background:none;border:1px solid var(--line);border-radius:10px;color:var(--tx);font:inherit;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:10px 14px;cursor:pointer;width:100%;margin-top:22px}
+  .sectbtn:hover{border-color:var(--acc);color:var(--tx)}
+  .sectbtn .chev{margin-left:auto;color:var(--dim);transition:transform .15s}
+  .sectbtn.open .chev{transform:rotate(180deg)}
+  .sectbtn .cnt{font-family:var(--mono);color:var(--acc)}
+  #plug-wrap{display:none;margin-top:12px}
+  #plug-wrap.open{display:block}
   /* hero: identity + live stats */
   .hero{background:linear-gradient(135deg,#13233a 0%,var(--bg2) 55%,#14231a 100%);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:22px;position:relative;overflow:hidden}
   .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--acc),var(--ok))}
@@ -121,6 +129,15 @@
   .ptag.net{color:var(--skip);border-color:rgba(210,153,34,.5)}
   .ptag.agent{color:var(--par);border-color:rgba(188,140,255,.5)}
   #menu h4 .tsub{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0}
+  /* вкладка «Плагины» */
+  .mono{font-family:var(--mono)}
+  .dim{color:var(--dim)}
+  .sub.mono{font-size:12px}
+  #plugdetail .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  #plugdetail .dhead h2{margin:0;font-size:17px}
+  #plugdetail h4{margin:16px 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  #plug-tab-list .pitem{display:flex;align-items:center;gap:8px}
+  #plug-tab-list .tdot{flex-shrink:0}
   /* pipelines */
   .plist{padding:6px}
   .pitem{padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px}
@@ -163,6 +180,7 @@
     <button id="tab-menu" class="active">Главная</button>
     <button id="tab-runs">Раны</button>
     <button id="tab-pipelines">Пайплайны</button>
+    <button id="tab-plugins">Плагины</button>
   </nav>
   <a class="link" href="/editor/">редактор (v0.25) →</a>
 </header>
@@ -200,6 +218,17 @@
     </div>
   </aside>
   <div id="pdetail" style="display:none"><div class="empty">Выбери пайплайн</div></div>
+
+  <!-- PLUGINS (скрыт) -->
+  <aside id="plug-aside" style="display:none">
+    <div class="panel" style="border-bottom:none">
+      <h3>Плагины <span id="plug-tab-count" style="text-transform:none"></span></h3>
+      <input type="search" id="plug-tab-search" placeholder="поиск…" spellcheck="false"
+        style="background:#0a0d12;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12px;width:100%;font-family:inherit;margin-bottom:8px"/>
+      <div class="plist" id="plug-tab-list"></div>
+    </div>
+  </aside>
+  <div id="plugdetail" style="display:none"><div class="empty">Выбери плагин</div></div>
 </main>
 <script src="/app.js"></script>
 </body>

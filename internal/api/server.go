@@ -321,6 +321,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/", s.handlePluginDetail)
+	mux.HandleFunc("/api/plugins-install-deps", s.handlePluginInstallDeps)
 	mux.HandleFunc("/api/pipelines", s.handlePipelines)
 	mux.HandleFunc("/api/pipelines/", s.handlePipelineDetail)
 	mux.HandleFunc("/api/presets", s.handlePresets)
@@ -537,6 +538,67 @@ func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "not found", 404)
+}
+
+// handlePluginInstallDeps — POST /api/plugins-install-deps?id=<id>.
+// Ставит pip-зависимости плагина из его runtime.requires (только точные пины
+// package==version) тем же интерпретатором, которым плагины запускаются.
+// Тело ответа: {ok, installed[], output} или {ok:false, error, output}.
+func (s *Server) handlePluginInstallDeps(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "только POST", 405)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		http.Error(w, "нужен id плагина", 400)
+		return
+	}
+	var dir string
+	for _, base := range []string{s.PluginsDir, filepath.Join(s.PluginsDir, "official"), filepath.Join(s.PluginsDir, "community"), filepath.Join(s.PluginsDir, plugin.AgentPluginDir)} {
+		entries, _ := os.ReadDir(base)
+		for _, e := range entries {
+			d := filepath.Join(base, e.Name())
+			m, err := s.Engine.LoadManifest(d)
+			if err != nil {
+				continue
+			}
+			if m.ID == id || e.Name() == id {
+				dir = d
+				break
+			}
+		}
+		if dir != "" {
+			break
+		}
+	}
+	if dir == "" {
+		http.Error(w, "плагин не найден", 404)
+		return
+	}
+	m, err := s.Engine.LoadManifest(dir)
+	if err != nil {
+		http.Error(w, "манифест не читается: "+err.Error(), 422)
+		return
+	}
+	if len(m.Runtime.Requires) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "installed": []string{}, "output": "зависимостей не объявлено (runtime.requires пуст)"})
+		return
+	}
+	out, err := plugin.PipInstall(m.Runtime.Requires)
+	resp := map[string]interface{}{"installed": m.Runtime.Requires, "output": out}
+	if err != nil {
+		resp["ok"] = false
+		resp["error"] = err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	resp["ok"] = true
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handlePipelines(w http.ResponseWriter, r *http.Request) {

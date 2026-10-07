@@ -12,7 +12,7 @@ author: "community · wedra showcase (forensics)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет exifread — отдельно (pip install exifread)
+  requires: ["exifread==3.5.1"]
 
 input:
   file:

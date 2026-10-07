@@ -106,6 +106,7 @@ async function init() {
   $('#tab-menu').onclick = () => setTab('menu');
   $('#tab-runs').onclick = () => setTab('runs');
   $('#tab-pipelines').onclick = () => setTab('pipelines');
+  $('#tab-plugins').onclick = () => { setTab('plugins'); loadPluginsTab(); };
   $('#run-btn').onclick = startRun;
   // v0.35: меню считает пайплайны («из N запустить»), поэтому список должен
   // прийти до отрисовки, а не гонкой с ним.
@@ -124,11 +125,14 @@ function setTab(t) {
   $('#tab-menu').classList.toggle('active', t === 'menu');
   $('#tab-runs').classList.toggle('active', t === 'runs');
   $('#tab-pipelines').classList.toggle('active', t === 'pipelines');
+  $('#tab-plugins').classList.toggle('active', t === 'plugins');
   $('#menu').style.display = t === 'menu' ? '' : 'none';
   $('#runs-aside').style.display = t === 'runs' ? '' : 'none';
   $('#pip-aside').style.display = t === 'pipelines' ? '' : 'none';
+  $('#plug-aside').style.display = t === 'plugins' ? '' : 'none';
   $('#detail').style.display = t === 'runs' ? '' : 'none';
   $('#pdetail').style.display = t === 'pipelines' ? '' : 'none';
+  $('#plugdetail').style.display = t === 'plugins' ? '' : 'none';
 }
 
 // ── главное меню (v0.35) ──────────────────────────────────────────────────
@@ -245,13 +249,18 @@ async function renderMenu() {
       ? (presetRows || '<div class="empty">В реестре нет пресетов</div>')
       : '<div class="empty">Реестр недоступен — поставь WEDRA из исходников, чтобы увидеть пресеты</div>'}
 
-    <h4 style="margin-top:22px">Каталог плагинов · ${plugins.length} <span class="tsub">${trustedN} доверенных</span></h4>
-    <input type="search" id="plug-search" placeholder="поиск по названию и описанию…" spellcheck="false"/>
-    <div class="plugs" id="plug-list" style="margin-top:9px">${plugList || '<div class="empty">каталог пуст</div>'}</div>
-    <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
-      в манифесте права: <span style="font-family:var(--mono)">network</span>,
-      <span style="font-family:var(--mono)">filesystem</span>,
-      <span style="font-family:var(--mono)">secrets</span>.</div>`;
+    <button class="sectbtn" id="plug-toggle">
+      <span>Каталог плагинов</span><span class="cnt">${plugins.length}</span>
+      <span class="tsub">${trustedN} доверенных</span><span class="chev">▾</span>
+    </button>
+    <div id="plug-wrap">
+      <input type="search" id="plug-search" placeholder="поиск по названию и описанию…" spellcheck="false"/>
+      <div class="plugs" id="plug-list" style="margin-top:9px">${plugList || '<div class="empty">каталог пуст</div>'}</div>
+      <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
+        в манифесте права: <span style="font-family:var(--mono)">network</span>,
+        <span style="font-family:var(--mono)">filesystem</span>,
+        <span style="font-family:var(--mono)">secrets</span>.</div>
+    </div>`;
 
   cards.forEach((c, i) => { const el = $(`[data-card="${i}"]`); if (el) el.onclick = c.act; });
   const search = $('#plug-search');
@@ -357,6 +366,90 @@ function renderPipList() {
     </div>`).join('');
   el.querySelectorAll('[data-pipeline-file]').forEach(item => item.addEventListener('click', () => openPipeline(item.dataset.pipelineFile)));
   $('#pip-count').textContent = `(${state.pipelines.length})`;
+}
+
+// ── вкладка «Плагины»: полный каталог, кликабельная деталка, установка зависимостей ──
+async function loadPluginsTab() {
+  try {
+    state.pluginsFull = await api('/api/plugins');
+  } catch (e) {
+    $('#plug-tab-list').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    return;
+  }
+  renderPluginsTabList('');
+  const s = $('#plug-tab-search');
+  if (s) s.oninput = () => renderPluginsTabList(s.value);
+  $('#plug-tab-count').textContent = `(${state.pluginsFull.length})`;
+}
+
+function renderPluginsTabList(q) {
+  const needle = (q || '').trim().toLowerCase();
+  const hit = !needle ? state.pluginsFull : state.pluginsFull.filter(p =>
+    (p.id || '').toLowerCase().includes(needle) ||
+    (p.description || '').toLowerCase().includes(needle));
+  $('#plug-tab-list').innerHTML = hit.map(p => {
+    const dot = p.trusted ? '<span class="tdot ok"></span>' : '<span class="tdot"></span>';
+    return `<div class="pitem" data-plugin-id="${esc(p.id)}">${dot} ${esc(p.id)}`
+      + ` <small>${esc(p.version || '')}${p.trusted ? '' : ' · вне allow-list'}</small></div>`;
+  }).join('') || '<div class="empty">Ничего не найдено</div>';
+  $('#plug-tab-list').querySelectorAll('[data-plugin-id]').forEach(el =>
+    el.addEventListener('click', () => openPluginDetail(el.dataset.pluginId)));
+}
+
+async function openPluginDetail(id) {
+  document.querySelectorAll('#plug-tab-list .pitem').forEach(el =>
+    el.classList.toggle('active', el.dataset.pluginId === id));
+  $('#plugdetail').innerHTML = '<div class="empty">загрузка…</div>';
+  let d;
+  try {
+    d = await api('/api/plugins/' + encodeURIComponent(id));
+  } catch (e) {
+    $('#plugdetail').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    return;
+  }
+  const reqs = (((d.runtime || {}).requires) || []);
+  const net = ((d.permissions || {}).network || []);
+  const trustLine = d.trusted
+    ? '<span class="badge ok">доверен</span>'
+    : '<span class="badge err">вне allow-list</span>'
+      + (d.blocked_reason ? `<div class="hint">${esc(d.blocked_reason)}</div>` : '');
+  const depsBlock = reqs.length
+    ? `<div class="prow2" style="margin-top:6px"><div><div class="pname mono">${reqs.map(esc).join('<br>')}</div>
+       <div class="pdesc">точные пины из манифеста — ставится только это</div></div>
+       <div class="pacts"><button class="mini" id="deps-install">установить</button></div></div>
+       <div class="hint" id="deps-status"></div>
+       <pre class="jnl" id="deps-out" style="display:none;max-height:220px"></pre>`
+    : '<div class="hint">Зависимостей не объявлено (runtime.requires пуст) — ставить нечего.</div>';
+  $('#plugdetail').innerHTML = `
+    <div class="dhead"><h2 class="mono">${esc(d.id)}</h2>${trustLine}</div>
+    <div class="sub mono dim">${esc(d.version || '')} · ${esc(d.author || '')}</div>
+    <p style="line-height:1.6">${esc(d.description || 'без описания')}</p>
+    <h4>Права</h4>
+    <div class="hint">сеть: ${net.length ? esc(net.map(n => n.any_host ? 'any_host' : (n.host + ':' + n.port)).join(', ')) : '—'};
+      файлы: ${esc((d.permissions || {}).filesystem || '—')};
+      секреты: ${esc(((d.permissions || {}).secrets || []).join(', ') || '—')}</div>
+    <h4 style="margin-top:16px">Зависимости Python</h4>
+    ${depsBlock}`;
+  const btn = $('#deps-install');
+  if (btn) btn.onclick = () => installPluginDeps(d.id, reqs, btn);
+}
+
+async function installPluginDeps(id, reqs, btn) {
+  const cmd = `python -m pip install ${reqs.join(' ')}`;
+  if (!confirm(`Установить зависимости плагина ${id}?\n\n${cmd}\n\nСтавятся только точные пины из манифеста.`)) return;
+  btn.disabled = true;
+  btn.textContent = 'ставится…';
+  const st = $('#deps-status'), out = $('#deps-out');
+  try {
+    const r = await api('/api/plugins-install-deps?id=' + encodeURIComponent(id), {method: 'POST'});
+    if (st) st.textContent = r.ok ? 'Готово.' : ('Ошибка: ' + (r.error || ''));
+    if (out && r.output) { out.style.display = ''; out.textContent = r.output.slice(-3000); }
+  } catch (e) {
+    if (st) st.textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'установить';
+  }
 }
 
 async function startRun() {

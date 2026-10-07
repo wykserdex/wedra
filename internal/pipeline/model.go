@@ -125,9 +125,9 @@ type Port struct {
 }
 
 type Runtime struct {
-	Type     string   `yaml:"type"`
-	Entry    string   `yaml:"entry"`
-	Requires []string `yaml:"requires"`
+	Type     string   `yaml:"type" json:"type"`
+	Entry    string   `yaml:"entry" json:"entry"`
+	Requires []string `yaml:"requires" json:"requires"`
 }
 
 type NetworkPermission struct {
