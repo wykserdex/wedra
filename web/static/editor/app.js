@@ -223,10 +223,17 @@ function outFields(p) {
 // оба объявили format — совпасть и он. Манифесты типы объявляют (abuseipdb:
 // ip: string/ip, days: number), и API их отдаёт, поэтому совпадение проверяется
 // на клиенте ДО создания связи, а не после — на валидации ядра.
-function outFits(outName, outSpec, inName, inSpec) {
+function outFits(outName, outSpec, inName, inSpec, fromInput) {
   const ot = outSpec && outSpec.type, it = inSpec && inSpec.type;
   if (it && ot && it !== ot) return false;
   const of = outSpec && outSpec.format, inf = inSpec && inSpec.format;
+  if (fromInput) {
+    // Введённое человеком значение — сам человек и есть источник формата.
+    // Проверять format у набранного руками адреса бессмысленно: из-за этого
+    // пропадали все пресеты, чей первый шаг ждёт email. Единственное, что
+    // оставляем жёстким: файл не подменяется текстом и наоборот.
+    return (inf === 'file_ref') === (of === 'file_ref');
+  }
   if (inf && of && inf !== of) return false;
   // поле жёстко просит ip — текстовый выход LLM с format=text не подойдёт
   if (inf && !of && inf !== 'text') return false;
@@ -365,7 +372,7 @@ async function buildChainFor(idx) {
       if (!st) return null;
       const ins = (pluginInfo(st.plugin) || {}).input || {};
       const keys = Object.keys(ins);
-      const fit = keys.filter(f => outFits(inp.name, spec, f, ins[f]));
+      const fit = keys.filter(f => outFits(inp.name, spec, f, ins[f], true));
       if (!fit.length) return null;
       // приоритет: поле названо как вход, потом поле берёт значение из input.*,
       // потом первое совместимое
@@ -423,33 +430,42 @@ async function applyPreset(file, inputName, pre) {
     state.doc.foreach_item = doc.foreach_item || '';
     state.doc.item_type = doc.item_type || '';
     state.doc.item_format = doc.item_format || '';
-    // ссылки input.X создаём входами, кроме переменной цикла — она не вход
+    // ссылки input.X: сперва пробуем обслужить их ОДНИМ введённым значением,
+    // и только несовместимые (путь к файлу, csv) получают собственный вход.
+    // Раньше на каждую ссылку заводился новый вход — цепочка из трёх шагов
+    // требовала три ввода вместо одного, и введённый ник оставался неиспользованным.
     const loopVar = String(doc.foreach_item || '');
-    const wanted = new Map();
+    const wanted = [];
     for (const st of doc.steps) {
       const ins = (pluginInfo(st.plugin) || {}).input || {};
       for (const [field, src] of Object.entries(st.bind || {})) {
-        // ловим и вложенные ссылки вида input.row.name: первый сегмент — это
-        // всё равно поле верхнего уровня, которое надо создать
         const m = String(src || '').match(/^input\.([\w-]+)/);
-        if (m) wanted.set(m[1], ins[field] || null);
+        if (m) wanted.push({ name: m[1], field, step: st, spec: ins[field] || null });
       }
     }
+    const userInput = state.doc.input.find(i => i.name === inputName);
+    const userSpec = userInput ? inputSpec(userInput) : null;
     const have = new Set(state.doc.input.map(i => i.name));
-    let added = 0;
-    for (const [nm, spec] of wanted) {
-      if (have.has(nm) || nm === loopVar) continue;
-      // создаём по образцу принимающего поля: строковый вход без format в
-      // поле с format: text ядро справедливо не принимает («формат источника
-      // "" не покрывает "text"»)
+    let merged = 0, added = 0;
+    for (const w of wanted) {
+      if (w.name === loopVar) continue;              // переменная цикла, не вход
+      if (have.has(w.name)) continue;                // вход уже объявлен
+      // совместимо ли с тем, что человек уже ввёл
+      if (userSpec && w.spec && outFits(w.name, userSpec, w.field, w.spec, true)) {
+        w.step.bind[w.field] = 'input.' + inputName;
+        merged++;
+        continue;
+      }
+      // несовместимо (нужен путь к файлу, csv, число) — свой вход по образцу поля
       state.doc.input.push({
-        name: nm,
+        name: w.name,
         default: '',
         typed: false,
-        type: (spec && spec.type) || 'string',
-        ...(spec && spec.format ? { format: spec.format } : {}),
+        type: (w.spec && w.spec.type) || 'string',
+        ...(w.spec && w.spec.format ? { format: w.spec.format } : {}),
         has_default: true,
       });
+      have.add(w.name);
       added++;
     }
     const first = doc.steps[0];
@@ -462,7 +478,8 @@ async function applyPreset(file, inputName, pre) {
     renderAll();
     const missing = added;
     note('сценарий ' + file + ': вход → ' + first.id + '.' + key
-      + (missing ? '; добавлено входов: ' + missing : '')
+      + (merged ? '; наш вход «' + inputName + '» получил ещё полей: ' + merged : '')
+      + (missing ? '; заведён отдельных входов: ' + missing : '')
       + (loopVar ? '; цикл по элементу «' + loopVar + '»' : ''));
   } catch (e) {
     note('сценарий не собран: ' + (e.message || e), true);
@@ -536,7 +553,7 @@ function dropInputLink(inp, ev) {
   const info = pluginInfo(st.plugin) || {};
   const spec = (info.input || {})[row.dataset.field] || {};
   const src = inputSpec(inp);
-  if (!outFits(inp.name, src, row.dataset.field, spec)) {
+  if (!outFits(inp.name, src, row.dataset.field, spec, true)) {
     note('вход «' + inp.name + '» (' + (src.format || src.type) + ') не подходит в поле '
       + row.dataset.field + ' (' + (spec.format || spec.type || '?') + ')', true);
     return;
@@ -629,17 +646,33 @@ function renderInputStrip() {
   });
 }
 
-// Ошибка «в input пайплайна нет поля X» кликабельна: клик уводит на слой
-// входов, создаёт вход X, если его нет, мигает им и ставит фокус в поле
-// значения. Раньше текст лежал строкой, и что делать с ним — надо было
-// догадываться.
+// Подходящий уже существующий вход. Зачем это: клик по ошибке «в input
+// пайплайна нет поля username» раньше ЗАВОДИЛ новый вход username, даже когда
+// человек уже ввёл ник в `nick`. Дальше шаг брал пустой input.username, а
+// введённое значение оставалось неиспользованным. Теперь поле подключается к
+// тому входу, который уже есть и подходит по типу.
+function findCompatibleInput(spec) {
+  if (!spec) return -1;
+  const t = spec.type || 'string';
+  const f = spec.format || '';
+  return state.doc.input.findIndex(i => {
+    const s = inputSpec(i);
+    if (s.type !== t) return false;
+    if (f && s.format && f !== s.format) return false;
+    // текст подходит тексту; формат вроде ip ждёт ip
+    if (f && !s.format && f !== 'text') return false;
+    return true;
+  });
+}
+
+// Ошибка «в input пайплайна нет поля X» кликабельна: клик либо подключает поле
+// к уже введённому значению, либо создаёт вход X, мигает им и ставит фокус.
 function wireIssueClicks() {
   const ve = $('#val-err');
   if (!ve) return;
   ve.querySelectorAll('[data-issue]').forEach(b => {
-    b.onclick = () => gotoInput(b.dataset.issue);
+    b.onclick = () => gotoInput(b.dataset.issue, b.dataset.istep, b.dataset.iport);
   });
-  // «плагин заявил сеть, а network не задан» → клик разрешает
   ve.querySelectorAll('[data-net]').forEach(b => {
     b.onclick = () => {
       pushUndo();
@@ -650,8 +683,27 @@ function wireIssueClicks() {
   });
 }
 
-function gotoInput(name) {
+function gotoInput(name, stepId, port) {
   if (!name) return;
+  // 1) поле уже объявлено плагином — ищем совместимый вход и подключаем его
+  if (stepId && port) {
+    const st = stepById(stepId);
+    const spec = st && ((pluginInfo(st.plugin) || {}).input || {})[port];
+    const idx = findCompatibleInput(spec || { type: 'string' });
+    if (st && idx >= 0) {
+      pushUndo();
+      st.bind = st.bind || {};
+      st.bind[port] = 'input.' + state.doc.input[idx].name;
+      setLayer('pipeline');
+      renderAll();
+      const el = document.querySelector('.node[data-id="' + stepId + '"] .inrow[data-field="' + port + '"]');
+      if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 2600); }
+      note('поле ' + stepId + '.' + port + ' взяло уже введённое «'
+        + state.doc.input[idx].name + '» — новый вход не понадобился');
+      return;
+    }
+  }
+  // 2) подходящего входа нет — создаём и ведём к нему
   let idx = state.doc.input.findIndex(i => i.name === name);
   if (idx < 0) {
     pushUndo();
@@ -1967,7 +2019,9 @@ async function doValidate() {
         netIssue.push(i.code === 'E_NETWORK_DENIED' ? '1' : '');
       }
       ve.innerHTML = (state.valErrs || []).map((t, i) => miss[i]
-        ? `<button data-issue="${esc(miss[i])}">${esc(t)}<div class="go">→ ввести «${esc(miss[i])}»</div></button>`
+        ? `<button data-issue="${esc(miss[i])}" data-istep="${esc((state.valIssues[i] || {}).step || '')}"`
+          + ` data-iport="${esc((state.valIssues[i] || {}).port || '')}">${esc(t)}`
+          + `<div class="go">→ ввести «${esc(miss[i])}»</div></button>`
         : netIssue[i]
           ? '<button data-net="allow">'+esc(t)+'<div class="go">→ разрешить сеть (network: allow)</div></button>'
           : `<button data-issue="">${esc(t)}</button>`).join('');
