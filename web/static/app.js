@@ -547,6 +547,12 @@ async function openRunDetail(id, force) {
           const cb = $('#cancel-btn'); if (cb) cb.remove();
           const dd = await api('/api/runs/' + id);
           state.detailStatus = dd.status;
+          // Деталка, открытая во время рана, показывает пустой контекст и
+          // старый бейдж: контекст грузился один раз при открытии. При
+          // завершении подтягиваем и то, и другое из свежей деталки.
+          refreshRunHead(dd);
+          const cb2 = $('#rt-ctx-body');
+          if (cb2) cb2.innerHTML = renderCtx(dd.context || {});
           tickRuns();
         }
       }
@@ -631,6 +637,26 @@ function renderTimeline(events) {
 
 function ev(time, cls, msg, extra) {
   return `<div class="ev ${cls}"><span class="t">${esc(time)}</span><span class="m">${msg}</span>${extra ? `<span class="x">${extra}</span>` : ''}</div>`;
+}
+
+// refreshRunHead — обновить бейдж статуса и счётчики контекста в шапке деталки
+// после завершения рана. Без этого деталка, открытая во время выполнения,
+// навсегда остаётся с бейджем «идёт…» и «input 0 полей».
+function refreshRunHead(d) {
+  const head = document.querySelector('#detail .dhead');
+  if (!head) return;
+  const st = d.status === 'ok' ? 'ok' : d.status === 'running' ? 'run' : d.status === 'cancelled' ? 'skip' : 'err';
+  const label = d.status === 'running' ? 'идёт…' : d.status === 'cancelled' ? 'отменён' : d.status;
+  const badge = head.querySelector('.badge');
+  if (badge) { badge.className = 'badge ' + st; badge.textContent = label; }
+  const ctx = d.context || {};
+  const steps = (ctx.steps && Object.keys(ctx.steps).length) || 0;
+  const inp = ctx.input ? Object.keys(ctx.input).length : 0;
+  const sub = head.querySelector('.sub');
+  if (sub) {
+    const id = (sub.textContent || '').split(' · ')[0];
+    sub.textContent = `${id} · контекст: input ${inp} полей, steps ${steps}`;
+  }
 }
 
 // ── контекст ─────────────────────────────────────────────────────────────

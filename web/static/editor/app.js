@@ -1196,6 +1196,10 @@ function wireProps(st) {
 function renderAll() {
   renderNodes();
   renderProps();
+  // Стрелки связей живут в отдельном SVG и не перерисуются сами: без этого
+  // вызова после загрузки, связывания или любого ререндера связей не видно,
+  // хотя данные в bind уже есть.
+  renderEdges();
   scheduleValidate();
 }
 
