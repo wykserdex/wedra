@@ -281,6 +281,7 @@ function addInput(kind) {
   // input.dir_before: "testdata/before", голое значение.
   const want = kind === 'file' ? 'file' : (kind === 'number' ? 'count' : 'nick');
   const name = state.doc.input.some(i => i.name === want) ? freeInputName() : want;
+  const idx = state.doc.input.length;
   state.doc.input.push(kind === 'file'
     ? { name, default: '', typed: false, type: 'string', format: 'file_ref', has_default: true }
     : kind === 'number'
@@ -288,6 +289,11 @@ function addInput(kind) {
       : { name, default: '', typed: false, type: 'string', has_default: true });
   renderAll();
   note('вход «' + name + '» добавлен — тяни его точку в поле шага');
+  // Сразу ставим фокус в поле значения: иначе после «Текст или ник» надо ещё
+  // раз кликнуть по узлу, и первый шаг «ввести ник» выглядел как «куда жать».
+  const nodes = document.querySelectorAll('#inlayer .inode');
+  const f = nodes[idx] && nodes[idx].querySelector('.ival');
+  if (f) { f.focus(); f.select && f.select(); }
 }
 
 // Значение пишется прямо в узел. Файл сначала заливается на сервер: плагину
