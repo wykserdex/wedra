@@ -100,7 +100,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:ce07da8d70389a3d38c6140eec06b4973d3b4c5b353cd2ea74fa0a0fdf269493",
 	},
 	"exifread": {
-		"sha256:133bde762d8322257f9d79ac10592b7ea8a87798f8b394fb592c16160832e1b1",
+		"sha256:68c852263bac11336afbbd53a11ffae2503cc78f648a77ed458f0f18263eb8d8",
 	},
 	"exiftool": {
 		"sha256:d68043af1abb7a41a0f0538755f25c9f8ff6ccb8a40bd555f557c05c76861163",
@@ -265,7 +265,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:514f6c854314a0f2ed1498880f640a0cdc9407137b3ffd2ac5b3a93ba2a3cc7d",
 	},
 	"syntax_mx_checker": {
-		"sha256:48c1cb0adcf2d6ebe9e98e01589ba4a8f60b4a4c9fada691389e2057d6af0c59",
+		"sha256:f696d7222b6541324b01c3fed8879e8cec4959031b1fb50e73edf02ab5ea3fab",
 	},
 	"text_analyzer": {
 		"sha256:505eff408b9b74955dafd95af63b7b961442567603f083913718ee389ab361bb",

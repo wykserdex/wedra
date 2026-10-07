@@ -30,7 +30,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/official/syntax_mx_checker
     version: v0.32
-    commit: 21e46778e5397cf8b6f6704c4e3514902ce80858
+    commit: 761cfaa84b5adb7bbbf02a3a6dac1a6b8f84f8ad
     description: синтаксис email + MX-записи
   disposable_checker:
     source: https://github.com/wykserdex/wedra
@@ -283,7 +283,7 @@ plugins:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/exifread
     version: v0.33c
-    commit: ba824854f53311c1fd2d12f9f74d852b5f5577a4
+    commit: 761cfaa84b5adb7bbbf02a3a6dac1a6b8f84f8ad
     description: "exifread (lexiflex) — EXIF-метаданные изображений через библиотеку, паттерн C. pip install exifread."
 
   exiftool:
