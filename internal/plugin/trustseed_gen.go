@@ -139,7 +139,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:8664b4df318a1700ab78913665cc797633463359fddfdbdcc4d691b6e1015d7e",
 	},
 	"holehe": {
-		"sha256:b27b6bce65484831e1e4c3245f9b5a9851a4a1f29e04e9ea7644912720a8f855",
+		"sha256:0a9c35ffe9506613fe8ba8ee598e8cfce7584818c5260ddb459bb38a4a237420",
 	},
 	"http_probe": {
 		"sha256:823b6e3957776fbe583fab39ce96265eea5f1b370cc2b20bb4d57c838c92f296",
@@ -184,7 +184,7 @@ var builtinTrusted = map[string][]string{
 		"sha256:693385866e285e2cf3e06bd277deff35e742ea0fa0b310e6e699321decfbe935",
 	},
 	"maigret": {
-		"sha256:9843ac42ae0559ad3f50f7eca46ec752a0d646996be7c60cb2b01d2325183a35",
+		"sha256:aefafbe5581d9859c565b73d2c49af012905b1b60017200e2ad13e1dd361f15f",
 	},
 	"metafinder": {
 		"sha256:266e4ab92115a7b8bab1b75edf8b4340dc911d5a14723bf02bc5bb53d2360300",

@@ -146,15 +146,15 @@ plugins:
   maigret:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/maigret
-    version: v0.32
-    commit: 21e46778e5397cf8b6f6704c4e3514902ce80858
-    description: "Maigret (soxrave) — поиск username по 4000+ сайтам. Ставится отдельно: pip install maigret."
+    version: v0.34
+    commit: a65cb1e152c9131a31bcbe11f1c2967261e876ff
+    description: "Maigret (soxrave) — поиск username по 4000+ сайтам. Зависимость объявлена: maigret==0.6.6, ставится кнопкой в карточке плагина."
   holehe:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/holehe
-    version: v0.32
-    commit: 21e46778e5397cf8b6f6704c4e3514902ce80858
-    description: "Holehe (megadose) — проверка email/username на утечки по 120+ сайтам. pip install holehe."
+    version: v0.34
+    commit: a65cb1e152c9131a31bcbe11f1c2967261e876ff
+    description: "Holehe (megadose) — проверка email/username на утечки по 120+ сайтам. Зависимость объявлена: holehe==1.61, ставится кнопкой в карточке плагина."
   crtsh:
     source: https://github.com/wykserdex/wedra
     path: plugins/community/crtsh
