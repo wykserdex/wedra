@@ -215,7 +215,30 @@ function outFields(p) {
   const info = pluginInfo(p);
   return info ? Object.keys(info.output || {}) : [];
 }
-// Поиск шага и его узла на холсте — сносок для протяжки.
+// Совместимость выхода источника с полем приёмника: тип должен совпасть, а если
+// оба объявили format — совпасть и он. Манифесты типы объявляют (abuseipdb:
+// ip: string/ip, days: number), и API их отдаёт, поэтому совпадение проверяется
+// на клиенте ДО создания связи, а не после — на валидации ядра.
+function outFits(outName, outSpec, inName, inSpec) {
+  const ot = outSpec && outSpec.type, it = inSpec && inSpec.type;
+  if (it && ot && it !== ot) return false;
+  const of = outSpec && outSpec.format, inf = inSpec && inSpec.format;
+  if (inf && of && inf !== of) return false;
+  // поле жёстко просит ip — текстовый выход LLM с format=text не подойдёт
+  if (inf && !of && inf !== 'text') return false;
+  return true;
+}
+
+// Выходы источника, годящиеся в это поле, в порядке предпочтения: сначала тем
+// же именем (ip→ip), потом формат, потом остальные совместимые.
+function compatibleOuts(srcStep, inName, inSpec) {
+  const srcInfo = pluginInfo(srcStep.plugin) || {};
+  const outs = srcInfo.output || {};
+  const names = Object.keys(outs);
+  const ok = names.filter(n => outFits(n, outs[n], inName, inSpec));
+  ok.sort((a, b) => (a === inName ? -1 : 0) - (b === inName ? -1 : 0));
+  return ok;
+}
 function stepById(id) {
   return state.doc.steps.find(s => s.id === id) || null;
 }
@@ -566,25 +589,47 @@ function dropLink(ev) {
   if (!st) { drawGhost(); return; }
 
 
-  // Тянем с узла целиком, а выход у него один — связываем не раздумывая.
-  const outs = d.field ? [d.field] : outFields(stepById(d.step).plugin);
+  // Тянем с узла целиком: выход один либо тот самый, с которого тянули за чип.
+  const srcStep = stepById(d.step);
   const row = el.closest ? el.closest('.inrow[data-field]') : null;
-  const ins = row && row.closest('.node') === node
+  const tgtInfo = pluginInfo(st.plugin) || {};
+  const ins = tgtInfo.input || {};
+
+  // Поле входа: если курсор стоял на конкретном поле — оно и есть цель. Иначе
+  // берём то, в которое ещё не входили; при равенстве — первое годное.
+  const candidates = (row && row.closest('.node') === node)
     ? [row.dataset.field]
-    : inFields(st.plugin);
+    : Object.keys(ins).filter(f => !st.bind || !st.bind[f]);
+  const pool = candidates.length ? candidates : Object.keys(ins);
 
-  // Больше никаких вопросов и списков пар: на что навёл — с тем и соединили.
-// Поле входа: то, в которое ещё никто не входил, а если свободных нет — первое
-// (привязка перезапишет старую, но без выбора на экране). Выход: первый, либо
-// тот самый, с которого тянули за чип, — читать один выход можно многим, так
-// что «занятости» здесь нет.
-  const inField = ins.length === 1 ? ins[0]
-    : (ins.find(f => !st.bind || !st.bind[f]) || ins[0]);
-
-  if (ins.length && outs.length) {
-    applyLink(st, { value: `steps.${d.step}.${outs[0]}`, label: `${d.step}.${outs[0]}` }, inField);
+  // Явно выбранный выход (тянули за чип) — проверяем и его: лучше отказать, чем
+  // связать несовместимое.
+  let picked = null, why = '';
+  if (d.field) {
+    const srcInfo = pluginInfo(srcStep.plugin) || {};
+    const srcOut = (srcInfo.output || {})[d.field] || {};
+    for (const f of pool) {
+      if (outFits(d.field, srcOut, f, ins[f])) { picked = [f, d.field]; break; }
+    }
+    if (!picked) why = `${d.step}.${d.field} не подходит ни в одно поле: разные типы или форматы`;
   } else {
-    drawGhost();
+    for (const f of pool) {
+      const ok = compatibleOuts(srcStep, f, ins[f]);
+      if (ok.length) { picked = [f, ok[0]]; break; }
+    }
+    if (!picked) {
+      const aim = (row && row.closest('.node') === node) ? ' в поле ' + row.dataset.field : '';
+      why = `у шага ${d.step} нет выхода, годящегося${aim} в ${st.id}`;
+    }
+  }
+
+  if (picked) {
+    applyLink(st, { value: `steps.${srcStep.id}.${picked[1]}`, label: `${srcStep.id}.${picked[1]}` }, picked[0]);
+  } else {
+    // Ничего не связали и сказали почему. Молчаливый отказ выглядел бы как
+    // зависшая протяжка, а связь «на всякий случай» — как готовая, но неверная.
+    cancelLink();
+    if (why) note(why, true);
   }
 }
 
@@ -1277,6 +1322,41 @@ function startNodeDrag(e, st) {
   document.addEventListener('mouseup', mu);
 }
 
+// Помечает на холсте поля, которые ядро назвало ошибочными. Без этого связь
+// выглядит готовой: в узле стоит «steps.s1.model» рядом с полем number, и
+// понять, что это бессмыслица, можно только пройдя к валидатору.
+function paintIssues() {
+  const bad = {};
+  for (const i of (state.valIssues || [])) {
+    if (!i.step) continue;
+    (bad[i.step] = bad[i.step] || new Set()).add(i.port || '');
+  }
+  document.querySelectorAll('.node').forEach(n => {
+    const set = bad[n.dataset.id];
+    n.classList.toggle('has-err', !!set);
+    n.querySelectorAll('.inrow[data-field]').forEach(r => {
+      r.classList.toggle('bad', !!(set && set.has(r.dataset.field)));
+    });
+  });
+}
+
+// Единственное место, где редактор говорит с человекой. Раньше его не было:
+// отказ связываться и подробности ошибок валидации просто некуда было вывести,
+// поэтому связь «на всякий случай» оставалась единственным исходом дропа.
+let noteTimer = null;
+function note(msg, bad) {
+  const el = $('#note');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('bad', !!bad);
+  el.hidden = !msg;
+  clearTimeout(noteTimer);
+  if (msg) {
+    const ms = bad ? 6000 : 2600;
+    noteTimer = setTimeout(() => { el.hidden = true; }, ms);
+  }
+}
+
 // ── валидация / сериализация / сохранение ─────────────────────────────────
 let valTimer = null;
 function scheduleValidate() {
@@ -1295,14 +1375,18 @@ async function doValidate() {
     state.yaml = res.yaml || '';
     state.valErrs = res.errors || [];
     state.valWarns = res.warnings || [];
+    // issues приходят адресными (code/step/port) — по ним плохое поле
+    // помечается прямо на холсте, а не ищется глазами в тексте
+    state.valIssues = (res.issues || []).filter(i => i.severity === 'error');
     const b = $('#val-badge');
     if (state.valErrs.length) { b.textContent = 'ошибки: ' + state.valErrs.length; b.className = 'badge err'; }
     else { b.textContent = 'валиден' + (state.valWarns.length ? ' · ' + state.valWarns.length + ' warn' : ''); b.className = 'badge ok'; }
     const ve = $('#val-err');
     if (ve) {
-      ve.style.display = state.valErrs.length ? 'block' : 'none';
       ve.textContent = state.valErrs.join('\n');
+      ve.hidden = !state.valErrs.length;
     }
+    paintIssues();
   } catch (e) {
     const b = $('#val-badge');
     b.textContent = 'ошибка'; b.className = 'badge err';

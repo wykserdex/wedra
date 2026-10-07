@@ -311,6 +311,7 @@ async function main() {
   });
   const chipA = () => byId.canvas.querySelector('.node[data-id="a"] .outchip[data-out="lines"]');
   const nodeEl = id => byId.canvas.querySelector('.node[data-id="' + id + '"]');
+  const rowOf = (id, field) => byId.canvas.querySelector('.node[data-id="' + id + '"] .inrow[data-field="' + field + '"]');
   const drop = pt => { for (const f of (docList.mouseup || [])) f({ ...pt, preventDefault() {}, stopPropagation() {} }); };
   const drag = (st, field, pt) => {
     ed.startLinkDrag(ed.stepById(st), field, { ...pt, preventDefault() {}, stopPropagation() {} });
@@ -403,6 +404,50 @@ async function main() {
     JSON.stringify(ed.stepById('y').bind));
   ed.state.doc = doc2;
   ed.state.plugins = PLUGINS.filter(pp => pp.id !== 'community/one_in');
+
+  // --- 8. типы и форматы: связь несовместимая не создаётся вовсе ---
+  // Реальный случай с холста: у шага выходы boolean/array, а поле входа ждёт
+  // string. Прежнее правило «первый выход» молча писало steps.src.boolean в
+  // string-поле, и пайплайн становился неисполнимым — ядро отвергало его с
+  // E_TYPE_MISMATCH, но холст показывал связь как готовую.
+  PLUGINS.push({ id: 'community/typed_src', dir: 'plugins/community/typed_src',
+    input: {}, output: { flag: { type: 'boolean' }, count: { type: 'number' } } });
+  PLUGINS.push({ id: 'community/typed_dst', dir: 'plugins/community/typed_dst',
+    input: { label: { type: 'string' }, addr: { type: 'string', format: 'ip' }, flag: { type: 'boolean' } },
+    output: { ok: { type: 'boolean' } } });
+  ed.state.plugins = PLUGINS;
+  ed.state.doc.steps = [{ id: 'ts', plugin: 'plugins/community/typed_src', pos: [40, 80] },
+                        { id: 'td', plugin: 'plugins/community/typed_dst', pos: [460, 200] }];
+  ed.renderAll();
+
+  // 8a. boolean -> boolean: связывается
+  drag('ts', null, at(rowOf('td', 'flag'), 0.5, 0.5));
+  drop(at(rowOf('td', 'flag'), 0.5, 0.5));
+  ok('совместимые типы связались', ed.stepById('td').bind.flag === 'steps.ts.flag',
+    JSON.stringify(ed.stepById('td').bind));
+
+  // 8b. boolean -> string: отказ, bind не тронут
+  const before = JSON.stringify(ed.stepById('td').bind);
+  drag('ts', null, at(rowOf('td', 'label'), 0.5, 0.5));
+  drop(at(rowOf('td', 'label'), 0.5, 0.5));
+  ok('несовместимый тип не связан', JSON.stringify(ed.stepById('td').bind) === before,
+    JSON.stringify(ed.stepById('td').bind));
+  ok('после отказа протяжка сброшена', ed.state.linkDrag === null);
+
+  // 8c. boolean -> string/ip: формат тоже не подходит
+  drag('ts', null, at(rowOf('td', 'addr'), 0.5, 0.5));
+  drop(at(rowOf('td', 'addr'), 0.5, 0.5));
+  ok('несовместимый формат не связан', JSON.stringify(ed.stepById('td').bind) === before,
+    JSON.stringify(ed.stepById('td').bind));
+
+  // 8d. выход с чипа проверяется так же, как с узла
+  drag('ts', 'count', at(rowOf('td', 'flag'), 0.5, 0.5));
+  drop(at(rowOf('td', 'flag'), 0.5, 0.5));
+  ok('явно взятый чип тоже сверяется по типу', JSON.stringify(ed.stepById('td').bind) === before,
+    JSON.stringify(ed.stepById('td').bind));
+  ed.state.doc = doc2;
+  ed.state.plugins = PLUGINS.filter(pp => pp.id.indexOf('community/typed_') !== 0
+    && pp.id !== 'community/one_in');
 
 
   console.log('\n' + (fail ? `провалено ${fail}, ` : '') + `пройдено ${pass}`);

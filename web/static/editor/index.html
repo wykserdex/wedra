@@ -205,7 +205,23 @@
   #yaml-view .hd{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;
     border-bottom:1px solid var(--hair);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--faint)}
-  #val-err{margin-top:10px;font-size:11px;color:var(--err);line-height:1.6;display:none}
+  /* узел с ошибочной привязкой и конкретное виновное поле */
+  .node.has-err{border-color:rgba(207,83,68,.45)}
+  .inrow.bad{outline:1px solid rgba(207,83,68,.5);outline-offset:-1px}
+  .inrow.bad .src{color:#e08a7c}
+  /* строка сообщений и разбор ошибок: приглушённые, без рамок — их читают,
+     а не рассматривают */
+  #note{margin:0;padding:7px 14px;border-bottom:1px solid var(--hair);
+    font-size:11.5px;color:var(--ash);background:var(--ink2)}
+  #note[hidden]{display:none}
+  #note.bad{color:#e08a7c;border-bottom-color:rgba(207,83,68,.3)}
+  /* ограничение высоты: иначе список ошибок расталкивает холст вниз и он
+     прыгает при каждой правке — на пяти строках это уже мешает рисовать */
+  #val-err{margin:0;padding:7px 14px;border-bottom:1px solid var(--hair);
+    font-size:11px;color:var(--ash);line-height:1.6;
+    font-family:var(--mono);white-space:pre-wrap;background:var(--ink2);
+    max-height:88px;overflow-y:auto}
+  #val-err[hidden]{display:none}
   .hint{font-size:11px;color:var(--faint);line-height:1.65;margin-top:8px}
 
   /* вход по одноразовому коду (разметка собирается в editor/app.js) */
@@ -280,6 +296,12 @@
     <a href="/artifacts/">Артефакты</a>
   </nav>
 </header>
+<!-- Одна строка под шапкой — единственное место, где редактор может что-то
+     сказать. Раньше её не было вовсе: #banner и #val-err упоминались в JS, но
+     в разметке отсутствовали, поэтому и отказ связываться, и подробности
+     ошибок валидации негде было показать. -->
+<div id="note" hidden></div>
+<div id="val-err" hidden></div>
 <div id="app">
   <aside id="palette">
     <h3>Плагины <span style="text-transform:none">(перетащи на холст)</span></h3>
