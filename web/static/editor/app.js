@@ -565,6 +565,82 @@ function renderInputNodes() {
   });
 }
 
+// Полоса входов на слое пайплайна. Значения здесь не редактируются — это
+// только источники для протяжки: перетащил на поле шага, и появилась связь
+// input.имя. Само значение правится на слое входов.
+function renderInputStrip() {
+  const host = $('#instrip');
+  if (!host) return;
+  if (!state.doc.input.length) { host.innerHTML = ''; return; }
+  host.innerHTML = '<div class="icap">входы</div>'
+    + state.doc.input.map((inp, i) => {
+      const used = state.doc.steps.some(s => Object.values(s.bind || {})
+        .some(v => String(v || '').match(new RegExp('^input\\.' + inp.name + '(\\.|$)'))));
+      return `<div class="isrc${used ? ' set' : ''}" data-isrc="${i}" title="${esc(inp.name)} — тяни к полю шага">`
+        + `<span class="dot"></span><span class="n">${esc(inp.name)}</span></div>`;
+    }).join('');
+  host.querySelectorAll('.isrc').forEach(el => {
+    el.addEventListener('mousedown', e => {
+      const inp = state.doc.input[+el.dataset.isrc];
+      if (!inp || e.button !== 0) return;
+      e.preventDefault();
+      state.linkDrag = { input: inp.name, step: null, field: null, label: 'input.' + inp.name };
+      state.linkDrag.x = e.clientX; state.linkDrag.y = e.clientY;
+      drawGhost();
+      const move = ev => {
+        state.linkDrag.x = ev.clientX; state.linkDrag.y = ev.clientY;
+        drawGhost();
+        const t = document.elementFromPoint(ev.clientX, ev.clientY);
+        const hit = t && t.closest ? t.closest('.inrow[data-field]') : null;
+        const prev = $('#canvas').querySelector('.hovered');
+        if (prev) prev.classList.remove('hovered');
+        if (hit) hit.classList.add('hovered');
+      };
+      const up = ev => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        dropInputLink(inp, ev);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    });
+  });
+}
+
+// Ошибка «в input пайплайна нет поля X» кликабельна: клик уводит на слой
+// входов, создаёт вход X, если его нет, мигает им и ставит фокус в поле
+// значения. Раньше текст лежал строкой, и что делать с ним — надо было
+// догадываться.
+function wireIssueClicks() {
+  const ve = $('#val-err');
+  if (!ve) return;
+  ve.querySelectorAll('[data-issue]').forEach(b => {
+    b.onclick = () => gotoInput(b.dataset.issue);
+  });
+}
+
+function gotoInput(name) {
+  if (!name) return;
+  let idx = state.doc.input.findIndex(i => i.name === name);
+  if (idx < 0) {
+    pushUndo();
+    state.doc.input.push({ name, default: '', typed: false, type: 'string', has_default: true });
+    renderInputNodes();
+    scheduleValidate();
+    idx = state.doc.input.length - 1;
+  }
+  setLayer('inputs');
+  const nodes = document.querySelectorAll('#inlayer .inode');
+  const el = nodes[idx];
+  if (el) {
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 2600);
+    const f = el.querySelector('.ival');
+    if (f) f.focus();
+  }
+  note('вход «' + name + '» — введи значение');
+}
+
 function stepById(id) {
   return state.doc.steps.find(s => s.id === id) || null;
 }
@@ -1083,16 +1159,12 @@ function renderEdges() {
           x1 = sRect.right - cRect.left + 4; y1 = sRect.top - cRect.top + sRect.height / 2;
         }
       } else {
-        // input.* — вход живёт на другом слое, поэтому линия начинается у левого
-        // края. Раньше она начиналась в ничем, и на экране это выглядело как
-        // стрелки из пустоты. Теперь у начала стоит подписанная точка с именем
-        // входа: видно, откуда связь и что это вход, а не оставшийся рёбер.
-        const im = String(src).match(/^input\.([\w-]+)/);
+        // input.* — вход живёт на другом слое. Начало линии помечаем точкой:
+        // имя входа и так написано в полосе входов слева, и подпись у начала
+        // была вторым тем же именем рядом — дважды одно и то же на экране.
         ok = false;
         x1 = 96; y1 = y2;
-        const lbl = esc(im ? im[1] : String(src));
-        stubs += `<circle cx="10" cy="${y2}" r="3" fill="#c9482f"/>`
-          + `<text x="18" y="${y2 + 3.5}" class="estub">${lbl}</text>`;
+        stubs += `<circle cx="10" cy="${y2}" r="3" fill="#c9482f"/>`;
       }
       s += `<path class="edge${ok ? '' : ' hi'}" d="${path(x1, y1, x2, y2)}"`
         + ` marker-end="url(#${ok ? 'edge-arr' : 'edge-arr-hi'})"/>`;
@@ -1640,6 +1712,8 @@ function setLayer(l) {
   if (bPipe) bPipe.classList.toggle('active', state.layer === 'pipeline');
   const inp = $('#inlayer');
   if (inp) inp.style.display = state.layer === 'inputs' ? '' : 'none';
+  const strip = $('#instrip');
+  if (strip) strip.style.display = state.layer === 'pipeline' ? '' : 'none';
   renderAll();
 }
 
@@ -1656,6 +1730,7 @@ function renderAll() {
   }
   if (!onInputs) {
     renderNodes();
+    renderInputStrip();
     renderEdges();
   }
   if (onInputs) renderInputNodes();
@@ -1840,8 +1915,19 @@ async function doValidate() {
     else { b.textContent = 'валиден' + (state.valWarns.length ? ' · ' + state.valWarns.length + ' warn' : ''); b.className = 'badge ok'; }
     const ve = $('#val-err');
     if (ve) {
-      ve.textContent = state.valErrs.join('\n');
+      // Строки ошибок — кнопки: клик по «нет поля X» ведёт на слой входов к
+      // самому X. Тексты берём из issues (там есть step и port), а не
+      // складываем строки: к строке нельзя привязать действие.
+      const miss = [];
+      for (const i of (state.valIssues || [])) {
+        const m = String(i.message || '').match(/нет поля ([\w-]+)/);
+        miss.push(m ? m[1] : '');
+      }
+      ve.innerHTML = (state.valErrs || []).map((t, i) => miss[i]
+        ? `<button data-issue="${esc(miss[i])}">${esc(t)}<div class="go">→ ввести «${esc(miss[i])}»</div></button>`
+        : `<button data-issue="">${esc(t)}</button>`).join('');
       ve.hidden = !state.valErrs.length;
+      wireIssueClicks();
     }
     paintIssues();
   } catch (e) {
