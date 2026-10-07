@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wykserdex/wedra/internal/common"
@@ -78,7 +79,24 @@ type wireResponse struct {
 	} `json:"error"`
 }
 
+var (
+	pythonCacheMu      sync.Mutex
+	pythonCachePathEnv string
+	pythonCacheBin     string
+)
+
 func pythonInterpreter() (string, error) {
+	pathEnv := os.Getenv("PATH")
+	pythonCacheMu.Lock()
+	if pythonCacheBin != "" && pythonCachePathEnv == pathEnv {
+		if info, err := os.Stat(pythonCacheBin); err == nil && !info.IsDir() {
+			cached := pythonCacheBin
+			pythonCacheMu.Unlock()
+			return cached, nil
+		}
+	}
+	pythonCacheMu.Unlock()
+
 	var firstFound string
 	for _, name := range []string{"python3", "python"} {
 		p, err := exec.LookPath(name)
@@ -89,6 +107,10 @@ func pythonInterpreter() (string, error) {
 			firstFound = p
 		}
 		if runtime.GOOS != "windows" {
+			pythonCacheMu.Lock()
+			pythonCachePathEnv = pathEnv
+			pythonCacheBin = p
+			pythonCacheMu.Unlock()
 			return p, nil
 		}
 		// Проба на Windows обязательна, и её провал — это ответ, а не формальность.
@@ -104,10 +126,15 @@ func pythonInterpreter() (string, error) {
 			continue
 		}
 		candidate := strings.TrimSpace(string(out))
+		resolved := p
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
-			return candidate, nil
+			resolved = candidate
 		}
-		return p, nil
+		pythonCacheMu.Lock()
+		pythonCachePathEnv = pathEnv
+		pythonCacheBin = resolved
+		pythonCacheMu.Unlock()
+		return resolved, nil
 	}
 	if firstFound != "" {
 		return "", fmt.Errorf("найден кандидат python (%s), но он не проходит пробу — переустановите интерпретатор или уберите заглушку Microsoft Store из PATH", firstFound)
@@ -172,9 +199,6 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 	// ошибок, который здесь и ловится.
 	trusted := IsTrusted(m, trustPolicy)
 
-	ctx, cancel := context.WithTimeout(parent, timeout)
-	defer cancel()
-
 	var argv []string
 	switch m.Runtime.Type {
 	case "python":
@@ -204,6 +228,12 @@ func execPluginEnv(parent context.Context, m *Manifest, input []byte, timeout ti
 		res.ExitCode = 2
 		return res
 	}
+
+	// Таймаут запускается ПОСЛЕ поиска интерпретатора (на Windows первый вызов
+	// pythonInterpreter делает пробу через подпроцесс, и это время не должно
+	// съедать бюджет самого плагина).
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
 
 	// Внешний код запускается только внутри изолятора; если изолятор на хосте
 	// недоступна — отказ до создания процесса (fail-closed).

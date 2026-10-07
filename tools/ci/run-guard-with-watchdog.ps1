@@ -24,8 +24,8 @@
 param(
     [int]$BudgetSec = 1200,
     [int]$WorkerBudgetSec = -1,   # бюджет самого рабочего скрипта (по умолчанию BudgetSec-60)
-    [int]$PerPackageSec = 660,
-    [int]$GoTimeoutSec = 600,
+    [int]$PerPackageSec = 540,
+    [int]$GoTimeoutSec = 480,
     [switch]$KillLeakedDescendants,
     [string]$LogDir = (Join-Path $env:RUNNER_TEMP 'gotest'),
     [string]$GuardPath = '',
@@ -52,10 +52,59 @@ function Write-Both {
     if ($StepSummary) { Add-Content -Path $StepSummary -Value $Text -ErrorAction SilentlyContinue }
 }
 
+# Сбрасываем HANDLE_FLAG_INHERIT со стандартных дескрипторов (stdin/stdout/stderr)
+# текущего процесса pwsh.exe ДО запуска любых дочерних процессов.
+#
+# Почему одного редиректа `cmd.exe /c "... > out 2> err"` было недостаточно:
+#  1. Runner.Worker (GitHub Actions) передаёт верхнему pwsh.exe анонимные пайпы
+#     шага в STD_OUTPUT_HANDLE и STD_ERROR_HANDLE с флагом HANDLE_FLAG_INHERIT=1.
+#  2. .NET Process.Start при UseShellExecute=$false ВСЕГДА вызывает CreateProcessW
+#     с bInheritHandles=TRUE, а cmd.exe при редиректе `>` / `2>` сначала сохраняет
+#     исходные stdout/stderr через CRT _dup() (DuplicateHandle с bInheritHandle=TRUE)
+#     в дескрипторы 3 и 4, после чего запускает дочерний pwsh.exe с bInheritHandles=TRUE.
+#  3. В итоге ВСЕ потомки (pwsh, cmd, go, conhost.exe и др.) наследуют в свою
+#     таблицу хендлов открытые write-концы пайпов Runner.Worker! И если любой
+#     такой процесс (например conhost.exe или rel=0) переживает шаг, Runner.Worker
+#     в ProcessInvoker.cs ждёт EOF пайпа до самого джобового таймаута + 5 минут
+#     CancelTimeout, после чего убивается без лога (BlobNotFound) и без артефактов.
+#
+# Сброс HANDLE_FLAG_INHERIT не мешает самому верхнему pwsh.exe писать в лог
+# шага, но гарантирует на уровне ядра Windows, что ни один дочерний процесс
+# физически не получит копию пайпов Runner.Worker.
+function Disable-StdHandleInheritance {
+    if (-not $script:IsWin) { return }
+    try {
+        if (-not ('Wedra.NativeHandle' -as [type])) {
+            Add-Type -Namespace 'Wedra' -Name 'NativeHandle' -MemberDefinition @'
+                [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+                public static extern System.IntPtr GetStdHandle(int nStdHandle);
+                [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+                public static extern bool SetHandleInformation(System.IntPtr hObject, uint dwMask, uint dwFlags);
+'@
+        }
+        foreach ($std in @(-10, -11, -12)) {
+            $h = [Wedra.NativeHandle]::GetStdHandle($std)
+            if ($h -ne [System.IntPtr]::Zero -and $h -ne [System.IntPtr](-1)) {
+                [void][Wedra.NativeHandle]::SetHandleInformation($h, 1, 0)
+            }
+        }
+    } catch {
+        Write-Both ("watchdog: warn SetHandleInformation: {0}" -f $_.Exception.Message)
+    }
+}
+
 function Kill-Tree {
     param([int]$TargetPid)
     if ($script:IsWin) {
-        & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $TargetPid 2>&1 | Out-Null
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.FileName = "$env:SystemRoot\System32\taskkill.exe"
+        $psi.Arguments = "/T /F /PID $TargetPid"
+        $tk = [System.Diagnostics.Process]::Start($psi)
+        if (-not $tk.WaitForExit(15000)) {
+            Write-Both "watchdog: WARN taskkill не завершился за 15 с (pid $TargetPid)"
+        }
         return
     }
     $kids = @(ps -eo 'pid=,ppid=' | Where-Object { $_ -match '^\s*(\d+)\s+(\d+)$' -and [int]$Matches[2] -eq $TargetPid } |
@@ -102,11 +151,13 @@ $err = Join-Path $LogDir 'guard.err.txt'
 
 $hostExe = (Get-Process -Id $PID).Path
 $killArg = if ($KillLeakedDescendants) { ' -KillLeakedDescendants' } else { '' }
+Disable-StdHandleInheritance
 Write-Both ("watchdog: host=$hostExe budget=${BudgetSec}s workerBudget=${WorkerBudgetSec}s guard=$GuardPath")
 
 # Рабочий скрипт — отдельный процесс, вывод уходит в ФАЙЛЫ (никаких пайпов).
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
 $psi.RedirectStandardOutput = $false
 $psi.RedirectStandardError = $false
 if ($script:IsWin) {
@@ -132,11 +183,18 @@ $null = $worker.Handle
 Write-Both ("watchdog: worker pid={0}" -f $worker.Id)
 
 if (-not $worker.WaitForExit($BudgetSec * 1000)) {
-    Write-Both ("watchdog: worker не уложился в {0} с — снимаю улики и убиваю дерево" -f $BudgetSec)
-    Dump-Evidence -LogDir $LogDir -Out $out -Err $err
+    Write-Both ("watchdog: worker не уложился в {0} с — убиваю дерево и снимаю улики" -f $BudgetSec)
+    # Сначала быстрый снимок без WMI (Get-Process не виснет на заблокированном
+    # процессе), затем убийство дерева, и только потом — полный дамп улик.
+    # Раньше Dump-Evidence шёл ДО Kill-Tree и вызывал Get-CimInstance по живому
+    # зависшему дереву, рискуя повиснуть в DCOM до того, как worker будет убит.
+    Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Both ("    pre-kill: pid={0} {1}" -f $_.Id, $_.ProcessName)
+    }
     Kill-Tree -TargetPid $worker.Id
-    [void]$worker.WaitForExit(20000)
+    [void]$worker.WaitForExit(15000)
     if (-not $worker.HasExited) { Write-Both "watchdog: дерево worker'а всё ещё живо после taskkill" }
+    Dump-Evidence -LogDir $LogDir -Out $out -Err $err
     exit 1
 }
 # Успешная ветка: читаем ФАЙЛЫ. Пайпов у нас нет вообще, поэтому ждать EOF тут

@@ -31,7 +31,24 @@ import (
 	"github.com/wykserdex/wedra/internal/api"
 	"github.com/wykserdex/wedra/internal/buildinfo"
 	"github.com/wykserdex/wedra/internal/guidirs"
+	"github.com/wykserdex/wedra/internal/plugin"
 )
+
+func resolveDesktopTrustConfig(override string) string {
+	if override != "" {
+		return override
+	}
+	if env := strings.TrimSpace(os.Getenv("WEDRA_TRUST_CONFIG")); env != "" {
+		return env
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(exe), plugin.TrustConfigFile)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
 
 func main() {
 	dirs, args, err := guidirs.Parse(os.Args[1:], guidirs.Default())
@@ -41,6 +58,7 @@ func main() {
 	}
 	var port int
 	debug := false
+	trustCfg := ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -48,6 +66,11 @@ func main() {
 			fmt.Sscanf(a[7:], "%d", &port)
 		case a == "--port" && i+1 < len(args):
 			fmt.Sscanf(args[i+1], "%d", &port)
+			i++
+		case strings.HasPrefix(a, "--trust-config="):
+			trustCfg = strings.TrimPrefix(a, "--trust-config=")
+		case a == "--trust-config" && i+1 < len(args):
+			trustCfg = args[i+1]
 			i++
 		case a == "--debug":
 			debug = true
@@ -59,7 +82,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	trusted, err := plugin.EffectiveAllowList(resolveDesktopTrustConfig(trustCfg))
+	if err != nil {
+		fmt.Println("ошибка конфига доверия:", err)
+		os.Exit(2)
+	}
+
 	srv := api.NewServer(dirs.Plugins, dirs.Pipelines, dirs.Runs)
+	srv.Trusted = trusted
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		fmt.Println("порт недоступен:", err)

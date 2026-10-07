@@ -27,7 +27,7 @@
 #   pwsh ./tools/ci/windows-test-guard.ps1 -LogDir $env:TEMP\gotest -RepoDir .
 # или так же, как это делает CI, с внешней сторожкой:
 #   pwsh ./tools/ci/run-guard-with-watchdog.ps1 -LogDir $env:TEMP\gotest `
-#     -BudgetSec 1200 -PerPackageSec 660 -GoTimeoutSec 600 -KillLeakedDescendants
+#     -BudgetSec 1200 -PerPackageSec 540 -GoTimeoutSec 480 -KillLeakedDescendants
 #
 # Лестница подписей в summary (её и надо читать первой):
 #   нет строки «guard start»            → встало ДО нас (шаг/шелл/раннер);
@@ -38,9 +38,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$LogDir,
-    [int]$BudgetSec = 1500,
-    [int]$PerPackageSec = 660,
-    [int]$GoTimeoutSec = 600,
+    [int]$BudgetSec = 1200,
+    [int]$PerPackageSec = 540,
+    [int]$GoTimeoutSec = 480,
     [int]$ListTimeoutSec = 120,
     [int]$CensusTimeoutSec = 10,
     # Каталог репозитория (там, где go.mod). По умолчанию — текущий; задавать
@@ -240,11 +240,7 @@ function Get-Survivors {
         Write-Line ("{0} rel={1} pid={2} ppid={3} :: {4}" -f $tag, $rel, $p.Pid, $p.Ppid, $cmd) -Notice:($rel -eq 1)
         Write-Line ("    родословная: {0}" -f (Format-Ancestry -Table $After -Ppid ([int]$p.Ppid)))
         if ($KillLeakedDescendants -and $detached -and $interesting) {
-            if ($script:IsWin) {
-                & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $p.Pid 2>&1 | Out-Null
-            } else {
-                & kill -9 $p.Pid 2>$null | Out-Null
-            }
+            Stop-ProcessTree -TargetPid $p.Pid
             Write-Line ("    KILLED pid={0} — оторванный потомок не должен пережить шаг (иначе пайпы раннера останутся открытыми)" -f $p.Pid)
         }
     }
@@ -269,6 +265,7 @@ function Stop-ProcessTree {
     if ($script:IsWin) {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
         $psi.FileName = "$env:SystemRoot\System32\taskkill.exe"
         $psi.Arguments = "/T /F /PID $TargetPid"
         $tk = [System.Diagnostics.Process]::Start($psi)
@@ -296,6 +293,7 @@ function Start-BoundedCommand {
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
     if ($WorkDir) { $psi.WorkingDirectory = $WorkDir }
     # Пайпов нет намеренно: см. шапку файла.
     $psi.RedirectStandardOutput = $false

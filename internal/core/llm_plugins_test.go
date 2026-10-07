@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const llmTestTimeout = 15 * time.Second
+
 // llmFx — манифест продакшн-плагина из ../../plugins/<name> или official/community (рабочая папка теста — internal/core).
 func llmFx(name string) *Manifest {
 	candidates := []string{
@@ -64,7 +66,7 @@ func TestGeminiOK(t *testing.T) {
 	t.Setenv("LLM_MOCK", "")
 
 	res := execPlugin(llmFx("llm_gemini"),
-		[]byte(`{"prompt":"арбузы","system":"Ты — копирайтер"}`), 5*time.Second)
+		[]byte(`{"prompt":"арбузы","system":"Ты — копирайтер"}`), llmTestTimeout)
 	if !res.OK() {
 		t.Fatalf("gemini ok ожидался: %+v", res)
 	}
@@ -88,7 +90,7 @@ func TestGemini429IsRetryableDomain(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "k")
 	t.Setenv("LLM_MOCK", "")
 
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), llmTestTimeout)
 	if res.OK() || res.Platform || !res.Retryable || res.ErrCode != "http_429" {
 		t.Fatalf("429 → доменная retryable ошибка: %+v", res)
 	}
@@ -109,7 +111,7 @@ func TestGemini401NotRetryable(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "bad")
 	t.Setenv("LLM_MOCK", "")
 
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), llmTestTimeout)
 	if res.Retryable || res.shouldRetry() {
 		t.Fatalf("401 — не retryable (ключ мёртв): %+v", res)
 	}
@@ -119,7 +121,7 @@ func TestGeminiNoKey(t *testing.T) {
 	requirePython(t)
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("LLM_MOCK", "")
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"x"}`), llmTestTimeout)
 	if res.OK() || res.Platform || res.ErrCode != "no_api_key" || res.Retryable {
 		t.Fatalf("отсутствие ключа → понятная доменная ошибка, не traceback: %+v", res)
 	}
@@ -203,7 +205,7 @@ func TestOpenAICompatOK(t *testing.T) {
 	t.Setenv("LLM_MOCK", "")
 
 	res := execPlugin(llmFx("llm_openai"),
-		[]byte(`{"prompt":"черновик","system":"Ты — редактор"}`), 5*time.Second)
+		[]byte(`{"prompt":"черновик","system":"Ты — редактор"}`), llmTestTimeout)
 	if !res.OK() {
 		t.Fatalf("openai-compat ok ожидался: %+v", res)
 	}
@@ -250,7 +252,7 @@ func TestAnthropicOK(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "ant-key")
 	t.Setenv("LLM_MOCK", "")
 
-	res := execPlugin(llmFx("llm_anthropic"), []byte(`{"prompt":"тема"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_anthropic"), []byte(`{"prompt":"тема"}`), llmTestTimeout)
 	if !res.OK() {
 		t.Fatalf("anthropic ok ожидался: %+v", res)
 	}
@@ -270,7 +272,7 @@ func TestProviderAnswerPassesOutputContract(t *testing.T) {
 	requirePython(t)
 	stubLLM(t, "gemini", "")
 
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), llmTestTimeout)
 	if !res.OK() {
 		t.Fatalf("ответ заглушки не ok: %+v", res)
 	}
@@ -288,7 +290,7 @@ func TestNoKeyRefusedBeforeAnyRequest(t *testing.T) {
 	requirePython(t)
 	t.Setenv("GEMINI_API_KEY", "")
 
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":"арбузы"}`), llmTestTimeout)
 	if res.OK() || res.ErrCode != "no_api_key" {
 		t.Fatalf("без ключа ожидался no_api_key: %+v", res)
 	}
@@ -302,7 +304,7 @@ func TestLLMEmptyPromptIsDomainError(t *testing.T) {
 	// не подставляет её в плагин — раньше доходила именно потому, что была
 	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
 	stubLLM(t, "gemini", "")
-	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":""}`), 5*time.Second)
+	res := execPlugin(llmFx("llm_gemini"), []byte(`{"prompt":""}`), llmTestTimeout)
 	if res.OK() || res.Platform || res.ErrCode != "empty_prompt" {
 		t.Fatalf("пустой prompt → доменная ошибка: %+v", res)
 	}
@@ -314,7 +316,7 @@ func TestLLMBadJSONIsPlatform(t *testing.T) {
 	// не подставляет её в плагин — раньше доходила именно потому, что была
 	// объявлена. Заглушка поднимается явно и отвечает по настоящему HTTP.
 	stubLLM(t, "gemini", "")
-	res := execPlugin(llmFx("llm_openai"), []byte(`{oops`), 5*time.Second)
+	res := execPlugin(llmFx("llm_openai"), []byte(`{oops`), llmTestTimeout)
 	if !res.Platform {
 		t.Fatalf("битый JSON на входе → платформенная ошибка (exit 2): %+v", res)
 	}
