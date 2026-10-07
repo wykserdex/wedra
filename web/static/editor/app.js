@@ -639,6 +639,15 @@ function wireIssueClicks() {
   ve.querySelectorAll('[data-issue]').forEach(b => {
     b.onclick = () => gotoInput(b.dataset.issue);
   });
+  // «плагин заявил сеть, а network не задан» → клик разрешает
+  ve.querySelectorAll('[data-net]').forEach(b => {
+    b.onclick = () => {
+      pushUndo();
+      state.doc.network = b.dataset.net;
+      renderAll();
+      note('сеть разрешена для пайплайна: network: allow');
+    };
+  });
 }
 
 function gotoInput(name) {
@@ -1425,10 +1434,15 @@ function renderProps() {
         <button data-inadd>+ вход</button></div>
       <div class="pblock"><label>secrets — env-ключи для плагинов (v0.5)</label>
         ${secretsBlock()}</div>
-      <div class="pblock"><label>network — сетевая политика (v0.6)</label>
-        <label style="cursor:pointer"><input type="checkbox" data-ndeny ${state.doc.network === 'deny' ? 'checked' : ''}/> deny — запретить сеть</label>
-        <div class="hint">Выкл (allow): плагин сам декларирует сеть в манифесте (declare-now, аудит — журнал).
-        deny: шаг, чей плагин заявил сеть, — ошибка (валидатор и раннер: WEDRA_NETWORK=deny).</div></div>
+<div class="pblock"><label>network — сетевая политика (v0.6)</label>
+        <select data-nnet>
+          <option value=""${!state.doc.network ? ' selected' : ''}>по умолчанию — сеть запрещена</option>
+          <option value="allow"${state.doc.network === 'allow' ? ' selected' : ''}>разрешить — allow</option>
+          <option value="deny"${state.doc.network === 'deny' ? ' selected' : ''}>запретить — deny</option>
+        </select>
+        <div class="hint">Плагин, заявивший сеть в манифесте, требует <b>allow</b>: пустое поле и
+        deny для него — ошибка валидации. Разрешение даётся плагину, а не всему пайплайну:
+        список хостов остаётся в его манифесте, а решение пишется в журнал.</div></div>
       <h3>Батч (pipeline foreach)</h3>
       ${pipelineFlowBlock()}
       <div class="hint">Шагов: ${state.doc.steps.length}. Перетащи плагин слева на холст (или кликни по нему — узел появится на свободном месте).
@@ -1716,9 +1730,9 @@ function wireProps(st) {
     state.doc.secrets.splice(+b.dataset.sdel, 1);
     renderAll();
   });
-  // v0.6: network — политика allow/deny
-  const ndeny = el.querySelector('[data-ndeny]');
-  if (ndeny) ndeny.onchange = () => { pushUndo(); state.doc.network = ndeny.checked ? 'deny' : ''; renderAll(); };
+  // v0.6: network — политика allow/deny/пусто(запрет)
+  const nnet = el.querySelector('[data-nnet]');
+  if (nnet) nnet.onchange = () => { pushUndo(); state.doc.network = nnet.value; renderAll(); };
 }
 
 // ── слои: входы и пайплайн ────────────────────────────────────────────────
@@ -1946,13 +1960,17 @@ async function doValidate() {
       // самому X. Тексты берём из issues (там есть step и port), а не
       // складываем строки: к строке нельзя привязать действие.
       const miss = [];
+      const netIssue = [];
       for (const i of (state.valIssues || [])) {
         const m = String(i.message || '').match(/нет поля ([\w-]+)/);
         miss.push(m ? m[1] : '');
+        netIssue.push(i.code === 'E_NETWORK_DENIED' ? '1' : '');
       }
       ve.innerHTML = (state.valErrs || []).map((t, i) => miss[i]
         ? `<button data-issue="${esc(miss[i])}">${esc(t)}<div class="go">→ ввести «${esc(miss[i])}»</div></button>`
-        : `<button data-issue="">${esc(t)}</button>`).join('');
+        : netIssue[i]
+          ? '<button data-net="allow">'+esc(t)+'<div class="go">→ разрешить сеть (network: allow)</div></button>'
+          : `<button data-issue="">${esc(t)}</button>`).join('');
       ve.hidden = !state.valErrs.length;
       wireIssueClicks();
     }
