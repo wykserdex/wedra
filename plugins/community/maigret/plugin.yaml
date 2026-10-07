@@ -10,7 +10,10 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет maigret — отдельно (pip install maigret)
+  requires: ["maigret==0.6.6"]   # раньше стояло [] с пометкой «отдельно pip install»:
+                                 # зависимость не была объявлена, кнопка «установить»
+                                 # писала «ставить нечего», а ран падал на
+                                 # «No module named maigret» без подсказки
 
 input:
   username:

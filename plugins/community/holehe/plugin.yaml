@@ -11,7 +11,8 @@ author: "community · wedra showcase (OSINT)"
 runtime:
   type: python
   entry: main.py
-  requires: []          # только stdlib; пакет holehe — отдельно (pip install holehe)
+  requires: ["holehe==1.61"]   # раньше стояло [] с пометкой «отдельно pip install» —
+                                 # та же дыра, что и у maigret
 
 input:
   target:
