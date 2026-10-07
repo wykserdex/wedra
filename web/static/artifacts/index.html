@@ -9,34 +9,31 @@
      Здесь акцент тратится на «горячее» в подборе цепочки: точное совпадение
      типа, чужая зависимость и активный шаг. ───────────────────────────── */
   :root{
-    --ink:#0b0b0c; --ink2:#131314; --ink3:#1a1a1c; --ink4:#222224;
-    --sunken:#070708;
-    --bone:#e9e5dd; --ash:#8d8981; --faint:#5c5955;
-    --hair:rgba(233,229,221,.11); --hair2:rgba(233,229,221,.20);
-    --acc:#e9e5dd; --ver:#c9482f; --warn:#c19a4a;
-    --ok:#8ea07c; --err:#cf5344; --par:#9b8cb8;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    --r:2px; --hdr:46px;
+    --ink:#1a1a1a; --ink2:#202020; --ink3:#252525; --ink4:#2e2e2e;
+    --sunken:#151515;
+    --bone:#dcdcdc; --ash:#9c9c9c; --faint:#6b6b6b;
+    --hair:rgba(255,255,255,.075); --hair2:rgba(255,255,255,.14);
+    --acc:#dcdcdc; --ver:#c9482f; --warn:#c19a4a;
+    --ok:#8ea07c; --err:#cf5344; --par:#9a8fae;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    --r:3px; --hdr:42px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--ink);color:var(--bone);
-    font:13px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    font:12.5px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
     -webkit-font-smoothing:antialiased}
-  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.035;
-    background-image:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cfilter%20id='g'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='4'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='180'%20height='180'%20filter='url(%23g)'/%3E%3C/svg%3E")}
   ::selection{background:rgba(201,72,47,.35)}
-  *{scrollbar-width:thin;scrollbar-color:#3a3936 transparent}
+  *{scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
-  ::-webkit-scrollbar-thumb{background:#2c2b29;border:3px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-thumb:hover{background:#454340;background-clip:content-box}
+  ::-webkit-scrollbar-thumb{background:#333;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#4a4a4a;background-clip:content-box}
   :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
 
   header{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
     background:linear-gradient(180deg,#101011,var(--ink));border-bottom:1px solid var(--hair);
     position:sticky;top:0;z-index:10;flex-wrap:nowrap;overflow-x:auto}
-  header h1{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:16px;
+  header h1{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:16px;
     margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase}
   header h1 .mark{display:inline-flex;opacity:.9}
   header h1 .mark svg{display:block}

@@ -5,37 +5,34 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>WEDRA — редактор пайплайнов</title>
 <style>
-  /* Тот же язык, что и у консоли: чернила и костяная бумага с баннера,
+  /* Тот же язык, что и у консоли: тёмный нейтральный фон, волосяные линии,
      один цветной акцент (--ver) — только там, где интерфейс «живой»:
      связывание шагов, ожидание человека, ошибка. ─────────────────────── */
   :root{
-    --ink:#0b0b0c; --ink2:#131314; --ink3:#1a1a1c; --ink4:#222224;
-    --sunken:#070708;
-    --bone:#e9e5dd; --ash:#8d8981; --faint:#5c5955;
-    --hair:rgba(233,229,221,.11); --hair2:rgba(233,229,221,.20);
-    --acc:#e9e5dd; --ver:#c9482f;
-    --ok:#8ea07c; --err:#cf5344; --skip:#c19a4a; --par:#9b8cb8;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    --r:2px; --hdr:46px;
+    --ink:#1a1a1a; --ink2:#202020; --ink3:#252525; --ink4:#2e2e2e;
+    --sunken:#151515;
+    --bone:#dcdcdc; --ash:#9c9c9c; --faint:#6b6b6b;
+    --hair:rgba(255,255,255,.075); --hair2:rgba(255,255,255,.14);
+    --acc:#dcdcdc; --ver:#c9482f;
+    --ok:#8ea07c; --err:#cf5344; --skip:#c19a4a; --par:#9a8fae;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    --r:3px; --hdr:42px;
   }
   *{box-sizing:border-box}
   body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);font-size:13px;
     line-height:1.5;-webkit-font-smoothing:antialiased}
-  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.035;
-    background-image:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cfilter%20id='g'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='4'%20stitchTiles='stitch'/%3E%3C/filter%3E%3Crect%20width='180'%20height='180'%20filter='url(%23g)'/%3E%3C/svg%3E")}
   ::selection{background:rgba(201,72,47,.35)}
-  *{scrollbar-width:thin;scrollbar-color:#3a3936 transparent}
+  *{scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
-  ::-webkit-scrollbar-thumb{background:#2c2b29;border:3px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-thumb:hover{background:#454340;background-clip:content-box}
+  ::-webkit-scrollbar-thumb{background:#333;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#4a4a4a;background-clip:content-box}
   :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
 
   header{display:flex;align-items:center;gap:10px;height:var(--hdr);padding:0 14px;
     border-bottom:1px solid var(--hair);background:linear-gradient(180deg,#101011,var(--ink));
     flex-wrap:nowrap;overflow-x:auto}
-  header h1{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-size:16px;
+  header h1{display:flex;align-items:center;gap:9px;font-family:var(--sans);font-size:16px;
     margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap}
   header h1 .mark{display:inline-flex;opacity:.9}
   header h1 .mark svg{display:block}
@@ -76,68 +73,76 @@
   aside{overflow-y:auto;padding:14px}
   #palette{border-right:1px solid var(--hair)}
   #props{border-left:1px solid var(--hair)}
-  aside h3{margin:20px 0 10px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  aside h3{margin:22px 0 8px;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--faint);font-weight:500;display:flex;align-items:center;gap:8px}
   aside h3::after{content:"";height:1px;flex:1;background:var(--hair)}
   aside h3:first-child{margin-top:0}
-  aside h3 span{text-transform:none;letter-spacing:0;font-size:11px;color:var(--faint)}
-  .plug{padding:9px 11px;margin:6px 0;background:var(--ink2);border:1px solid var(--hair);
-    border-left:2px solid var(--hair2);border-radius:var(--r);cursor:grab;font-size:12px;
-    transition:border-color .12s,background .12s}
-  .plug:hover{border-color:var(--hair2);background:var(--ink3)}
+  aside h3 span{text-transform:none;letter-spacing:0;font-size:10.5px;color:var(--faint)}
+  /* плагин в палитре — запись в списке, а не карточка: без заливки, без рамки.
+     Пункты палитры десятками тянулись колонкой плиток и перетяжеляли боковую
+     панель сильнее, чем сам холст. */
+  .plug{padding:7px 8px 7px 0;margin:0;border:0;border-top:1px solid var(--hair);
+    cursor:grab;font-size:11.5px;border-radius:0;
+    transition:color .12s}
+  .plug:hover{background:transparent;color:var(--bone)}
   .plug:active{cursor:grabbing}
-  .plug b{display:block;font-family:var(--mono);font-size:11.5px;font-weight:600}
-  .plug small{color:var(--ash);display:block;margin-top:3px;line-height:1.5;font-size:11px}
-  .plug .io{font-family:var(--mono);font-size:10px;color:var(--par);margin-top:4px}
-  .plug.gate{border-left-color:var(--par)}
+  .plug b{display:block;font-family:var(--mono);font-size:11px;font-weight:500}
+  .plug small{color:var(--faint);display:block;margin-top:2px;line-height:1.5;font-size:10.5px}
+  .plug:hover small{color:var(--ash)}
+  .plug .io{font-family:var(--mono);font-size:9.5px;color:var(--faint);margin-top:3px}
+  .plug.gate b{color:var(--par)}
 
-  /* ── холст: миллиметровка на чернилах, шаги — бумажки с полями ввода ── */
-  .plug-ghost{position:fixed;z-index:99;pointer-events:none;opacity:.92;padding:5px 10px;
+  /* ── холст: тонкие линии, узел — подпись к точке ── */
+  .plug-ghost{position:fixed;z-index:99;pointer-events:none;opacity:.92;padding:4px 9px;
     background:var(--ink4);border:1px solid var(--par);border-radius:var(--r);
-    font-family:var(--mono);font-size:11px;color:var(--bone)}
+    font-family:var(--mono);font-size:10.5px;color:var(--bone)}
   #canvas-wrap{overflow:auto;position:relative;
-    background-image:linear-gradient(rgba(233,229,221,.035) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(233,229,221,.035) 1px,transparent 1px),
-      linear-gradient(rgba(233,229,221,.07) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(233,229,221,.07) 1px,transparent 1px);
+    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px),
+      linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
     background-size:20px 20px,20px 20px,100px 100px,100px 100px;background-color:var(--sunken)}
   #canvas-wrap.drop-over{outline:2px dashed var(--ver);outline-offset:-8px}
   #canvas{position:relative;width:2600px;height:1700px}
   #edges{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
-  #canvas-hint{position:absolute;left:60px;top:60px;max-width:420px;padding:18px 22px;
-    border:1px solid var(--hair2);border-left:2px solid var(--ver);border-radius:var(--r);
-    background:var(--ink2);color:var(--ash);font-size:12.5px;line-height:1.7;pointer-events:none;
-    box-shadow:0 20px 40px -30px #000}
-  #canvas-hint b{color:var(--bone);font-weight:600}
+  #canvas-hint{position:absolute;left:60px;top:56px;max-width:400px;
+    color:var(--faint);font-size:12px;line-height:1.7;pointer-events:none}
+  #canvas-hint b{color:var(--ash);font-weight:600}
   #canvas-hint.hidden{display:none}
-  /* Рёбра — это структура цепочки, и они должны читаться, а не угадываться:
-     #3a3936 на фоне #070708 давал контраст ~1.7:1, то есть связь формально
-     была нарисована и визуально отсутствовала. */
-  .edge{stroke:rgba(233,229,221,.55);stroke-width:1.6;fill:none}
-  .edge.hi{stroke:rgba(155,140,184,.85)}
-  .node{position:absolute;width:230px;background:var(--ink2);border:1px solid var(--hair2);
-    border-radius:var(--r);font-size:12px;box-shadow:0 14px 30px -24px #000}
-  .node.selected{border-color:var(--bone);box-shadow:0 0 0 1px rgba(233,229,221,.35),0 18px 34px -26px #000}
-  .node .nh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;
-    cursor:move;border-bottom:1px solid var(--hair);background:var(--ink3)}
-  .node .nh .nid{font-family:var(--mono);font-weight:600;letter-spacing:.02em}
-  .node .nh .nplug{color:var(--faint);font-family:var(--mono);font-size:10px;overflow:hidden;
+  /* Рёбра — структура цепочки, они должны читаться, а не кричать: тонкая линия
+     на полутоне, без свечения. Толщина 1.1 вместо 1.6 — на 2600px холста
+     толстая линия превращалась в главный объект картинки. */
+  .edge{stroke:rgba(220,220,220,.42);stroke-width:1.1;fill:none}
+  .edge.hi{stroke:rgba(154,143,174,.9)}
+  /* Узел — не плитка, а подпись к точке: без заливки, без тени, волосяная
+     рамка. Заливка и тень были главным источником «тяжести» холста. */
+  .node{position:absolute;width:218px;background:transparent;border:1px solid var(--hair);
+    border-radius:var(--r);font-size:11.5px}
+  .node:hover{border-color:var(--hair2)}
+  .node.selected{border-color:var(--bone)}
+  .node .nh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:7px 9px;
+    cursor:move;border-bottom:1px solid var(--hair)}
+  .node .nh .nid{font-family:var(--mono);font-weight:500;letter-spacing:.01em}
+  .node .nh .nplug{color:var(--faint);font-family:var(--mono);font-size:9.5px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  .node.gate .nh{background:rgba(155,140,184,.10);border-bottom-color:rgba(155,140,184,.35)}
-  .node .body{padding:9px 10px}
-  .inrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 7px;
-    margin:4px 0;background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);
-    font-family:var(--mono);font-size:10.5px}
+  .node.gate .nh{border-bottom-color:rgba(154,143,174,.4)}
+  .node .body{padding:7px 9px}
+  /* поле входа — строка текста, а не вложенная коробка */
+  .inrow{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:2px 5px;
+    margin:3px 0;border-radius:var(--r);
+    font-family:var(--mono);font-size:10px}
   .inrow .src{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
   .inrow .src.set{color:var(--ok)}
-  .outchip{display:inline-block;padding:2px 8px;margin:3px 4px 0 0;background:transparent;
-    border:1px solid var(--hair2);border-radius:var(--r);font-family:var(--mono);font-size:10px;
-    color:var(--par)}
+  /* выходы — мелкий моноширинный текст с точкой, без рамки-таблетки */
+  .outchip{display:inline-block;padding:1px 0;margin:3px 10px 0 0;background:transparent;
+    border:0;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+  .outchip::before{content:"";display:inline-block;width:4px;height:4px;border-radius:50%;
+    background:currentColor;margin-right:5px;vertical-align:middle;opacity:.7}
   .outchip[data-out]{cursor:crosshair}
-  .outchip[data-out]:hover{border-color:var(--par)}
-  .outchip.armed{background:rgba(155,140,184,.22);border-color:var(--par);color:var(--bone)}
-  .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(155,140,184,.55);outline-offset:-1px}
-  .inrow.linkable:hover{background:rgba(155,140,184,.14)}
+  .outchip[data-out]:hover{color:var(--bone)}
+  .outchip.armed{color:var(--par)}
+  .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(154,143,174,.45);outline-offset:-1px}
+  .inrow.linkable:hover{background:rgba(154,143,174,.12)}
   .inrow.from-source{outline:1px solid var(--hair2);outline-offset:-1px}
   /* Резиновая линия протяжки: drawGhost() ставит класс ровно «ghost», так что
      селектор .edge.ghost не совпадал никогда — линия рисовалась заливкой по
@@ -157,12 +162,12 @@
     color:var(--par)}
   .chip button{all:unset;cursor:pointer;color:var(--faint);padding:0 2px}
   .chip button:hover{color:var(--err)}
-  .node .foot{padding:6px 10px;border-top:1px solid var(--hair);color:var(--faint);
-    font-family:var(--mono);font-size:10px;display:flex;gap:10px;background:var(--ink3)}
+  .node .foot{padding:5px 9px;border-top:1px solid var(--hair);color:var(--faint);
+    font-family:var(--mono);font-size:9.5px;display:flex;gap:10px;background:transparent}
 
   /* ── правая панель: свойства шага ── */
   .pblock{margin-bottom:16px}
-  .pblock label{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  .pblock label{display:block;font-size:10px;
     color:var(--faint);margin-bottom:5px}
   .pblock input,.pblock select,.pblock textarea{width:100%}
   .prow{display:flex;gap:8px}
@@ -177,12 +182,12 @@
   .input-row button{padding:4px 8px}
   .input-schema{padding-top:7px}
   .input-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}
-  .input-meta-grid label{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);min-width:0}
+  .input-meta-grid label{font-size:10px;color:var(--faint);min-width:0}
   .input-meta-grid input,.input-meta-grid select{display:block;width:100%;min-width:0;margin-top:3px}
   .input-value{margin-top:6px}
   .input-value input,.input-value select,.input-value textarea{width:100%;min-width:0}
   .input-default-toggle,.loop-toggle{display:flex;align-items:center;gap:6px;margin:9px 0 3px;
-    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);cursor:pointer}
+    font-size:10.5px;color:var(--faint);cursor:pointer}
   .pblock label.loop-toggle{display:flex}
   .input-default-toggle input,.loop-toggle input{width:auto;flex:0 0 auto;margin:0;accent-color:var(--ver)}
   .danger{color:var(--err);border-color:rgba(207,83,68,.45)}
@@ -198,17 +203,17 @@
   #yaml-view .inner{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
     height:100%;display:flex;flex-direction:column;box-shadow:0 40px 80px -50px #000}
   #yaml-view .hd{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;
-    border-bottom:1px solid var(--hair);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    border-bottom:1px solid var(--hair);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
     color:var(--faint)}
   #val-err{margin-top:10px;font-size:11px;color:var(--err);line-height:1.6;display:none}
-  .hint{font-size:11.5px;color:var(--ash);line-height:1.7;margin-top:9px}
+  .hint{font-size:11px;color:var(--faint);line-height:1.65;margin-top:8px}
 
   /* вход по одноразовому коду (разметка собирается в editor/app.js) */
   #wedra-session-box{position:fixed;inset:0;background:rgba(7,7,8,.94);display:flex;
     align-items:center;justify-content:center;z-index:9999;padding:20px}
   #wedra-session-box .sbox{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
     padding:26px;max-width:440px;width:100%;box-shadow:0 30px 60px -40px #000}
-  #wedra-session-box h2{font-family:var(--serif);margin:0 0 10px;font-size:20px;font-weight:600}
+  #wedra-session-box h2{font-family:var(--sans);margin:0 0 10px;font-size:20px;font-weight:600}
   #wedra-session-box p{color:var(--ash);font-size:12.5px;line-height:1.7;margin:0 0 16px}
   #wedra-session-box input{width:100%;box-sizing:border-box;background:var(--sunken);color:var(--bone);
     border:1px solid var(--hair2);border-radius:var(--r);padding:10px 11px;font-family:var(--mono);
