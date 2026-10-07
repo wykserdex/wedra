@@ -469,6 +469,28 @@ async function applyPreset(file, inputName, pre) {
   }
 }
 
+// Разводит шаги, которые лежат друг на друге. Часть примеров в examples/
+// задаёт всем шагам одну позицию, и они приезжали стопкой в угол: подписи
+// наезжали друг на друга, верхний шаг закрывал остальные. Раскладка
+// применяется только когда накладка действительно есть — иначе не трогаем
+// то, что человек расставил руками.
+function spreadSteps() {
+  const steps = state.doc.steps || [];
+  if (steps.length < 2) return false;
+  const seen = new Map();
+  let clash = false;
+  for (const s of steps) {
+    const key = (s.pos || []).join(',');
+    if (seen.has(key)) { clash = true; break; }
+    seen.set(key, true);
+  }
+  if (!clash) return false;
+  steps.forEach((s, i) => {
+    s.pos = [120 + (i % 3) * 300, 90 + Math.floor(i / 3) * 230];
+  });
+  return true;
+}
+
 function openCtxMenu(x, y) {
   const m = $('#ctxmenu');
   if (!m) return;
@@ -904,10 +926,11 @@ function renderNodes() {
         armLink(st, chip.dataset.out);
       });
     });
-    // Зажали на самом узле (не на шапке — там перетаскивание узла) — тянем
-    // связь. Источник выхода выберется сам, если он один.
+    // Зажали в теле узла — тянем связь (источник выберется сам, если он один).
+    // Шапка и нижняя полоса — перенос узла, там связь не начинается.
     node.addEventListener('mousedown', e => {
-      if (e.target.closest('.nh') || e.target.closest('.inrow[data-field]')) return;
+      if (e.target.closest('.nh') || e.target.closest('.foot')) return;
+      if (e.target.closest('.inrow[data-field]') || e.target.closest('.outchip[data-out]')) return;
       startLinkDrag(st, null, e);
     });
     if (link) {
@@ -1814,12 +1837,16 @@ function initCanvas() {
 
 function startNodeDrag(e, st) {
   if (e.button !== 0) return;
-  const nh = e.target.closest('.nh');
-  if (!nh) return;
+  // Зоны захвата разведены: поля входа и выходы соединяют, всё остальное
+  // (шапка и нижняя полоса узла) переносит. Раньше переносила только шапка, а
+  // её полоса в три пикселя — за узел держаться неудобно, и выглядело так,
+  // будто узлы не двигаются вовсе.
+  if (e.target.closest('.outchip[data-out],.inrow[data-field]')) return;
+  if (!e.target.closest('.nh,.foot')) return;
   e.preventDefault();
-  const wrap = $('#canvas-wrap'), node = nh.closest('.node');
   const startX = e.clientX, startY = e.clientY;
   const ox = st.pos[0], oy = st.pos[1];
+  const node = e.target.closest('.node');
   let moved = false;
   // Рёбра цепляются к узлу живьём. Раньше при протяжке менялись только
   // left/top самого узла, а renderEdges() вызывался лишь на отпускании:
@@ -2045,9 +2072,13 @@ async function openFile(file) {
         description: i.description || '',
         has_default: !!i.has_default,
       })),
-      steps: (doc.steps || []).map(s => ({
+      steps: (doc.steps || []).map((s, si) => ({
         id: s.id, plugin: s.plugin,
-        pos: Array.isArray(s.pos) && s.pos.length === 2 ? [s.pos[0], s.pos[1]] : [20 * (1 + Math.random() * 8), 20 * (1 + Math.random() * 6)],
+        // позиция из YAML, а при её отсутствии — по индексу, а не Math.random:
+        // случайная раскладка менялась при каждом открытии одного файла
+        pos: Array.isArray(s.pos) && s.pos.length === 2
+          ? [s.pos[0], s.pos[1]]
+          : [120 + (si % 3) * 300, 90 + Math.floor(si / 3) * 230],
         on_error: s.on_error || 'stop', timeout: s.timeout || '',
         bind: s.bind || {},
         form: (s.form || []).map(f => ({ field: f.field, editable: !!f.editable, type: f.type || '', format: f.format || '' })),
@@ -2066,6 +2097,8 @@ async function openFile(file) {
     state.unsupported = doc.unsupported || [];
     state.sel = null;
     $('#file-name').value = file;
+    // несколько шагов на одной позиции — из-за этого они приезжали стопкой
+    if (spreadSteps()) note('шаги стояли друг на друге — развёл их по сетке');
     renderAll();
   } catch (e) {
     alert('Не удалось открыть: ' + e.message);
