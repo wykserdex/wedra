@@ -113,8 +113,6 @@ let state = {
   // «зажат узел целиком»: выход выбирается сам, если он один.
   // v0.38: + value/label — для протяжки от карточки артефакта (input.<имя>).
   linkDrag: null,
-  // v0.37: неоднозначный дроп — пары-кандидаты ждут щелчка в панели связи.
-  linkCandidates: [],
   undo: [],
   redo: [],
   yaml: '',
@@ -269,7 +267,6 @@ function undo() {
   // после undo/redo источник связи мог исчезнуть или сменить выход.
   state.link = null;
   state.linkDrag = null;
-  state.linkCandidates = [];
   const fileInput = $('#file-name');
   if (fileInput) fileInput.value = state.doc.file || '';
   const fileSelect = $('#file-open');
@@ -425,7 +422,6 @@ function renderNodes() {
       chip.addEventListener('mousedown', e => startLinkDrag(st, chip.dataset.out, e));
       chip.addEventListener('click', e => {
         e.stopPropagation();
-        if (state.linkCandidates.length) return;
         armLink(st, chip.dataset.out);
       });
     });
@@ -462,10 +458,9 @@ function armLink(st, field) {
 }
 
 function cancelLink() {
-  if (!state.link && !state.linkDrag && !state.linkCandidates.length) return;
+  if (!state.link && !state.linkDrag) return;
   state.link = null;
   state.linkDrag = null;
-  state.linkCandidates = [];
   renderAll();
 }
 
@@ -504,19 +499,25 @@ function startLinkDrag(st, field, ev) {
     x: p.x,
     y: p.y,
   };
-  state.linkCandidates = [];
   renderAll();
   const move = e => {
     const q = canvasXY(e);
     state.linkDrag.x = q.x;
     state.linkDrag.y = q.y;
     drawGhost();
-    // Подсветка цели: без неё тянуть приходится на ощупь.
+    // Подсветка цели: без неё тянуть приходится на ощупь. Подсвечиваем и
+    // само поле под курсором, и узел-цель — дроп идёт по узлу, а не по полю.
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const hit = el && el.closest ? el.closest('.inrow[data-field],.node[data-id]') : null;
     const prev = $('#canvas').querySelector('.hovered');
     if (prev) prev.classList.remove('hovered');
-    if (hit && hit.closest('.node') !== nodeById(st.id)) hit.classList.add('hovered');
+    const prevNode = $('#canvas').querySelector('.drop-target');
+    if (prevNode) prevNode.classList.remove('drop-target');
+    const tgt = hit && hit.closest('.node');
+    if (tgt && tgt !== nodeById(st.id)) {
+      tgt.classList.add('drop-target');
+      if (hit !== tgt) hit.classList.add('hovered');
+    }
   };
   const up = e => {
     document.removeEventListener('mousemove', move);
@@ -572,20 +573,19 @@ function dropLink(ev) {
     ? [row.dataset.field]
     : inFields(st.plugin);
 
-  if (outs.length === 1 && ins.length === 1) {
-    applyLink(st, { value: `steps.${d.step}.${outs[0]}`, label: `${d.step}.${outs[0]}` }, ins[0]);
-    return;
+  // Больше никаких вопросов и списков пар: на что навёл — с тем и соединили.
+// Поле входа: то, в которое ещё никто не входил, а если свободных нет — первое
+// (привязка перезапишет старую, но без выбора на экране). Выход: первый, либо
+// тот самый, с которого тянули за чип, — читать один выход можно многим, так
+// что «занятости» здесь нет.
+  const inField = ins.length === 1 ? ins[0]
+    : (ins.find(f => !st.bind || !st.bind[f]) || ins[0]);
+
+  if (ins.length && outs.length) {
+    applyLink(st, { value: `steps.${d.step}.${outs[0]}`, label: `${d.step}.${outs[0]}` }, inField);
+  } else {
+    drawGhost();
   }
-  // Неоднозначно: честно перечисляем пары и ждём щелчка, вместо того чтобы
-  // молча угадать и связать не то.
-  state.linkCandidates = [];
-  for (const o of outs) for (const f of ins) {
-    state.linkCandidates.push({
-      step: toStep, field: f, fromStep: d.step, fromField: o,
-      value: `steps.${d.step}.${o}`, label: `${d.step}.${o}`,
-    });
-  }
-  renderAll();
 }
 
 function applyLink(st, link, field) {
@@ -594,43 +594,14 @@ function applyLink(st, link, field) {
   st.bind[field] = link.value;
   state.link = null;
   state.linkDrag = null;
-  state.linkCandidates = [];
   state.sel = st.id;
   renderAll();
 }
 
-function renderLinkBar() {
-  const bar = $('#link-bar');
-  if (!bar) return;
-  const link = state.link;
-  const drag = state.linkDrag;
-  const cands = state.linkCandidates;
-  bar.classList.toggle('on', !!(link || drag || cands.length));
-  const src = $('#link-src');
-  if (drag) {
-    // Идёт протяжка: показываем, что именно тянем — с узла это «весь шаг».
-    src.textContent = drag.label
-      || (drag.field ? `steps.${drag.step}.${drag.field}` : `шаг ${drag.step} (выход выберется сам)`);
-    $('#link-hint').textContent = 'отпусти на другом шаге · Esc — отмена';
-    return;
-  }
-  if (cands.length) {
-    // Неоднозначный дроп: перечисляем пары и просим щёлкнуть одну. Ничего
-    // вводить не нужно — только выбрать из списка.
-    src.textContent = `${cands[0].label} → шаг ${cands[0].step}: выбери пару`;
-    $('#link-hint').innerHTML = cands.map((c, i) =>
-      `<button class="cand" data-i="${i}" title="связать ${esc(c.fromField)} → ${esc(c.field)}">${esc(c.fromField)} → ${esc(c.field)}</button>`
-    ).join('');
-    $('#link-hint').querySelectorAll('.cand').forEach(b => {
-      b.addEventListener('click', () => {
-        const c = cands[+b.dataset.i];
-        applyLink(stepById(c.step), c, c.field);
-      });
-    });
-    return;
-  }
-  if (link) $('#link-src').textContent = link.label || link.value;
-}
+// Панели подтверждения больше нет: связь делается по наведению, а что именно
+// тянется — показывает подсветка полей на узлах. Функция оставлена вызовом,
+// чтобы renderAll не переименовывать.
+function renderLinkBar() {}
 
 // Маркеры-стрелки едут вместе с рёбрами: `svg.innerHTML = s` ниже сносит
 // содержимое #edges целиком, поэтому <defs>, объявленные в HTML, исчезали бы
@@ -1244,7 +1215,7 @@ function initCanvas() {
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
     // Esc снимает связывание раньше всего: оно вооружено мышью, иначе
     // отменить его можно только повторным щелчком по тому же выходу.
-    if (e.key === 'Escape' && (state.link || state.linkDrag || state.linkCandidates.length)) { e.preventDefault(); cancelLink(); return; }
+    if (e.key === 'Escape' && (state.link || state.linkDrag)) { e.preventDefault(); cancelLink(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && state.sel && !typing) {
@@ -1258,7 +1229,6 @@ function initCanvas() {
         state.sel = null;
         if (state.link && state.link.step === st.id) state.link = null;
         if (state.linkDrag && state.linkDrag.step === st.id) state.linkDrag = null;
-        state.linkCandidates = state.linkCandidates.filter(c => c.step !== st.id && c.fromStep !== st.id);
         renderAll();
       }
     }
@@ -1506,7 +1476,6 @@ async function init() {
   $('#file-open').onchange = e => { if (e.target.value) openFile(e.target.value); };
   $('#btn-save').onclick = save;
   $('#btn-run').onclick = runFromEditor;
-  $('#link-cancel').onclick = cancelLink;
   $('#btn-yaml').onclick = showYaml;
   $('#close-yaml').onclick = () => { $('#yaml-view').style.display = 'none'; };
   $('#btn-undo').onclick = undo;

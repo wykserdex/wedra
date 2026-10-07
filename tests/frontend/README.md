@@ -5,7 +5,7 @@ JS и то, как страница выглядит на самом деле.
 
 | файл | что проверяет | запуск |
 |---|---|---|
-| `drag_harness.js` | связывание жестом в редакторе: протяжка выхода в поле входа, выбор при неоднозначности, отмена | `node tests/frontend/drag_harness.js` |
+| `drag_harness.js` | связывание жестом в редакторе: протяжка выхода в поле входа, дроп по наведению без выбора пары, отмена | `node tests/frontend/drag_harness.js` |
 | `artifacts_harness.js` | режим артефактов: загрузка, планирование связей, генерация YAML | `node tests/frontend/artifacts_harness.js . http://127.0.0.1:8765` |
 | `cdp.js` | браузер под управлением: скриншоты и настоящие клики | `node tests/frontend/cdp.js <url> <out.png> [actions.json]` |
 

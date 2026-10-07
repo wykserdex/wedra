@@ -180,7 +180,7 @@ function matchSel(el, sel) {
 
 // ── DOM ───────────────────────────────────────────────────────────────────
 const byId = {};
-for (const id of ['canvas', 'edges', 'link-bar', 'link-src', 'link-hint', 'link-cancel',
+for (const id of ['canvas', 'edges',
   'props', 'palette', 'file-name', 'file-open', 'file-list', 'btn-save', 'btn-run',
   'btn-yaml', 'close-yaml', 'yaml-view', 'btn-undo', 'btn-redo', 'canvas-hint',
   'errs', 'toast', 'palette-hint', 'steps-count', 'p-file', 'secrets-box', 'network-box',
@@ -326,33 +326,42 @@ async function main() {
   const g = byId.edges.querySelector('#link-ghost');
   ok('резиновая линия создана', !!g);
   ok('у линии есть геометрия', !!g && String(g.d || '').startsWith('M'), g && g.d);
-  const hoveredAny = byId.canvas.querySelectorAll('.hovered').length > 0;
-  ok('цель подсвечена при протяжке', hoveredAny);
+  const hoveredAny = byId.canvas.querySelectorAll('.hovered').length > 0
+    || byId.canvas.querySelectorAll('.drop-target').length > 0;
+  ok('цель подсвечена при протяжке', hoveredAny,
+    'hovered=' + byId.canvas.querySelectorAll('.hovered').length
+    + ' drop-target=' + byId.canvas.querySelectorAll('.drop-target').length);
 
   drop(at(rowData));
   ok('bind записан протяжкой', ed.stepById('b').bind && ed.stepById('b').bind.data === 'steps.a.lines', JSON.stringify(ed.stepById('b').bind));
   ok('состояние протяжки сброшено', ed.state.linkDrag === null);
   ok('резиновая линия убрана', !byId.edges.querySelector('#link-ghost'));
-  ok('подсветка снята', byId.canvas.querySelectorAll('.hovered').length === 0);
+  ok('подсветка снята', byId.canvas.querySelectorAll('.hovered').length === 0
+    && byId.canvas.querySelectorAll('.drop-target').length === 0);
 
-  // --- 2. протяжка с узла (выходов два) на узел -> кандидаты, а не догадка ---
+  // --- 2. протяжка с узла (выходов два) на узел -> связь сразу, без выбора ---
+  // Раньше здесь появлялись 4 пары-кандидата и панель сверху. Теперь дроп идёт
+  // по наведению: первый выход источника, первое свободное поле приёмника.
   ed.stepById('b').bind = {};
   ed.renderAll();
   drag('c', null, at(nodeEl('c')));
   drop(at(nodeEl('b'), 0.5, 0.95)); // пустая зона ВНУТРИ узла b
-  const cands = ed.state.linkCandidates;
-  ok('неоднозначный дроп дал кандидатов', cands.length === 4, 'len=' + cands.length);
-  ok('bind не угадан молча', !Object.keys(ed.stepById('b').bind || {}).length, JSON.stringify(ed.stepById('b').bind));
-  ok('панель показывает пары', String(byId['link-hint'].innerHTML).indexOf('lines → data') >= 0, String(byId['link-hint'].innerHTML).slice(0, 140));
+  ok('дроп по узлу связал сразу, без списка пар', ed.stepById('b').bind.data === 'steps.c.words',
+    JSON.stringify(ed.stepById('b').bind));
+  ok('второе поле не тронуто', ed.stepById('b').bind.prompt === undefined,
+    JSON.stringify(ed.stepById('b').bind));
+  ok('кандидатов в состоянии нет', !ed.state.linkCandidates, String(ed.state.linkCandidates));
+  ok('панели подтверждения в разметке нет', !byId['link-hint'], 'link-hint снова появился');
 
-  // --- 3. щелчок по кандидату пишет bind ---
-  const cand = cands.filter(c => c.fromField === 'words' && c.field === 'prompt')[0];
-  ok('нужная пара есть среди кандидатов', !!cand, JSON.stringify(cands.map(c => c.fromField + '->' + c.field)));
-  if (cand) {
-    ed.applyLink(ed.stepById('b'), cand, cand.field);
-    ok('кандидат применился', ed.stepById('b').bind.prompt === 'steps.c.words', JSON.stringify(ed.stepById('b').bind));
-  }
-  ok('кандидаты очищены', ed.state.linkCandidates.length === 0);
+  // --- 3. свободное поле выбирается раньше занятого ---
+  ed.stepById('b').bind = { data: 'steps.z.lines' };
+  ed.renderAll();
+  drag('c', null, at(nodeEl('c')));
+  drop(at(nodeEl('b'), 0.5, 0.95));
+  ok('занятое поле не переписано', ed.stepById('b').bind.data === 'steps.z.lines',
+    JSON.stringify(ed.stepById('b').bind));
+  ok('связь ушла в свободное поле', ed.stepById('b').bind.prompt === 'steps.c.words',
+    JSON.stringify(ed.stepById('b').bind));
 
   // --- 4. протяжка в самого себя не связывает ---
   drag('a', 'lines', at(chipA()));
@@ -370,22 +379,16 @@ async function main() {
   ed.cancelLink();
   ok('отмена снимает вооружение', ed.state.link === null);
 
-  // --- 6. узел -> узел: выход один, но входов два -> выбор всё равно нужен ---
-  // Раньше я ждал здесь автоматической связи. Это неверно: неоднозначность
-  // ровно на стороне ПРИЁМНИКА, и молча выбрать поле — значит связать не то.
-  // Поэтому продукт предлагает 2 пары, и это правильное поведение.
+  // --- 6. узел -> узел: выход один, входов два -> тоже без вопросов ---
+  // Раньше стенд требовал здесь двух пар и выбора. Теперь это ровно то, чего
+  // просил пользователь: навёл на узел — соединил, в первое свободное поле.
   ed.stepById('b').bind = {};
   ed.renderAll();
   drag('a', null, at(nodeEl('a')));
   drop(at(nodeEl('b'), 0.5, 0.95));
-  ok('один выход × два входа = две пары', ed.state.linkCandidates.length === 2,
-    JSON.stringify(ed.state.linkCandidates.map(c => c.fromField + '->' + c.field)));
-  const only = ed.state.linkCandidates.filter(c => c.fromField === 'lines' && c.field === 'data')[0];
-  ok('выход узла определён верно', !!only);
-  if (only) {
-    ed.applyLink(ed.stepById('b'), only, only.field);
-    ok('выбранная пара применился', ed.stepById('b').bind.data === 'steps.a.lines', JSON.stringify(ed.stepById('b').bind));
-  }
+  ok('1 выход × 2 входа связался без выбора', ed.stepById('b').bind.data === 'steps.a.lines',
+    JSON.stringify(ed.stepById('b').bind));
+  ok('выборов не спрашивали', ed.state.linkCandidates === undefined || ed.state.linkCandidates.length === 0);
 
   // --- 7. ровно один вход и один выход -> связь без вопросов ---
   const doc2 = ed.state.doc;
@@ -397,7 +400,7 @@ async function main() {
   drag('x', null, at(nodeEl('x')));
   drop(at(nodeEl('y'), 0.5, 0.95));
   ok('1×1 связался без вопросов', ed.stepById('y').bind && ed.stepById('y').bind.data === 'steps.x.lines',
-    JSON.stringify(ed.stepById('y').bind) + ' cands=' + ed.state.linkCandidates.length);
+    JSON.stringify(ed.stepById('y').bind));
   ed.state.doc = doc2;
   ed.state.plugins = PLUGINS.filter(pp => pp.id !== 'community/one_in');
 

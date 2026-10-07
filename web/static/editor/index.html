@@ -130,24 +130,15 @@
   .inrow.linkable{cursor:crosshair;outline:1px dashed rgba(155,140,184,.55);outline-offset:-1px}
   .inrow.linkable:hover{background:rgba(155,140,184,.14)}
   .inrow.from-source{outline:1px solid var(--hair2);outline-offset:-1px}
-  #link-bar{position:absolute;left:0;right:0;top:0;z-index:5;display:none;gap:10px;align-items:center;
-    padding:8px 12px;background:rgba(155,140,184,.14);border-bottom:1px solid var(--par);
-    font-size:12px;color:var(--bone);backdrop-filter:blur(6px)}
-  #link-bar.on{display:flex}
-  #link-bar code{font-family:var(--mono);color:var(--bone)}
   /* Резиновая линия протяжки: drawGhost() ставит класс ровно «ghost», так что
      селектор .edge.ghost не совпадал никогда — линия рисовалась заливкой по
      умолчанию (чёрной) и на тёмном холсте её не было видно. */
   #edges .ghost{fill:none;stroke:var(--par);stroke-width:2;stroke-dasharray:5 4;
     pointer-events:none;opacity:.95}
   .node.dragging-out{opacity:.72}
+  /* цель под курсором: единственный признак того, куда приземлится связь */
+  .node.drop-target{border-color:var(--par);box-shadow:0 0 0 1px rgba(155,140,184,.5)}
   .inrow.hovered{background:rgba(155,140,184,.22);outline:1px solid var(--par);outline-offset:-1px}
-  #link-hint .cand{background:var(--ink4);color:var(--bone);border:1px solid var(--par);
-    border-radius:var(--r);padding:2px 9px;margin:0 6px 0 0;font-family:var(--mono);font-size:11px;cursor:pointer}
-  #link-hint .cand:hover{background:rgba(155,140,184,.24)}
-  #link-bar button{margin-left:auto;background:transparent;color:var(--bone);border:1px solid var(--hair2);
-    border-radius:var(--r);padding:3px 10px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
-    cursor:pointer;font-family:inherit}
   /* запуск — единственная «живая» кнопка в шапке: акцент тратится на неё */
   #btn-run{background:var(--ver);border-color:var(--ver);color:#fff;font-weight:600}
   #btn-run:hover{background:#e05539;border-color:#e05539}
@@ -231,14 +222,13 @@
   @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
   @keyframes popIn{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:none}}
   body{animation:pageIn .3s ease-out}
-  #link-bar.on{animation:slideDown .22s cubic-bezier(.22,.61,.36,1)}
   #canvas-hint:not(.hidden){animation:fadeIn .35s ease-out}
   #yaml-view{animation:fadeIn .22s ease-out}
   #yaml-view .inner{animation:popIn .26s cubic-bezier(.22,.61,.36,1)}
   #banner,#val-err{animation:slideDown .24s cubic-bezier(.22,.61,.36,1)}
   .empty{animation:fadeIn .3s ease-out}
 
-  button,a.link,.plug,.chip,.outchip,.inrow,.cand,.danger,.input-row,#link-bar button{
+  button,a.link,.plug,.chip,.outchip,.inrow,.danger,.input-row{
     transition:color .16s ease,background-color .16s ease,border-color .16s ease,
       box-shadow .18s ease,opacity .16s ease}
   .plug{transition:border-color .16s ease,background-color .16s ease,color .16s ease}
@@ -247,7 +237,6 @@
   .chip button{transition:color .16s ease}
   .input-default-toggle,.loop-toggle,.input-meta-grid label,.pblock label{
     transition:color .16s ease}
-  #link-bar{transition:background-color .2s ease,border-color .2s ease}
 
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;
@@ -286,7 +275,6 @@
     </div>
   </aside>
   <div id="canvas-wrap"><div id="canvas">
-    <div id="link-bar"><span class="lbl">Связываю из <code id="link-src"></code></span><span id="link-hint"></span> <button id="link-cancel">отмена (Esc)</button></div>
     <svg id="edges"></svg>
     <div id="canvas-hint">
       <b>Связи — протяжкой, как в канвасе.</b> Зажми на выходе шага

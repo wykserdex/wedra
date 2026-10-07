@@ -17,9 +17,8 @@
     --acc:#e9e5dd;              /* структурный акцент — кость, не цвет */
     --ver:#c9482f;              /* живое: ран идёт, гейт, фокус */
     --ok:#8ea07c; --err:#cf5344; --skip:#c19a4a; --par:#9b8cb8;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:2px; --hdr:46px;
   }
   *{box-sizing:border-box}
@@ -40,7 +39,7 @@
   /* ── шапка: печатный «титул», навигация — малыми прописными с линейкой ── */
   header{display:flex;align-items:center;gap:16px;height:var(--hdr);padding:0 18px;
     border-bottom:1px solid var(--hair);background:linear-gradient(180deg,#101011,var(--ink))}
-  header h1{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-size:16px;
+  header h1{display:flex;align-items:center;gap:9px;font-family:var(--sans);font-size:16px;
     margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap}
   header h1 .mark{display:inline-flex;color:var(--bone);opacity:.9}
   header h1 .mark svg{display:block}
@@ -90,7 +89,7 @@
   .run-item:hover{background:var(--ink2)}
   .run-item.active{background:var(--ink2);border-left-color:var(--ver)}
   .run-item .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
-  .run-item .pipeline{font-family:var(--serif);font-size:14px;font-weight:600;overflow:hidden;
+  .run-item .pipeline{font-family:var(--sans);font-size:14px;font-weight:600;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .run-item .meta{font-size:10.5px;color:var(--faint);font-family:var(--mono);margin-top:4px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -98,7 +97,7 @@
   /* ── деталка рана ── */
   #detail{overflow-y:auto;padding:18px 22px}
   #detail .dhead{display:flex;align-items:center;gap:11px;margin-bottom:16px;flex-wrap:wrap}
-  #detail .dhead h2{font-family:var(--serif);margin:0;font-size:19px;font-weight:600;letter-spacing:.01em}
+  #detail .dhead h2{font-family:var(--sans);margin:0;font-size:19px;font-weight:600;letter-spacing:.01em}
   #detail .dhead .sub{color:var(--faint);font-family:var(--mono);font-size:11px}
   .btn{background:transparent;color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);
     padding:5px 12px;cursor:pointer;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
@@ -153,25 +152,23 @@
   /* ── главный экран: «бумажная» плита на чёрном + карточки-выходы ── */
   #menu{padding:24px 26px 40px;overflow-y:auto;max-width:1180px;grid-column:1 / -1;
     margin:0 auto;width:100%}
-  .hero{position:relative;background:#e9e5dd;color:#0b0b0c;border-radius:var(--r);
-    padding:26px 28px 24px;margin-bottom:26px;
-    box-shadow:0 18px 40px -28px rgba(0,0,0,.9), inset 0 0 0 1px rgba(11,11,12,.9)}
-  .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ver)}
-  /* полутон справа — как растр на печатном оттиске; край растворяется в бумаге */
-  .hero::after{content:"";position:absolute;right:0;top:0;bottom:0;width:42%;
-    background-image:radial-gradient(rgba(11,11,12,.13) 1px,transparent 1px);
-    background-size:4px 4px;opacity:.6;pointer-events:none;
-    -webkit-mask-image:linear-gradient(90deg,transparent,#000 60%,#000);
-    mask-image:linear-gradient(90deg,transparent,#000 60%,#000)}
-  #menu .lead{font-family:var(--serif);font-size:27px;line-height:1.18;font-weight:600;
-    margin:0 0 10px;letter-spacing:-.005em;max-width:34ch;text-wrap:balance}
-  #menu .sub{color:rgba(11,11,12,.68);font-size:13px;margin:0 0 20px;line-height:1.65;max-width:64ch}
-  .hstats{display:flex;gap:0;flex-wrap:wrap;border-top:1px solid rgba(11,11,12,.18);padding-top:14px}
+  .hero{position:relative;background:var(--ink2);border:1px solid var(--hair);
+    border-radius:var(--r);padding:24px 26px 22px;margin-bottom:22px;
+    overflow:hidden}
+  .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ver)}
+  /* мягкое пятно справа — глубина без «бумажного» полутона */
+  .hero::after{content:"";position:absolute;right:-8%;top:-60%;width:52%;height:220%;
+    background:radial-gradient(closest-side,rgba(233,229,221,.05),transparent 70%);
+    pointer-events:none}
+  #menu .lead{font-size:26px;line-height:1.2;font-weight:600;
+    margin:0 0 9px;letter-spacing:-.015em;max-width:34ch;text-wrap:balance;color:var(--bone)}
+  #menu .sub{color:var(--ash);font-size:12.5px;margin:0 0 18px;line-height:1.65;max-width:64ch}
+  .hstats{display:flex;gap:0;flex-wrap:wrap;border-top:1px solid var(--hair);padding-top:14px}
   .stat{display:inline-flex;flex-direction:column;gap:2px;padding:0 18px;
-    border-left:1px solid rgba(11,11,12,.16);min-width:104px}
+    border-left:1px solid var(--hair);min-width:104px}
   .stat:first-child{padding-left:0;border-left:0}
-  .stat b{font-family:var(--mono);font-size:15px;font-weight:600;color:#0b0b0c}
-  .stat{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(11,11,12,.6)}
+  .stat b{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--bone)}
+  .stat{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ash)}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:12px;margin-bottom:30px}
   .card-btn{background:var(--ink2);border:1px solid var(--hair);border-radius:var(--r);
     padding:16px 16px 14px;cursor:pointer;text-align:left;color:var(--bone);font:inherit;
@@ -179,14 +176,14 @@
     transition:border-color .15s,background .15s,transform .15s}
   .card-btn:hover{border-color:var(--hair2);background:var(--ink3);transform:translateY(-2px)}
   .card-btn .ic{flex-shrink:0;width:30px;height:30px;border-radius:var(--r);display:flex;
-    align-items:center;justify-content:center;font-family:var(--serif);font-size:15px;
+    align-items:center;justify-content:center;font-family:var(--sans);font-size:15px;
     border:1px solid var(--hair2);color:var(--ash);background:transparent}
   .card-btn .ic.acc{color:var(--bone);border-color:var(--hair2)}
   .card-btn .ic.ok{color:var(--ok);border-color:rgba(142,160,124,.45)}
   .card-btn .ic.par{color:var(--par);border-color:rgba(155,140,184,.45)}
   .card-btn .ic.skip{color:var(--skip);border-color:rgba(193,154,74,.45)}
   .card-btn .cb{min-width:0}
-  .card-btn .k{font-family:var(--serif);font-size:15px;font-weight:600;margin-bottom:6px}
+  .card-btn .k{font-family:var(--sans);font-size:15px;font-weight:600;margin-bottom:6px}
   .card-btn .d{font-size:12px;color:var(--ash);line-height:1.6}
   .card-btn .go{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
     margin-top:11px;transition:color .15s}
@@ -255,7 +252,7 @@
   .sub.mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
   #plugdetail{padding:18px 22px;overflow-y:auto}
   #plugdetail .dhead{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
-  #plugdetail .dhead h2{font-family:var(--serif);margin:0;font-size:20px;font-weight:600}
+  #plugdetail .dhead h2{font-family:var(--sans);margin:0;font-size:20px;font-weight:600}
   #plugdetail h4{margin:22px 0 8px;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
     color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:6px}
   #plug-tab-list .pitem{display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--hair)}
@@ -289,7 +286,7 @@
   /* ── гейт-карточка: единственное место, где интерфейс требует человека ── */
   #gate-card{background:var(--ink2);border:1px solid var(--ver);border-radius:var(--r);
     margin-bottom:18px;padding:16px 18px;box-shadow:0 0 0 1px rgba(201,72,47,.22),0 14px 30px -24px #000}
-  #gate-card h3{margin:0 0 12px;font-family:var(--serif);font-size:15px;font-weight:600;
+  #gate-card h3{margin:0 0 12px;font-family:var(--sans);font-size:15px;font-weight:600;
     color:var(--bone);letter-spacing:0;text-transform:none;border:0;padding:0;background:none;display:block}
   #gate-card .gfield{margin:10px 0}
   #gate-card .gfield label{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
@@ -313,7 +310,7 @@
     align-items:center;justify-content:center;z-index:9999;padding:20px}
   #wedra-session-box .sbox{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
     padding:26px;max-width:440px;width:100%;box-shadow:0 30px 60px -40px #000}
-  #wedra-session-box h2{font-family:var(--serif);margin:0 0 10px;font-size:20px;font-weight:600;
+  #wedra-session-box h2{font-family:var(--sans);margin:0 0 10px;font-size:20px;font-weight:600;
     letter-spacing:.02em}
   #wedra-session-box p{color:var(--ash);font-size:12.5px;line-height:1.7;margin:0 0 16px}
   #wedra-session-box input{width:100%;box-sizing:border-box;background:var(--sunken);color:var(--bone);
