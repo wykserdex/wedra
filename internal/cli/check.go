@@ -127,7 +127,13 @@ func checkSteps() []checkStep {
 			}},
 		{name: "conformance", desc: "конформ фикстур плагинов", fast: false,
 			run: func(o checkOpts) (string, error) {
-				return runCapture(o.repo, "go", "test", "./internal/core/",
+				// -tags integration: TestPluginTestShippedPlugins запускает
+				// Python и порождает процесс на каждый шипленный плагин, поэтому
+				// он живёт в интеграционном тире, а не в юнит-пакете. Домом для
+				// него был и раньше этот шаг (фильтр TestPluginTest), так что
+				// покрытие не теряется — просто у него свой бюджет.
+				return runCapture(o.repo, "go", "test", "-tags", "integration",
+					"./internal/core/",
 					"-run", "TestPluginTest|TestExec", "-count=1", "-timeout", strconv.Itoa(o.testTimeout)+"s")
 			}},
 		{name: "mcp", desc: "контракт MCP: транспорт, аннотации, схемы, elicitation", fast: false,

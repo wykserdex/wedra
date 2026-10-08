@@ -159,33 +159,7 @@ func TestPluginTestNoSpecFile(t *testing.T) {
 	}
 }
 
-// ── интеграция: все шипленные плагины проходят свои plugin.test.yaml ────
-
-func TestPluginTestShippedPlugins(t *testing.T) {
-	requirePython(t)
-	// поддержка и плоской (plugins/<id>) и новой иерархии (plugins/official/<id>, plugins/community/<id>)
-	patterns := []string{
-		filepath.Join("..", "..", "plugins", "*"),
-		filepath.Join("..", "..", "plugins", "*", "*"),
-	}
-	var dirs []string
-	for _, pat := range patterns {
-		m, _ := filepath.Glob(pat)
-		dirs = append(dirs, m...)
-	}
-	if len(dirs) == 0 {
-		t.Fatal("не найдены шипленные плагины")
-	}
-	for _, dir := range dirs {
-		if _, err := os.Stat(filepath.Join(dir, "plugin.yaml")); err != nil {
-			continue // official/, community/ — не плагины
-		}
-		passed, failed, err := RunPluginTests(dir, "", true)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
-		}
-		if failed != 0 {
-			t.Fatalf("%s: %d тестов упали (passed=%d)", dir, failed, passed)
-		}
-	}
-}
+// Интеграционный прогон всех шипленных плагинов вынесен в
+// plugintest_shipped_integration_test.go (тег integration): он зовёт Python и
+// порождает процесс на каждый плагин, а в юнит-пакете это делало internal/core
+// самым долгим пакетом CI и главным подозреваемым в зависании windows-джоба.
