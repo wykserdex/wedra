@@ -55,127 +55,142 @@ function Write-Both {
 function Ensure-Win32Helpers {
     if (-not $script:IsWin) { return }
     if ('Wedra.Win32Guard' -as [type]) { return }
-    # -TypeDefinition, а не -MemberDefinition: using-директивы легальны только
-    # на верхнем уровне исходника. Тип тот же — Wedra.Win32Guard.
-    Add-Type -TypeDefinition @'
-        using System;
-        using System.Collections.Generic;
-        using System.Diagnostics;
-        using System.IO;
-        using System.Runtime.InteropServices;
+    # Add-Type зовёт компилятор C# и сам по себе предела не имеет, а стоит он
+    # ДО старта воркера. Зависни он — шаг не напечатает ни одной строки и не
+    # оставит ни одного файла в артефакте, то есть ровно то, что мы наблюдали.
+    # Компилировать в постороннем процессе нельзя: тип нужен ЗДЕСЬ, в
+    # Get-CensusText. Поэтому предела не добавляем, а делаем зависание
+    # видимым — маркер до входа в Add-Type попадает в stdout и в лог.
+    if (-not $script:Win32TypeDef) {
+        # -TypeDefinition, а не -MemberDefinition: using-директивы легальны только
+        # на верхнем уровне исходника. Тип тот же — Wedra.Win32Guard.
+        $script:Win32TypeDef = @'
+            using System;
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using System.IO;
+            using System.Runtime.InteropServices;
 
-        namespace Wedra { public static class Win32Guard {
+            namespace Wedra { public static class Win32Guard {
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct PROCESSENTRY32W {
-            public uint dwSize;
-            public uint cntUsage;
-            public uint th32ProcessID;
-            public IntPtr th32DefaultHeapID;
-            public uint th32ModuleID;
-            public uint cntThreads;
-            public uint th32ParentProcessID;
-            public int pcPriClassBase;
-            public uint dwFlags;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-            public string szExeFile;
-        }
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+            public struct PROCESSENTRY32W {
+                public uint dwSize;
+                public uint cntUsage;
+                public uint th32ProcessID;
+                public IntPtr th32DefaultHeapID;
+                public uint th32ModuleID;
+                public uint cntThreads;
+                public uint th32ParentProcessID;
+                public int pcPriClassBase;
+                public uint dwFlags;
+                [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+                public string szExeFile;
+            }
 
-        public class ProcEntry {
-            public int Pid;
-            public int Ppid;
-            public string Name;
-        }
+            public class ProcEntry {
+                public int Pid;
+                public int Ppid;
+                public string Name;
+            }
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr GetStdHandle(int nStdHandle);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr GetStdHandle(int nStdHandle);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool SetStdHandle(int nStdHandle, IntPtr hHandle);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetStdHandle(int nStdHandle, IntPtr hHandle);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool CloseHandle(IntPtr hObject);
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool CloseHandle(IntPtr hObject);
 
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr CreateFileW(string name, uint access, uint share,
-            IntPtr sec, uint disp, uint flags, IntPtr tmpl);
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            public static extern IntPtr CreateFileW(string name, uint access, uint share,
+                IntPtr sec, uint disp, uint flags, IntPtr tmpl);
 
-        // Запускает дочерний процесс так, чтобы CreateProcessW ни через таблицу
-        // дескрипторов (bInheritHandles=TRUE), ни через BasepStandardHandleInit
-        // (NtDuplicateObject с OBJ_INHERIT, когда STARTF_USESTDHANDLES не задан)
-        // не смог продублировать пайпы Runner.Worker в дочерний процесс.
-        public static Process StartDetachedFromStdPipes(ProcessStartInfo psi) {
-            IntPtr hIn  = GetStdHandle(-10);
-            IntPtr hOut = GetStdHandle(-11);
-            IntPtr hErr = GetStdHandle(-12);
-            foreach (IntPtr h in new IntPtr[] { hIn, hOut, hErr }) {
-                if (h != IntPtr.Zero && h != new IntPtr(-1)) {
-                    SetHandleInformation(h, 1, 0);
+            // Запускает дочерний процесс так, чтобы CreateProcessW ни через таблицу
+            // дескрипторов (bInheritHandles=TRUE), ни через BasepStandardHandleInit
+            // (NtDuplicateObject с OBJ_INHERIT, когда STARTF_USESTDHANDLES не задан)
+            // не смог продублировать пайпы Runner.Worker в дочерний процесс.
+            public static Process StartDetachedFromStdPipes(ProcessStartInfo psi) {
+                IntPtr hIn  = GetStdHandle(-10);
+                IntPtr hOut = GetStdHandle(-11);
+                IntPtr hErr = GetStdHandle(-12);
+                foreach (IntPtr h in new IntPtr[] { hIn, hOut, hErr }) {
+                    if (h != IntPtr.Zero && h != new IntPtr(-1)) {
+                        SetHandleInformation(h, 1, 0);
+                    }
+                }
+                // NUL открываем через CreateFileW напрямую: FileStream("NUL") в
+                // .NET Framework (PowerShell 5.1) бросает NotSupportedException,
+                // а CreateFileW работает везде.
+                const uint RW = 0xC0000000;
+                IntPtr hNul = CreateFileW("NUL", RW, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                if (hNul == IntPtr.Zero || hNul == new IntPtr(-1)) {
+                    return Process.Start(psi); // откат: запуск как раньше
+                }
+                SetHandleInformation(hNul, 1, 0);
+                try {
+                    SetStdHandle(-10, hNul);
+                    SetStdHandle(-11, hNul);
+                    SetStdHandle(-12, hNul);
+                    return Process.Start(psi);
+                } finally {
+                    SetStdHandle(-10, hIn);
+                    SetStdHandle(-11, hOut);
+                    SetStdHandle(-12, hErr);
+                    CloseHandle(hNul);
                 }
             }
-            // NUL открываем через CreateFileW напрямую: FileStream("NUL") в
-            // .NET Framework (PowerShell 5.1) бросает NotSupportedException,
-            // а CreateFileW работает везде.
-            const uint RW = 0xC0000000;
-            IntPtr hNul = CreateFileW("NUL", RW, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
-            if (hNul == IntPtr.Zero || hNul == new IntPtr(-1)) {
-                return Process.Start(psi); // откат: запуск как раньше
-            }
-            SetHandleInformation(hNul, 1, 0);
-            try {
-                SetStdHandle(-10, hNul);
-                SetStdHandle(-11, hNul);
-                SetStdHandle(-12, hNul);
-                return Process.Start(psi);
-            } finally {
-                SetStdHandle(-10, hIn);
-                SetStdHandle(-11, hOut);
-                SetStdHandle(-12, hErr);
-                CloseHandle(hNul);
-            }
-        }
 
-        // Снимок процессов через ядро (CreateToolhelp32Snapshot) без WMI/DCOM:
-        // Get-CimInstance Win32_Process ходит в сервис Winmgmt и ReadProcessMemory
-        // чужих PEB, где локальный COM-вызов может зависнуть навсегда мимо
-        // -OperationTimeoutSec.
-        public static List<ProcEntry> SnapshotProcesses() {
-            var list = new List<ProcEntry>();
-            IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
-            if (snap == IntPtr.Zero || snap == new IntPtr(-1)) {
+            // Снимок процессов через ядро (CreateToolhelp32Snapshot) без WMI/DCOM:
+            // Get-CimInstance Win32_Process ходит в сервис Winmgmt и ReadProcessMemory
+            // чужих PEB, где локальный COM-вызов может зависнуть навсегда мимо
+            // -OperationTimeoutSec.
+            public static List<ProcEntry> SnapshotProcesses() {
+                var list = new List<ProcEntry>();
+                IntPtr snap = CreateToolhelp32Snapshot(0x00000002, 0);
+                if (snap == IntPtr.Zero || snap == new IntPtr(-1)) {
+                    return list;
+                }
+                try {
+                    PROCESSENTRY32W pe = new PROCESSENTRY32W();
+                    pe.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
+                    if (Process32FirstW(snap, ref pe)) {
+                        do {
+                            list.Add(new ProcEntry {
+                                Pid = (int)pe.th32ProcessID,
+                                Ppid = (int)pe.th32ParentProcessID,
+                                Name = pe.szExeFile ?? ""
+                            });
+                        } while (Process32NextW(snap, ref pe));
+                    }
+                } finally {
+                    CloseHandle(snap);
+                }
                 return list;
             }
-            try {
-                PROCESSENTRY32W pe = new PROCESSENTRY32W();
-                pe.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32W));
-                if (Process32FirstW(snap, ref pe)) {
-                    do {
-                        list.Add(new ProcEntry {
-                            Pid = (int)pe.th32ProcessID,
-                            Ppid = (int)pe.th32ParentProcessID,
-                            Name = pe.szExeFile ?? ""
-                        });
-                    } while (Process32NextW(snap, ref pe));
-                }
-            } finally {
-                CloseHandle(snap);
-            }
-            return list;
-        }
-        } }
+            } }
 '@
+    }
+    Write-Both 'watchdog: компилирую Win32-помощник (Add-Type, csc) — если зависнем тут, причина найдена'
+    try {
+        Add-Type -TypeDefinition $script:Win32TypeDef
+        Write-Both 'watchdog: компиляция завершилась'
+    } catch {
+        Write-Both ("watchdog: Add-Type не удался, census пойдёт через Get-Process: {0}" -f $_.Exception.Message)
+    }
 }
 
 function Kill-Tree {
