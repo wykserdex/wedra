@@ -132,11 +132,30 @@
   .ctx .b{color:var(--par)}  .ctx .m{color:var(--faint)}
   .ctx>div:first-child{color:var(--faint)!important;font-size:10.5px!important;
     border-bottom:1px solid var(--hair);padding-bottom:8px}
-  .jnl{padding:10px 14px;background:var(--sunken);font-family:var(--mono);font-size:11px;
-    line-height:1.6;max-height:640px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
-  .jnl .ln{color:#b8b4ac}
-  .jnl .ln .ts{color:var(--faint)}
-  .jnl .ln.hi{background:rgba(201,72,47,.10)}
+  /* Журнал — читаемая строка лога, а не дамп: время, событие, смысловые поля,
+     а полный JSON под «подробности». */
+  .jnl{padding:8px 0;background:var(--sunken);font-family:var(--mono);font-size:11px;
+    line-height:1.5;max-height:640px;overflow-y:auto}
+  .jnl .ln{display:flex;gap:10px;align-items:baseline;padding:3px 14px;color:#b8b4ac;
+    white-space:normal;word-break:normal}
+  .jnl .ln:hover{background:rgba(255,255,255,.03)}
+  .jnl .ln .ts{color:var(--faint);flex:none}
+  .jnl .ln .ty{color:var(--faint);flex:none;min-width:132px}
+  .jnl .ln .bits{flex:1;min-width:0}
+  .jnl .ln .s.g{color:var(--ok)}
+  .jnl .ln .s.e{color:var(--err)}
+  .jnl .ln .je{color:var(--err)}
+  .jnl .ln.run{color:var(--ver)}
+  .jnl .ln.err .bits{color:var(--err)}
+  .jnl .ln.ok .bits{color:var(--bone)}
+  .jnl .ln.dim .bits{color:var(--ash)}
+  .jraw{flex:none}
+  .jraw summary{color:var(--faint);cursor:pointer;font-size:10px;list-style:none}
+  .jraw summary::-webkit-details-marker{display:none}
+  .jraw summary:hover{color:var(--bone)}
+  .jraw pre{margin:6px 0 2px;padding:8px 10px;background:var(--ink2);
+    border:1px solid var(--hair);border-radius:var(--r);color:var(--faint);
+    font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto}
   .autochip{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
     border:1px solid var(--hair);border-radius:var(--r);padding:1px 7px;cursor:pointer;margin-left:0}
   .autochip:hover{color:var(--bone);border-color:var(--hair2)}

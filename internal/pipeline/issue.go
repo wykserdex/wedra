@@ -146,11 +146,11 @@ const (
 	// v0.34: значение входа задано, но пустое. Связь при этом есть, и пайплайн
 	// проходит валидацию так же чисто, как заполненный, — а ран падает уже в
 	// плагине (maigret: empty_username).
-	W_PORT_EMPTY_SOURCE = "W_PORT_EMPTY_SOURCE"
-	W_SECRETS_UNUSED        = "W_SECRETS_UNUSED"
-	W_SECRETS_UNDECLARED    = "W_SECRETS_UNDECLARED"
-	W_PARALLEL_SINGLE       = "W_PARALLEL_SINGLE"
-	W_FILE_REF_ROOT         = "W_FILE_REF_ROOT"
+	W_PORT_EMPTY_SOURCE  = "W_PORT_EMPTY_SOURCE"
+	W_SECRETS_UNUSED     = "W_SECRETS_UNUSED"
+	W_SECRETS_UNDECLARED = "W_SECRETS_UNDECLARED"
+	W_PARALLEL_SINGLE    = "W_PARALLEL_SINGLE"
+	W_FILE_REF_ROOT      = "W_FILE_REF_ROOT"
 )
 
 // Коды рантайма и API. Не Issue — они не попадают в issues[] валидации,

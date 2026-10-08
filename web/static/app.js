@@ -300,7 +300,7 @@ function renderRuns() {
   const el = $('#runs-list');
   if (!state.runs.length) { el.innerHTML = '<div class="empty">ранов пока нет</div>'; return; }
   el.innerHTML = state.runs.slice(0, 60).map(r => {
-    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'failed' ? 'err' : 'skip';
+    const st = r.status === 'ok' ? 'ok' : r.status === 'running' ? 'run' : r.status === 'aborted' ? 'err' : r.status === 'interrupted' ? 'skip' : r.status === 'failed' ? 'err' : 'skip';
     const label = r.status === 'running' ? 'идёт…' : r.status;
     const t = (r.last || r.started || '').replace('T', ' ').replace('Z', '');
     return `<div class="run-item ${state.currentRun === r.id ? 'active' : ''}" data-run-id="${esc(r.id)}">
@@ -671,15 +671,43 @@ window.toggleAuto = () => {
   $('#autochip').classList.toggle('on', state.autoScroll);
 };
 
+// Журнал: раньше каждая строка была «время + JSON.stringify(остальное)», то
+// есть дамп во всю ширину без разбивки. Теперь это читаемая строка лога —
+// событие, шаг, статус, длительность, — а полный JSON спрятан под
+// «подробности», чтобы ничего не потерять.
+const EV_TONE = {
+  run_start: 'dim', run_end: 'dim',
+  step_start: 'run', step_end: 'ok', step_error: 'err',
+  item_start: 'dim', item_end: 'ok', item_aborted: 'err',
+  gate_wait: 'skip', gate_resolved: 'ok',
+};
+
+function journalLine(e) {
+  const ts = (e.ts || '').split('T')[1] || '';
+  const tone = EV_TONE[e.type] || '';
+  const bits = [];
+  if (e.step) bits.push(esc(String(e.step)));
+  if (e.item_index != null) bits.push('элемент ' + esc(String(e.item_index)));
+  if (e.attempt > 1) bits.push('попытка ' + esc(String(e.attempt)));
+  if (e.status) bits.push('<b class="s ' + (e.status === 'ok' ? 'g' : e.status === 'aborted' ? 'e' : '') + '">' + esc(String(e.status)) + '</b>');
+  if (e.exit_code != null) bits.push('exit ' + esc(String(e.exit_code)));
+  if (e.duration_ms != null) bits.push(esc(String(e.duration_ms)) + ' мс');
+  if (e.network) bits.push('network: ' + esc(String(e.network)));
+  if (e.error) bits.push('<span class="je">' + esc(errText(e.error)) + '</span>');
+  const {ts: _t, ...rest} = e;
+  const raw = Object.keys(rest).length > 1
+    ? '<details class="jraw"><summary>подробности</summary><pre>' + esc(JSON.stringify(rest, null, 1)) + '</pre></details>'
+    : '';
+  return `<div class="ln ${tone}"><span class="ts">${esc(ts)}</span>`
+    + `<span class="ty">${esc(String(e.type || ''))}</span>`
+    + `<span class="bits">${bits.join(' · ')}</span>${raw}</div>`;
+}
+
 function renderJournal(newEvents, append) {
   const body = $('#jnl-lines');
   if (!body) return;
   const src = append ? newEvents : state.journal.events;
-  const lines = src.map(e => {
-    const ts = (e.ts || '').split('T')[1] || '';
-    const {ts: _t, ...rest} = e;
-    return `<div class="ln"><span class="ts">${esc(ts)}</span> ${esc(JSON.stringify(rest))}</div>`;
-  }).join('');
+  const lines = src.map(journalLine).join('');
   if (append && body.firstChild) body.insertAdjacentHTML('beforeend', lines);
   else body.innerHTML = lines;
   if (state.autoScroll) $('#rt-jnl-body').scrollTop = $('#rt-jnl-body').scrollHeight;

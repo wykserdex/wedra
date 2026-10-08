@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -142,7 +143,82 @@ func NewServer(pluginsDir, pipelinesDir, runsDir string) *Server {
 		panic("api: политика прослушивания по умолчанию не собралась: " + err.Error())
 	}
 	srv.policy = policy
+	// v0.34: закрыть раны, оборванные вместе с процессом. Статус рана выводится
+	// из журнала, и без run_end он навсегда остаётся «running» — а меню первым
+	// пунктом предлагает «открыть таймлайн» того, что уже не существует.
+	if closed := reconcileInterruptedRuns(srv.RunsDir); closed > 0 {
+		log.Printf("сверка ранов: %d прервано процессом, помечены как interrupted", closed)
+	}
 	return srv
+}
+
+// reconcileInterruptedRuns дописывает итоговый run_end с interrupted: true в
+// те раны, у которых итогового события нет. Отдельная отметка, а не aborted:
+// обрыв это не отмена человеком. Возвращает, сколько ранов закрыто.
+func reconcileInterruptedRuns(runsDir string) int {
+	entries, err := os.ReadDir(runsDir)
+	if err != nil {
+		return 0
+	}
+	closed := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(runsDir, e.Name())
+		path := filepath.Join(dir, "journal.jsonl")
+		raw, err := os.ReadFile(path)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		hasEnd, lastTS, hasStart := scanForRunEnd(raw)
+		if hasEnd || !hasStart {
+			continue
+		}
+		ev := map[string]interface{}{
+			"type": "run_end", "ts": lastTS, "status": "interrupted", "interrupted": true,
+		}
+		line, err := json.Marshal(ev)
+		if err != nil {
+			continue
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			continue
+		}
+		_, werr := f.Write(append(line, '\n'))
+		_ = f.Close()
+		if werr == nil {
+			closed++
+		}
+	}
+	return closed
+}
+
+func scanForRunEnd(raw []byte) (hasEnd bool, lastTS string, hasStart bool) {
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var ev struct {
+			Type string `json:"type"`
+			TS   string `json:"ts"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.TS != "" {
+			lastTS = ev.TS
+		}
+		switch ev.Type {
+		case "run_end":
+			hasEnd = true
+		case "run_start", "run_resumed":
+			hasStart = true
+		}
+	}
+	return hasEnd, lastTS, hasStart
 }
 
 // ConfigureListen — объявить, как сервер виден снаружи. Обязателен для любого
@@ -546,7 +622,7 @@ func (s *Server) handlePluginDetail(w http.ResponseWriter, r *http.Request) {
 // Тело ответа: {ok, installed[], output} или {ok:false, error, output}.
 func (s *Server) handlePluginInstallDeps(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "только POST", 405)
+		http.Error(w, "только POST", http.StatusMethodNotAllowed)
 		return
 	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
@@ -578,7 +654,7 @@ func (s *Server) handlePluginInstallDeps(w http.ResponseWriter, r *http.Request)
 	}
 	m, err := s.Engine.LoadManifest(dir)
 	if err != nil {
-		http.Error(w, "манифест не читается: "+err.Error(), 422)
+		http.Error(w, "манифест не читается: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	if len(m.Runtime.Requires) == 0 {
@@ -792,6 +868,12 @@ func (a *runSummaryAcc) add(meta journal.EventMeta) {
 		a.status = "ok"
 		if meta.Aborted != nil && *meta.Aborted > 0 {
 			a.status = "aborted"
+		}
+		// v0.34: обрыв процесса, а не отмена. Раньше такие раны навсегда
+		// оставались «running», и главное меню предлагало открыть тот, что
+		// никогда не закончится.
+		if meta.Interrupted != nil && *meta.Interrupted {
+			a.status = "interrupted"
 		}
 	case "run_failed":
 		a.status = "failed"

@@ -203,6 +203,10 @@ type EventMeta struct {
 	Status    string   `json:"status"`
 	Aborted   *float64 `json:"aborted"`
 	ItemIndex *float64 `json:"item_index"`
+	// Interrupted — ран закрыт сверкой на старте сервера, а не человеком:
+	// процесс с ним исчез, поэтому итогового run_end не осталось. Отдельное
+	// поле, чтобы не выдавать обрыв за отмену.
+	Interrupted *bool `json:"interrupted,omitempty"`
 }
 
 // ScanResult — итог потокового прохода по журналу.

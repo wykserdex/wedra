@@ -87,6 +87,7 @@
 | W_NETWORK_DECLARED | плагин заявил сеть (аудит — журнал) |
 | W_PORT_OPTIONAL_UNBOUND | `optional` порт без привязки |
 | W_PORT_OPTIONAL_SOURCE | `optional` порт с битым источником |
+| W_PORT_EMPTY_SOURCE | значение входа задано, но пустое | введите значение или отвяжите порт |
 | W_SECRETS_UNUSED | `pipeline.secrets` никто не просит |
 | W_SECRETS_UNDECLARED | плагину нужен ключ — объявите в `pipeline.secrets` |
 | W_PARALLEL_SINGLE | `parallel_group` из одного шага |
