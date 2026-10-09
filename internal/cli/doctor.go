@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +44,15 @@ const (
 	doctorNeedsDon = "needs_external_tool"
 )
 
+// Вид донора. Не коды протокола (см. выше), а различение для вывода: донор,
+// совпадающий с пакетом из runtime.requires, чинится иначе, чем чужой CLI.
+const (
+	doctorDonorExternal        = "external"
+	doctorDonorSameAsRequires  = "same_as_requires"
+	doctorRequiresNotInstalled = "not_installed"
+	doctorRequiresScriptNotIn  = "installed_script_not_in_path"
+)
+
 // pipInstallRe — «pip install X» из описания манифеста. Именно отсюда человек
 // берёт команду установки, поэтому и цитировать её будем оттуда же.
 //
@@ -50,7 +60,7 @@ const (
 // Спецслучаи отсекаются: `-r requirements.txt` и `git+https://…` не называют
 // пакета, и подставить вместо них имя — значит выдумать команду, которая не
 // сработает (для VCS-цели pip вообще требует префикс git+, а не голое имя).
-var pipInstallRe = regexp.MustCompile(`(?i)pip3?\s+install\s+("?[^\s"']+)`)
+var pipInstallRe = regexp.MustCompile(`(?i)pip3?\s+install\s+([^\s]+)`)
 
 // vcsPrefixes — цели, которые pip ставит не из индекса пакетов.
 var vcsPrefixes = []string{"git+", "hg+", "svn+", "bzr+", "http://", "https://", "file://", "-e", "."}
@@ -83,6 +93,18 @@ type doctorPlugin struct {
 	DonorCandidates []string `json:"donor_candidates,omitempty"`
 	// Install — готовая команда, которую можно скопировать.
 	Install string `json:"install,omitempty"`
+
+	// DonorKind — external либо same_as_requires (дефект 2).
+	DonorKind string `json:"donor_kind,omitempty"`
+	// DonorMissing — пакета донора нет: совет «pip install X» уместен.
+	DonorMissing bool `json:"donor_missing,omitempty"`
+	// DonorInstalledNoScript — пакет УСТАНОВЛЕН, но его консольного скрипта
+	// нет в PATH. «pip install X» тут бесполезно и было бы ложью.
+	DonorInstalledNoScript bool `json:"donor_installed_no_script,omitempty"`
+	// DonorUnknown — определить надёжно не удалось; совет нейтральный.
+	DonorUnknown bool `json:"donor_unknown,omitempty"`
+	// DonorScripts — имена консольных скриптов пакета (entry_points).
+	DonorScripts []string `json:"donor_scripts,omitempty"`
 }
 
 // doctorReport — весь ответ команды.
@@ -101,6 +123,10 @@ type doctorReport struct {
 	NeedsDonor int    `json:"needs_external_tool"`
 
 	Plugins []doctorPlugin `json:"plugins"`
+	// UnverifiedDonors — плагины, у которых донора нет в описании манифеста,
+	// поэтому doctor их не проверял. Пустой список означает «все проверены».
+	UnverifiedDonors []string `json:"unverified_donors,omitempty"`
+
 	// Summary — та же строка, что печатается человеку.
 	Summary string `json:"summary"`
 }
@@ -158,7 +184,10 @@ func runDoctor(pluginsDir string) doctorReport {
 	manifests := scanDoctorManifests(pluginsDir)
 	rep.Total = len(manifests)
 
-	// 2. Пакеты runtime.requires — одним опросом интерпретатора.
+	// 2. Пакеты: и из runtime.requires, и доноры из описаний — одним опросом
+	// интерпретатора. Доноры нужны не для «стоит ли», а чтобы отличить
+	// «не установлен» от «установлен, но скрипта нет в PATH» (дефект 1):
+	// советы у этих случаев противоположны.
 	//
 	// Если интерпретатора нет, проверять нечем: python-плагины не запустятся
 	// вообще, и «отсутствующий пакет» был бы ложью, маскирующей настоящую
@@ -166,27 +195,31 @@ func runDoctor(pluginsDir string) doctorReport {
 	// причина называется отдельно (PythonError), а не ими.
 	wanted := []string{}
 	seenPkg := map[string]bool{}
-	for _, m := range manifests {
-		for _, r := range m.Requires {
-			name := requirementName(r)
-			if name == "" {
+	addProbe := func(name string) {
+		// Пробуем и имя пакета, и имя модуля, если они различаются:
+		// иначе dnspython (модуль dns) читался бы как отсутствующий.
+		for _, probe := range requirementImportNames(name) {
+			if seenPkg[probe] {
 				continue
 			}
-			// Пробуем и имя пакета, и имя модуля, если они различаются:
-			// иначе dnspython (модуль dns) читался бы как отсутствующий.
-			for _, probe := range requirementImportNames(name) {
-				if seenPkg[probe] {
-					continue
-				}
-				seenPkg[probe] = true
-				wanted = append(wanted, probe)
-			}
+			seenPkg[probe] = true
+			wanted = append(wanted, probe)
 		}
 	}
-	present := map[string]bool{}
+	for _, m := range manifests {
+		for _, r := range m.Requires {
+			if name := requirementName(r); name != "" {
+				addProbe(name)
+			}
+		}
+		if donor, ok := donorFromDescription(m.Description); ok {
+			addProbe(donor)
+		}
+	}
+	pkgs := map[string]plugin.PackageInfo{}
 	if rep.PythonError == "" && len(wanted) > 0 {
-		if got, perr := plugin.PythonModulesPresent(rep.Python.Path, wanted); perr == nil {
-			present = got
+		if got, perr := plugin.PythonPackages(rep.Python.Path, wanted); perr == nil {
+			pkgs = got
 		} else {
 			// Проба не отработала: честнее сказать об этом, чем объявить все
 			// пакеты отсутствующими.
@@ -204,23 +237,29 @@ func runDoctor(pluginsDir string) doctorReport {
 			Status:   doctorReady,
 			Requires: m.Requires,
 		}
+		// Сведения о пакетах, которые плагин объявил в runtime.requires.
+		// Ключ — имя из манифеста: к нему же потом привязывается классификация
+		// донора (дефект 2), и искать его по алиасу модуля нельзя.
+		reqInfo := map[string]plugin.PackageInfo{}
 		for _, r := range m.Requires {
 			name := requirementName(r)
 			if name == "" {
 				continue
 			}
-			// Пакет считается установленным, если нашёлся либо он сам, либо
-			// модуль, которым он импортируется (dnspython → dns).
-			found := false
-			for _, probe := range requirementImportNames(name) {
-				if present[probe] {
-					found = true
-					break
-				}
+			if info, ok := lookupPackage(pkgs, name); ok {
+				reqInfo[name] = info
 			}
-			if !found {
-				p.MissingRequires = append(p.MissingRequires, r)
+		}
+		for _, r := range m.Requires {
+			name := requirementName(r)
+			if name == "" {
+				continue
 			}
+			info, known := reqInfo[name]
+			if known && (info.Importable || info.Installed) {
+				continue
+			}
+			p.MissingRequires = append(p.MissingRequires, r)
 		}
 		if len(p.MissingRequires) > 0 {
 			p.Status = doctorNeedsDep
@@ -229,22 +268,76 @@ func runDoctor(pluginsDir string) doctorReport {
 
 		// Донор: «pip install X» из описания манифеста.
 		if donor, ok := donorFromDescription(m.Description); ok {
-			candidates := donorCandidates(donor, m.Dir)
-			found, foundName := donorInPath(candidates)
 			p.Donor = donor
-			p.DonorCandidates = candidates
-			p.DonorFound = found
-			if found {
+			p.DonorCandidates = donorCandidates(donor, m.Dir)
+			foundPath, foundName := donorInPath(p.DonorCandidates)
+
+			// Дефект 2. Если «внешний инструмент» совпадает с пакетом из
+			// runtime.requires того же плагина, внешнего инструмента тут нет:
+			// это та же самая pip-зависимость, что и в requires, и совет
+			// «установи инструмент» только путает. community/exifread —
+			// ровно этот случай: `pip install exifread` в описании и
+			// `requires: [exifread==3.5.1]` в манифесте.
+			sameAsRequires := false
+			for r := range m.Requires {
+				if requirementName(m.Requires[r]) == donor {
+					sameAsRequires = true
+					break
+				}
+			}
+
+			if sameAsRequires {
+				p.DonorKind = doctorDonorSameAsRequires
+			} else {
+				p.DonorKind = doctorDonorExternal
+			}
+
+			if !foundPath {
+				switch {
+				case sameAsRequires:
+					// Пакет из requires; статус уже выставлен выше по
+					// MissingRequires. Отдельно ничего не советуем, чтобы не
+					// предлагать одно и то же дважды.
+					if p.Status == doctorReady {
+						// Объявлен в requires, проба показала, что он есть, но
+						// в PATH нет одноимённого бинаря: плагин запускает пакет
+						// сам (паттерн C), поэтому бинарь ему не нужен.
+						p.Status = doctorReady
+					}
+				default:
+					info, known := lookupPackage(pkgs, donor)
+					switch {
+					case !known || !info.ProbeOK:
+						// Установить нельзя надёжно определить — не выдумываем.
+						p.DonorUnknown = true
+					case !info.Installed && !info.Importable:
+						p.DonorMissing = true
+					default:
+						// Дефект 1. Пакет стоит, а его консольного скрипта нет
+						// в PATH. pip кладёт скрипты в Scripts\, который в PATH
+						// может не быть — и «pip install X» тут бесполезно:
+						// пакет уже установлен.
+						p.DonorInstalledNoScript = true
+						p.DonorScripts = info.Scripts
+					}
+					if p.Status == doctorReady {
+						p.Status = doctorNeedsDon
+					}
+				}
+			}
+			p.DonorFound = foundPath
+			if foundPath {
 				p.DonorFoundName = foundName
 			}
-			if !found {
-				// Приоритет у более серьёзной проблемы: отсутствующий пакет
-				// из requires не чинится, пока нет интерпретатора, и наоборот.
-				// Порядок в выводе задаёт doctorNeedsDep как более серьёзный.
-				if p.Status == doctorReady {
-					p.Status = doctorNeedsDon
+			if p.Status == doctorNeedsDon {
+				switch {
+				case p.DonorInstalledNoScript:
+					p.Install = pathAdvice(rep, p)
+				case p.DonorUnknown:
+					p.Install = "проверь вручную: pip show " + donor
+				default:
+					p.Install = "pip install " + donor
 				}
-				p.Install = "pip install " + donor
 			}
 		}
 
@@ -258,6 +351,9 @@ func runDoctor(pluginsDir string) doctorReport {
 		}
 		plugins = append(plugins, p)
 	}
+
+	rep.UnverifiedDonors = unverifiedDonorPlugins(manifests, plugins)
+
 	rep.Plugins = plugins
 	rep.Summary = doctorSummary(rep)
 	// OK — это не «ничего не сломалось», а «плагинов есть и они готовы».
@@ -268,6 +364,106 @@ func runDoctor(pluginsDir string) doctorReport {
 		rep.OK = false
 	}
 	return rep
+}
+
+// lookupPackage — сведения о пакете по имени ИЗ МАНИФЕСТА.
+//
+// Проба идёт по обоим возможным именам: имя пакета на PyPI и имя модуля могут
+// различаться (dnspython ставит модуль dns). Второй аргумент — «найдено ли
+// вообще», чтобы «не знаю» не путалось с «нет».
+func lookupPackage(pkgs map[string]plugin.PackageInfo, name string) (plugin.PackageInfo, bool) {
+	if info, ok := pkgs[name]; ok {
+		return info, true
+	}
+	for _, alias := range requirementImportNames(name) {
+		if info, ok := pkgs[alias]; ok {
+			return info, true
+		}
+	}
+	return plugin.PackageInfo{}, false
+}
+
+// pathAdvice — что сказать, когда пакет стоит, а скрипта нет в PATH.
+//
+// Самое полезное здесь не «установите», а имя каталога, который надо добавить
+// в PATH. pip кладёт консольные скрипты в Scripts (Scripts\ на Windows), и его
+// обычно там нет: поэтому «pip install X» для уже установленного пакета не
+// помогает ничего — это был ложный совет.
+func pathAdvice(rep doctorReport, p doctorPlugin) string {
+	var b strings.Builder
+	b.WriteString("пакет уже установлен, но его скрипта нет в PATH — установка не поможет")
+	if len(p.DonorScripts) > 0 {
+		b.WriteString("; скрипт пакета: " + strings.Join(p.DonorScripts, ", "))
+	}
+	if rep.Python.ScriptsDir != "" {
+		if rep.Python.ScriptsDirInPATH {
+			b.WriteString("; каталог " + rep.Python.ScriptsDir + " в PATH есть — проверь имя скрипта")
+		} else {
+			b.WriteString("; добавь в PATH: " + rep.Python.ScriptsDir)
+		}
+	}
+	return b.String()
+}
+
+// pipWord — «pip install» в любом регистре, как его пишут в README и в коде.
+var pipWord = regexp.MustCompile(`(?i)pip3?\s+install`)
+
+// unverifiedDonorPlugins — плагины, чей внешний инструмент doctor НЕ проверял.
+//
+// Проверяется только то, что названо в описании манифеста. Если донора там нет,
+// но «pip install» встречается в README или в коде, такой плагин молча попал бы
+// в «готовы» — а это ровно то враньё, ради которого оговорка и нужна.
+func unverifiedDonorPlugins(manifests []doctorManifest, reported []doctorPlugin) []string {
+	checked := map[string]bool{}
+	for _, p := range reported {
+		if p.Donor != "" {
+			checked[p.ID] = true
+		}
+	}
+	var out []string
+	for _, m := range manifests {
+		if checked[m.ID] {
+			continue
+		}
+		if mentionsPipInstall(m.Dir) {
+			out = append(out, m.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// mentionsPipInstall — есть ли упоминание установки в README или в коде
+// плагина. Читаются только два типа файлов: README* и .py, потому что
+// остальное (манифест с его описанием, requirements.lock) уже учтено выше.
+func mentionsPipInstall(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			if name == "__pycache__" || name == ".git" {
+				continue
+			}
+			if mentionsPipInstall(filepath.Join(dir, name)) {
+				return true
+			}
+			continue
+		}
+		if !strings.HasPrefix(strings.ToUpper(name), "README") && !strings.HasSuffix(name, ".py") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		if pipWord.Match(raw) {
+			return true
+		}
+	}
+	return false
 }
 
 // doctorManifest — минимум из манифеста, нужный doctor'у.
@@ -339,8 +535,22 @@ func donorFromDescription(desc string) (string, bool) {
 	if len(m) < 2 {
 		return "", false
 	}
-	name := strings.Trim(strings.TrimSpace(m[1]), `"'`)
+	// Регулярка берёт первый «кусок» без пробелов, а в описаниях это конец
+	// фразы: «…(import vt, REST API v3, pip install vt-py): плагин идёт» даёт
+	// `vt-py):`, а «`pip install webanalyze` на PyPI нет» — `webanalyze\``.
+	// Такие хвосты и есть дефект 3: команда с ними не сработает.
+	name := strings.TrimSpace(m[1])
+	// Обратный слэш на конце — это закрывающая markdown-кавычка в
+	// «`pip install webanalyze`», а не часть имени.
+	name = strings.TrimRight(name, "\\")
+	name = strings.Trim(name, `"'()[]{}<>`+"`")
+	// Запятая и двоеточие могут быть и внутри: «pip install x, y».
+	if i := strings.IndexAny(name, ",:;"); i >= 0 {
+		name = name[:i]
+	}
+	name = strings.TrimSpace(name)
 	name = strings.TrimSuffix(name, ".")
+	name = strings.Trim(name, `"'()[]{}<>`+"` ")
 	if name == "" {
 		return "", false
 	}
@@ -357,11 +567,47 @@ func donorFromDescription(desc string) (string, bool) {
 			return "", false
 		}
 	}
-	// Точка или путь — это локальный каталог, а не пакет.
+	// Остатки пути — это локальный каталог, а не пакет.
 	if strings.ContainsAny(name, "/\\") {
 		return "", false
 	}
+	// Последний рубеж: имя пакета не может начинаться с цифры и не может
+	// содержать символов, которых в нём не бывает. Список — из фактического
+	// мусора в 99 манифестах, а не из догадок.
+	if !validPackageName(name) {
+		return "", false
+	}
 	return name, true
+}
+
+// validPackageName — похоже ли это на имя пакета PyPI.
+//
+// Верхняя граница длины и запрет пробелов взяты из правил PyPI: длинное или с
+// пробелом имя заведомо не пакет, и подставлять его в команду установки — значит
+// выдумать команду, которая не выполнится.
+func validPackageName(name string) bool {
+	if name == "" || len(name) > 100 {
+		return false
+	}
+	if strings.ContainsAny(name, " \t\n\r") {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+			if i == 0 {
+				return false
+			}
+		case r == '-' || r == '_' || r == '.':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // donorCandidates — какие имена имеет смысл искать в PATH для донора.
@@ -519,21 +765,30 @@ func plural(n int, one, few, many string) string {
 }
 
 func printDoctorHuman(rep doctorReport) {
-	fmt.Println("WEDRA doctor — что сломано в окружении и что с этим делать")
-	fmt.Println()
+	printDoctorHumanTo(os.Stdout, rep)
+}
+
+// printDoctorHumanTo — вывод в произвольный writer.
+//
+// Отдельная функция, а не печать в stdout прямо: иначе оговорку о границах
+// проверки нечем проверить тестом — её появление в выводе человек увидит
+// сразу, а CI нет.
+func printDoctorHumanTo(w io.Writer, rep doctorReport) {
+	fmt.Fprintln(w, "WEDRA doctor — что сломано в окружении и что с этим делать")
+	fmt.Fprintln(w)
 	if rep.PythonError != "" {
-		fmt.Println("Python: НЕ НАЙДЕН —", rep.PythonError)
-		fmt.Println("       все 99 плагинов написаны на Python, без него не запустится ни один.")
+		fmt.Fprintln(w, "Python: НЕ НАЙДЕН —", rep.PythonError)
+		fmt.Fprintln(w, "       все 99 плагинов написаны на Python, без него не запустится ни один.")
 	} else {
-		fmt.Printf("Python: %s\n", rep.Python.Version)
-		fmt.Printf("        %s\n", rep.Python.Path)
+		fmt.Fprintf(w, "Python: %s\n", rep.Python.Version)
+		fmt.Fprintf(w, "        %s\n", rep.Python.Path)
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 
 	if rep.Total == 0 {
-		fmt.Println("Плагины: не найдены в", rep.PluginsDir)
-		fmt.Println()
-		fmt.Println(rep.Summary)
+		fmt.Fprintln(w, "Плагины: не найдены в", rep.PluginsDir)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, rep.Summary)
 		return
 	}
 
@@ -552,48 +807,96 @@ func printDoctorHuman(rep doctorReport) {
 	}
 
 	if len(needDep) > 0 {
-		fmt.Printf("Нужна pip-зависимость (%d): runtime.requires объявлен, но пакета нет\n", len(needDep))
+		fmt.Fprintf(w, "Нужна pip-зависимость (%d): runtime.requires объявлен, но пакета нет\n", len(needDep))
 		for _, p := range needDep {
-			fmt.Printf("  %-24s %s\n", p.ID, strings.Join(p.MissingRequires, ", "))
-			fmt.Printf("      %s\n", p.Install)
+			fmt.Fprintf(w, "  %-24s %s\n", p.ID, strings.Join(p.MissingRequires, ", "))
+			fmt.Fprintf(w, "      %s\n", p.Install)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 	if len(needDonor) > 0 {
-		// Доноров обычно больше, чем зависимостей, и они повторяются: одна
-		// команда на строку плагина превращала бы отчёт в простыню из
-		// повторов. Поэтому группируем по команде установки.
-		byInstall := map[string][]string{}
+		// Дефект 1: три разные ситуации требуют разного совета, и смешивать их
+		// нельзя — «pip install X» для уже установленного пакета хуже
+		// отсутствия совета: человек выполнит его и ничего не изменится.
+		var missing, installedNoScript, unknown []*doctorPlugin
 		for _, p := range needDonor {
-			byInstall[p.Install] = append(byInstall[p.Install], p.ID)
+			switch {
+			case p.DonorInstalledNoScript:
+				installedNoScript = append(installedNoScript, p)
+			case p.DonorUnknown:
+				unknown = append(unknown, p)
+			default:
+				missing = append(missing, p)
+			}
 		}
-		cmds := make([]string, 0, len(byInstall))
-		for c := range byInstall {
-			cmds = append(cmds, c)
+		if len(missing) > 0 {
+			// Доноров больше, чем зависимостей, и они повторяются, поэтому
+			// группируем по команде установки.
+			byInstall := map[string][]string{}
+			for _, p := range missing {
+				byInstall[p.Install] = append(byInstall[p.Install], p.ID)
+			}
+			cmds := make([]string, 0, len(byInstall))
+			for c := range byInstall {
+				cmds = append(cmds, c)
+			}
+			sort.Strings(cmds)
+			fmt.Fprintf(w, "Не установлен внешний инструмент (%d плагинов, %d команд):\n",
+				len(missing), len(cmds))
+			fmt.Fprintln(w, "runtime.requires его НЕ ставит — это отдельная установка.")
+			for _, c := range cmds {
+				ids := byInstall[c]
+				sort.Strings(ids)
+				fmt.Fprintf(w, "  %s\n", c)
+				fmt.Fprintf(w, "      %s\n", strings.Join(ids, ", "))
+			}
+			fmt.Fprintln(w)
 		}
-		sort.Strings(cmds)
-		fmt.Printf("Нужен внешний инструмент (%d плагинов, %d команд): runtime.requires его НЕ ставит\n",
-			len(needDonor), len(cmds))
-		for _, c := range cmds {
-			ids := byInstall[c]
-			sort.Strings(ids)
-			fmt.Printf("  %s\n", c)
-			fmt.Printf("      %s\n", strings.Join(ids, ", "))
+		if len(installedNoScript) > 0 {
+			fmt.Fprintf(w, "Пакет установлен, но его скрипта нет в PATH (%d):\n", len(installedNoScript))
+			fmt.Fprintln(w, "Устанавливать НЕ нужно — пакет уже стоит. Не хватает каталога в PATH.")
+			if rep.Python.ScriptsDir != "" && !rep.Python.ScriptsDirInPATH {
+				fmt.Fprintf(w, "  добавь в PATH: %s\n", rep.Python.ScriptsDir)
+			}
+			for _, p := range installedNoScript {
+				line := p.ID
+				if len(p.DonorScripts) > 0 {
+					line += "  (скрипт пакета: " + strings.Join(p.DonorScripts, ", ") + ")"
+				}
+				fmt.Fprintf(w, "  %s\n", line)
+			}
+			fmt.Fprintln(w)
 		}
-		fmt.Println()
+		if len(unknown) > 0 {
+			fmt.Fprintf(w, "Не удалось надёжно определить наличие (%d) — проверь вручную:\n", len(unknown))
+			for _, p := range unknown {
+				fmt.Fprintf(w, "  %-24s %s\n", p.ID, p.Install)
+			}
+			fmt.Fprintln(w)
+		}
 	}
 	if len(ready) > 0 {
-		fmt.Printf("Готовы сразу (%d):\n ", len(ready))
+		fmt.Fprintf(w, "Готовы сразу (%d):\n ", len(ready))
 		for i, p := range ready {
 			if i > 0 && i%8 == 0 {
-				fmt.Print("\n ")
+				fmt.Fprint(w, "\n ")
 			} else if i > 0 {
-				fmt.Print(" ")
+				fmt.Fprint(w, " ")
 			}
-			fmt.Print(p.ID)
+			fmt.Fprint(w, p.ID)
 		}
-		fmt.Println()
-		fmt.Println()
+		fmt.Fprintln(w)
+		fmt.Fprintln(w)
 	}
-	fmt.Println(rep.Summary)
+	// Оговорка о границах проверки. Без неё вывод врёт: «готовы» звучит как
+	// «всё настроено», а проверены только те доноры, что названы в описании
+	// манифеста. Плагины из списка ниже НЕ проверены.
+	if len(rep.UnverifiedDonors) > 0 {
+		fmt.Fprintln(w, "Оговорка: проверены не все внешние инструменты — только те, что упомянуты")
+		fmt.Fprintln(w, "в описании манифеста. У этих плагинов донора в описании нет,")
+		fmt.Fprintln(w, "и наличие инструмента для них НЕ проверено:")
+		fmt.Fprintf(w, "  %s\n", strings.Join(rep.UnverifiedDonors, ", "))
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintln(w, rep.Summary)
 }
