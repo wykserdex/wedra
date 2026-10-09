@@ -68,6 +68,11 @@ and [contributing](CONTRIBUTING.md).
 
 Plugin permissions are declarations, not an operating-system sandbox. Review
 network, filesystem, and secret permissions before installing a plugin.
+A network permission is either every host (`any_host: true`) or no network at
+all: there is no per-host egress filter on any platform (see
+[SECURITY.md](SECURITY.md#egress-filtering-proxy-built-kernel-enforcement-still-missing)).
+Isolation for untrusted external code exists only on Linux (bubblewrap); on
+Windows and macOS such code is refused.
 
 A plugin may declare `sandbox: untrusted` in its manifest. Such a plugin only
 runs inside an OS sandbox and only with explicit operator consent via

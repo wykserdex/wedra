@@ -2,12 +2,12 @@
 
 package plugin
 
-// Р­С‚РѕС‚ С„Р°Р№Р» РЅРµ СЂРµР°Р»РёР·СѓРµС‚ Windows-Р±СЌРєРµРЅРґ. РћРЅ С„РёРєСЃРёСЂСѓРµС‚ РёР·РјРµСЂРµРЅРёРµРј С‚Рѕ, С‡С‚Рѕ
-// SECURITY.md С‚РµРїРµСЂСЊ СѓС‚РІРµСЂР¶РґР°РµС‚: Р·Р°РїРёСЃСЊ PROTECTED DACL РЅР° РєР°С‚Р°Р»РѕРі, РєРѕС‚РѕСЂС‹Р№
-// РїСЂРѕС†РµСЃСЃ СЃРѕР·РґР°Р» СЃР°Рј, РЅРµРїСЂРёРІРёР»РµРіРёСЂРѕРІР°РЅРЅРѕРјСѓ РїСЂРѕС†РµСЃСЃСѓ РґРѕСЃС‚СѓРїРЅР°, Рё РѕРЅР° СЂРµР°Р»СЊРЅРѕ
-// РѕС‚СЂРµР·Р°РµС‚ РµРіРѕ СЃРѕР±СЃС‚РІРµРЅРЅС‹Р№ С‚РѕРєРµРЅ. Р Р°РЅСЊС€Рµ Р·РґРµСЃСЊ СЃС‚РѕСЏР»Рѕ В«host ACL stateВ» РєР°Рє
-// Р±Р»РѕРєРµСЂ вЂ” РёР·РјРµСЂРµРЅРёРµ РїРѕРєР°Р·Р°Р»Рѕ, С‡С‚Рѕ Р±Р»РѕРєРµСЂ РґСЂСѓРіРѕР№ (СѓСЂРѕРІРµРЅСЊ С†РµР»РѕСЃС‚РЅРѕСЃС‚Рё), Р°
-// СЃР°Рј DACL СЂР°Р±РѕС‚Р°РµС‚. РЈС‚РІРµСЂР¶РґРµРЅРёРµ Р±РµР· С‚РµСЃС‚Р° СЃРЅРѕРІР° РјРѕР¶РµС‚ СѓСЃС‚Р°СЂРµС‚СЊ.
+// Этот файл не реализует Windows-бэкенд. Он фиксирует измерением то, что
+// SECURITY.md теперь утверждает: запись PROTECTED DACL на каталог, который
+// процесс создал сам, непривилегированному процессу доступна, и она реально
+// отрезает его собственный токен. Раньше здесь стояло «host ACL state» как
+// блокер — измерение показало, что блокер другой (уровень целостности), а
+// сам DACL работает. Утверждение без теста снова может устареть.
 
 import (
 	"os"
@@ -20,14 +20,14 @@ import (
 	"github.com/wykserdex/wedra/internal/pipeline"
 )
 
-// allApplicationPackages вЂ” S-1-15-2, SID, РїРѕРґ РєРѕС‚РѕСЂС‹Рј С…РѕРґСЏС‚ РІСЃРµ AppContainer-С‚РѕРєРµРЅС‹.
+// allApplicationPackages — S-1-15-2, SID, под которым ходят все AppContainer-токены.
 const allApplicationPackages = "S-1-15-2"
 
 func tHelperSID(t *testing.T, wellKnown func() (*windows.SID, error)) *windows.SID {
 	t.Helper()
 	sid, err := wellKnown()
 	if err != nil {
-		t.Skipf("SID РЅРµРґРѕСЃС‚СѓРїРµРЅ: %v", err)
+		t.Skipf("SID недоступен: %v", err)
 	}
 	return sid
 }
@@ -45,7 +45,7 @@ func grantAce(sid *windows.SID) windows.EXPLICIT_ACCESS {
 	}
 }
 
-// setDACL вЂ” СЃС‚Р°РІРёС‚ DACL, РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ СЂРІС‘С‚ РЅР°СЃР»РµРґРѕРІР°РЅРёРµ (PROTECTED).
+// setDACL — ставит DACL, по умолчанию рвёт наследование (PROTECTED).
 func setDACL(t *testing.T, path string, protect bool, sids ...*windows.SID) error {
 	t.Helper()
 	entries := make([]windows.EXPLICIT_ACCESS, 0, len(sids))
@@ -65,19 +65,19 @@ func setDACL(t *testing.T, path string, protect bool, sids ...*windows.SID) erro
 	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, si, nil, nil, acl, nil)
 }
 
-// currentUserSID вЂ” SID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ СЌС‚РѕРіРѕ РїСЂРѕС†РµСЃСЃР°.
+// currentUserSID — SID пользователя этого процесса.
 func currentUserSID(t *testing.T) *windows.SID {
 	t.Helper()
 	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil || tu == nil || tu.User.Sid == nil {
-		t.Skipf("SID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅРµРґРѕСЃС‚СѓРїРµРЅ: %v", err)
+		t.Skipf("SID пользователя недоступен: %v", err)
 	}
 	return tu.User.Sid
 }
 
-// TestWindowsSelfCreatedDirDACLIsRestrictable вЂ” С†РµРЅС‚СЂР°Р»СЊРЅРѕРµ СѓС‚РІРµСЂР¶РґРµРЅРёРµ
-// SECURITY.md. РќРµРїСЂРёРІРёР»РµРіРёСЂРѕРІР°РЅРЅС‹Р№ РїСЂРѕС†РµСЃСЃ РѕР±СЏР·Р°РЅ СЃСѓР·РёС‚СЊ DACL СЃРѕР±СЃС‚РІРµРЅРЅРѕРіРѕ
-// РєР°С‚Р°Р»РѕРіР° Рё РѕС‚СЂРµР·Р°С‚СЊ СЃРµР±Рµ Р¶Рµ РґРѕСЃС‚СѓРї.
+// TestWindowsSelfCreatedDirDACLIsRestrictable — центральное утверждение
+// SECURITY.md. Непривилегированный процесс обязан сузить DACL собственного
+// каталога и отрезать себе же доступ.
 func TestWindowsSelfCreatedDirDACLIsRestrictable(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "sandbox")
@@ -91,13 +91,13 @@ func TestWindowsSelfCreatedDirDACLIsRestrictable(t *testing.T) {
 	})
 	app, err := windows.StringToSid(allApplicationPackages)
 	if err != nil {
-		t.Skipf("S-1-15-2 РЅРµРґРѕСЃС‚СѓРїРµРЅ: %v", err)
+		t.Skipf("S-1-15-2 недоступен: %v", err)
 	}
 
 	user := currentUserSID(t)
 
-	// Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ: Р±РµР· РЅРµРіРѕ СѓРїР°РІС€РёР№ С‚РµСЃС‚ РѕСЃС‚Р°РІРёР» Р±С‹ РєР°С‚Р°Р»РѕРі
-	// Р·Р°РєСЂС‹С‚С‹Рј, Р° СЌС‚Рѕ СѓР¶Рµ Р»РѕРјР°РµС‚ РјР°С€РёРЅСѓ, РЅР° РєРѕС‚РѕСЂРѕР№ С‚РµСЃС‚ Р·Р°РїСѓС‰РµРЅ.
+	// Восстановление обязательно: без него упавший тест оставил бы каталог
+	// закрытым, а это уже ломает машину, на которой тест запущен.
 	defer func() {
 		back := []*windows.SID{sys, adm}
 		if user != nil {
@@ -106,35 +106,35 @@ func TestWindowsSelfCreatedDirDACLIsRestrictable(t *testing.T) {
 		_ = setDACL(t, dir, false, back...)
 	}()
 
-	// Р”Рѕ РїСЂР°РІРєРё РґРѕСЃС‚СѓРї РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ.
+	// До правки доступ должен быть.
 	if _, err := os.ReadDir(dir); err != nil {
-		t.Fatalf("РґРѕ Р·Р°РїРёСЃРё DACL РєР°С‚Р°Р»РѕРі РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґРѕСЃС‚СѓРїРµРЅ: %v", err)
+		t.Fatalf("до записи DACL каталог должен быть доступен: %v", err)
 	}
 
-	// PROTECTED вЂ” РЅРµСЃСѓС‰РёР№ С„Р»Р°Рі: РѕРЅ СЂРІС‘С‚ РЅР°СЃР»РµРґРѕРІР°РЅРёРµ.
+	// PROTECTED — несущий флаг: он рвёт наследование.
 	if err := setDACL(t, dir, true, sys, adm, app); err != nil {
-		t.Fatalf("SetNamedSecurityInfo РЅР° СЃРѕР±СЃС‚РІРµРЅРЅРѕРј РєР°С‚Р°Р»РѕРіРµ РѕР±СЏР·Р°РЅ СЂР°Р±РѕС‚Р°С‚СЊ Р±РµР· РїРѕРІС‹С€РµРЅРёСЏ, РїРѕР»СѓС‡РµРЅРѕ: %v", err)
+		t.Fatalf("SetNamedSecurityInfo на собственном каталоге обязан работать без повышения, получено: %v", err)
 	}
 
-	// РџСЂРѕРІРµСЂСЏРµРј СЃС‚СЂСѓРєС‚СѓСЂРЅРѕ, Р° РЅРµ В«ReadDir РїР°РґР°РµС‚В». Р“СЂСѓРїРїРµ Administrators
-	// РІС‹РґР°РЅ GENERIC_ALL, РїРѕСЌС‚РѕРјСѓ Сѓ РїСЂРѕС†РµСЃСЃР°, РєРѕС‚РѕСЂС‹Р№ СЃР°Рј СЃРѕСЃС‚РѕРёС‚ РІ Р°РґРјРёРЅР°С… Рё
-	// СЂР°Р±РѕС‚Р°РµС‚ СЃ РїРѕРІС‹С€РµРЅРЅС‹Рј С‚РѕРєРµРЅРѕРј, РґРѕСЃС‚СѓРї Р·Р°РєРѕРЅРЅРѕ РѕСЃС‚Р°С‘С‚СЃСЏ С‡РµСЂРµР· СЌС‚РѕС‚ ACE вЂ”
-	// С‚Р°Рє Рё РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ, РїРѕРІС‹С€РµРЅРЅС‹Р№ РїСЂРѕС†РµСЃСЃ РІ Р»СЋР±РѕРј СЃР»СѓС‡Р°Рµ РјРѕР¶РµС‚ РІРµСЂРЅСѓС‚СЊ
-	// РєР°С‚Р°Р»РѕРі СЃРµР±Рµ. Р‘Р»РѕРєРёСЂСѓРµС‚СЃСЏ РёРјРµРЅРЅРѕ РЅРµРїСЂРёРІРёР»РµРіРёСЂРѕРІР°РЅРЅС‹Р№ С‚РѕРєРµРЅ: Сѓ РЅРµРіРѕ SID
-	// Administrators РІ deny-only, Рё С‚РѕРіРґР° РѕСЃС‚Р°С‘С‚СЃСЏ С‚РѕР»СЊРєРѕ SYSTEM/Administrators/
-	// S-1-15-2, Р° РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ SID РІ DACL РЅРµС‚ РІРѕРІСЃРµ.
+	// Проверяем структурно, а не «ReadDir падает». Группе Administrators
+	// выдан GENERIC_ALL, поэтому у процесса, который сам состоит в админах и
+	// работает с повышенным токеном, доступ законно остаётся через этот ACE —
+	// так и должно быть, повышенный процесс в любом случае может вернуть
+	// каталог себе. Блокируется именно непривилегированный токен: у него SID
+	// Administrators в deny-only, и тогда остаётся только SYSTEM/Administrators/
+	// S-1-15-2, а пользовательского SID в DACL нет вовсе.
 	if aclGrants(t, dir, user) {
-		t.Fatal("РїРѕСЃР»Рµ PROTECTED DACL SID РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅРµ РґРѕР»Р¶РµРЅ РѕСЃС‚Р°С‚СЊСЃСЏ РІ DACL")
+		t.Fatal("после PROTECTED DACL SID пользователя не должен остаться в DACL")
 	}
 
 	if !elevated() {
 		if _, err := os.ReadDir(dir); err == nil {
-			t.Error("РЅРµРїСЂРёРІРёР»РµРіРёСЂРѕРІР°РЅРЅС‹Р№ С‚РѕРєРµРЅ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚СЂРµР·Р°РЅ, РЅРѕ РґРѕСЃС‚СѓРї СЃРѕС…СЂР°РЅРёР»СЃСЏ")
+			t.Error("непривилегированный токен должен быть отрезан, но доступ сохранился")
 		}
 	}
 }
 
-// aclGrants вЂ” РµСЃС‚СЊ Р»Рё РІ DACL РїСѓС‚Рё РїСЂСЏРјРѕР№ РІС‹РґР°С‡Рё СѓРєР°Р·Р°РЅРЅРѕРјСѓ SID.
+// aclGrants — есть ли в DACL пути прямой выдачи указанному SID.
 func aclGrants(t *testing.T, path string, sid *windows.SID) bool {
 	t.Helper()
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
@@ -173,9 +173,9 @@ func elevated() bool {
 	return tok.IsElevated()
 }
 
-// TestWindowsDACLWithoutProtectedKeepsUserAccess вЂ” РєРѕРЅС‚СЂРѕР»СЊ: С„Р»Р°Рі
-// PROTECTED_DACL_SECURITY_INFORMATION РЅРµСЃСѓС‰РёР№. Р‘РµР· РЅРµРіРѕ РЅРѕРІС‹Р№ ACL СЃР»РёРІР°РµС‚СЃСЏ СЃ
-// СѓРЅР°СЃР»РµРґРѕРІР°РЅРЅС‹РјРё ACE, Рё РѕРіСЂР°РЅРёС‡РµРЅРёСЏ РЅРµ РІРѕР·РЅРёРєР°РµС‚.
+// TestWindowsDACLWithoutProtectedKeepsUserAccess — контроль: флаг
+// PROTECTED_DACL_SECURITY_INFORMATION несущий. Без него новый ACL сливается с
+// унаследованными ACE, и ограничения не возникает.
 func TestWindowsDACLWithoutProtectedKeepsUserAccess(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "sandbox")
@@ -189,7 +189,7 @@ func TestWindowsDACLWithoutProtectedKeepsUserAccess(t *testing.T) {
 	})
 	app, err := windows.StringToSid(allApplicationPackages)
 	if err != nil {
-		t.Skipf("S-1-15-2 РЅРµРґРѕСЃС‚СѓРїРµРЅ: %v", err)
+		t.Skipf("S-1-15-2 недоступен: %v", err)
 	}
 	user := currentUserSID(t)
 	defer func() {
@@ -201,20 +201,20 @@ func TestWindowsDACLWithoutProtectedKeepsUserAccess(t *testing.T) {
 	}()
 
 	if err := setDACL(t, dir, false, sys, adm, app); err != nil {
-		t.Fatalf("SetNamedSecurityInfo Р±РµР· PROTECTED: %v", err)
+		t.Fatalf("SetNamedSecurityInfo без PROTECTED: %v", err)
 	}
 	if _, err := os.ReadDir(dir); err != nil {
-		t.Fatalf("Р±РµР· PROTECTED РЅР°СЃР»РµРґРѕРІР°РЅРёРµ РґРѕР»Р¶РЅРѕ СЃРѕС…СЂР°РЅРёС‚СЊ РґРѕСЃС‚СѓРї РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ, РїРѕР»СѓС‡РµРЅРѕ: %v", err)
+		t.Fatalf("без PROTECTED наследование должно сохранить доступ пользователя, получено: %v", err)
 	}
 }
 
-// TestWindowsNoWindowsBackendRemainsFailClosed вЂ” РёР·РѕР»СЏС†РёСЏ РЅР° Windows РЅРµ
-// РїРѕСЏРІРёР»Р°СЃСЊ: СЌС‚РѕС‚ С‚РµСЃС‚ С„РёРєСЃРёСЂСѓРµС‚, С‡С‚Рѕ Р±СЌРєРµРЅРґР° РЅРµС‚ Рё СЏРґСЂРѕ РѕР±СЏР·Р°РЅРѕ РѕС‚РєР°Р·Р°С‚СЊ.
-// Р•СЃР»Рё РєРѕРіРґР°-РЅРёР±СѓРґСЊ РїРѕСЏРІРёС‚СЃСЏ РЅР°СЃС‚РѕСЏС‰РёР№ AppContainer-Р±СЌРєРµРЅРґ, С‚РµСЃС‚ РЅР°РїРѕРјРЅРёС‚
-// РѕР±РЅРѕРІРёС‚СЊ SECURITY.md.
+// TestWindowsNoWindowsBackendRemainsFailClosed — изоляция на Windows не
+// появилась: этот тест фиксирует, что бэкенда нет и ядро обязано отказать.
+// Если когда-нибудь появится настоящий AppContainer-бэкенд, тест напомнит
+// обновить SECURITY.md.
 func TestWindowsNoWindowsBackendRemainsFailClosed(t *testing.T) {
 	if _, ok := sandboxBackend(); ok {
-		t.Skip("Windows-Р±СЌРєРµРЅРґ РїРѕСЏРІРёР»СЃСЏ вЂ” РѕР±РЅРѕРІРёС‚Рµ SECURITY.md Рё СЌС‚РѕС‚ С‚РµСЃС‚")
+		t.Skip("Windows-бэкенд появился — обновите SECURITY.md и этот тест")
 	}
 	m := &pipeline.Manifest{
 		ID:      "x",
@@ -222,6 +222,6 @@ func TestWindowsNoWindowsBackendRemainsFailClosed(t *testing.T) {
 		Dir:     t.TempDir(),
 	}
 	if _, _, _, err := sandboxArgs(m, []string{"/bin/sh", "-c", "true"}, t.TempDir()); err == nil {
-		t.Fatal("Р±РµР· Windows-Р±СЌРєРµРЅРґР° Р·Р°РїСѓСЃРє РІРЅРµС€РЅРµРіРѕ РєРѕРґР° РѕР±СЏР·Р°РЅ Р±С‹С‚СЊ РѕС‚РєР°Р·, Р° РЅРµ СЂР°Р·СЂРµС€С‘РЅ")
+		t.Fatal("без Windows-бэкенда запуск внешнего кода обязан быть отказ, а не разрешён")
 	}
 }

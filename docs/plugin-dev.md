@@ -123,5 +123,5 @@ wedra run examples/my_first.yaml        # --yes = авто-accept гейтов (
    конформные тесты. Красный = в реестре не окажешься.
 
 После попадания: любой `wedra plugin install <твой_плагин>` — и плагин
-у него в `plugins/`, а пресеты тянут его автоматически. Full cycle:
-`OUTREACH_ROUND2.md` (меню идей + как принимаем).
+у него в `plugins/`, а пресеты тянут его автоматически. Полный цикл приёма (что проверяем и как попадаем в реестр) — в
+[CONTRIBUTING.md](../CONTRIBUTING.md#registry-admission).
