@@ -111,7 +111,7 @@ pipeline:
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
 Тег релиза (`vX.Y.Z`) совпадает с [`VERSION`](VERSION) — сейчас `0.34.0`;
 protocol version — [`protocol/VERSION`](protocol/VERSION) (`0.2`), версии независимы.
-Версия 0.34.0 ещё не выпущена: тега v0.34.0 и готовых бинарников пока нет, см. [CHANGELOG](CHANGELOG.md).
+Текущий релиз — `0.34.0`; бинарники для своей системы лежат на странице [Releases](https://github.com/wykserdex/wedra/releases). Состав изменений — в [CHANGELOG](CHANGELOG.md).
 
 ## Безопасность и статус
 
