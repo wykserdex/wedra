@@ -35,6 +35,13 @@ The primary CLI supports pipeline validation and execution, plugin registry
 operations, resume, the local GUI, and an MCP stdio adapter. Plugin manifests
 declare their own component version and protocol compatibility separately.
 
+The local console (`wedra gui`) shows runs with a timeline, pipelines with a DAG,
+the plugin catalog, and a visual editor:
+
+![Building a chain and running it: home, editor with linked steps, step properties and a run](demo.gif)
+
+The full console tour is in [`docs/demo.gif`](docs/demo.gif).
+
 ## Repository layout
 
 ```text
@@ -58,6 +65,17 @@ var/runs/             runtime output, ignored by git
 `internal/core` is a transitional compatibility layer. The layout and its
 compatibility surfaces are documented in [architecture](docs/architecture.md)
 and are not to be reorganized without a public proposal and migration plan.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Home screen](docs/screenshots/menu.png) | ![Run: timeline and context](docs/screenshots/run-detail.png) |
+| **Home** — what to run next | **Run** — step timeline, live journal and context |
+| ![Pipeline and DAG](docs/screenshots/pipeline-dag.png) | ![Plugin card](docs/screenshots/plugin-detail.png) |
+| **Pipeline** — YAML, DAG and validation before launch | **Plugin** — permissions, dependencies, contract |
+| ![Visual editor](docs/screenshots/editor.png) | |
+| **Editor** — build the chain by dragging, round-trip through the core | |
 
 ## Community and safety
 
