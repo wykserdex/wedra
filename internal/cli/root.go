@@ -82,6 +82,12 @@ func Run() {
 			return
 		}
 		RunDemo(os.Args[2:])
+	case "doctor":
+		if helpRequested(os.Args[2:]) {
+			printHelp()
+			return
+		}
+		RunDoctor(os.Args[2:])
 	case "check":
 		// Своя справка: у check много флагов, общий help их не покажет.
 		if helpRequested(os.Args[2:]) {
@@ -124,6 +130,7 @@ func printHelp() {
   wedra mcp --plugins=<dir> [--workdir=<dir>] [--no-gui]  # MCP-сервер (stdio) для LLM-агентов
   wedra approve <run_id> <step_id>                # только интерактивный TTY
   wedra demo [--runs-dir=<dir>]                    # автономная цепочка: ноль git, ноль Python, ноль сети
+  wedra doctor [--json] [--plugins=<dir>]          # что сломано в окружении и что доустановить; ничего не ставит и не запускает
 
 Совместимость:
   wedra check [--list|--fast|--census|--only=<step>] # ЕДИНАЯ проверка проекта: fmt, vet, mod, build, test, conformance, pipelines, plugins, registry
