@@ -22,7 +22,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          # См. обоснование в ci.yml: GO-2026-6617 чинится в go1.26.9.
+          go-version: '1.26.9'
       - name: release version check
         run: |
           set -eu

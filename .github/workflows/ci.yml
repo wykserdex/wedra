@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       - name: version invariants
         run: |
           set -eu
@@ -297,7 +297,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       - name: floor == go.mod directive
         run: |
           set -eu
@@ -330,7 +330,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       # Дедлайн есть у каждого шага: если шаг встанет, джоб отменится, а лог
       # отменённого джоба не отдаётся (BlobNotFound) — терять его незачем.
       - run: go vet ./...
@@ -394,7 +394,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       - run: go vet ./...
       - run: go test ./... -count=1 -timeout 10m
       - name: sandbox isolation (verbose)
@@ -419,7 +419,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.9' # GO-2026-6617: net/http HPACK, чинится в 1.26.9
       - run: go build -o wedra ./cmd/wedra
       - run: ./wedra registry validate --registry=registry.yaml
 
