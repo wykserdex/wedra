@@ -74,10 +74,11 @@ jobs:
             python:3.12-slim bash -c '
               apt-get update -qq && apt-get install -y -qq --no-install-recommends bubblewrap >/dev/null &&
               /plugin.test -test.run "Sandbox|Untrusted|Trust" -test.v'
-      # Единая точка проверки: fmt, vet, mod, build, test, conformance,
-      # pipelines, plugins, registry. Локально это ровно та же команда
-      # (`wedra check`), поэтому расхождение между CI и разработчиком
-      # невозможно по построению, а не по договорённости.
+      # Единая точка проверки: fmt, vet, lint, mod, versions, errcodes,
+      # schemas, supply, build, test, conformance, mcp, pipelines, plugins,
+      # registry. Локально это ровно та же команда (`wedra check`), поэтому
+      # расхождение между CI и разработчиком невозможно по построению, а не по
+      # договорённости.
       #
       # ВАЖНО: шаг стоит ПОСЛЕ установки bubblewrap и sandbox-тестов. Если
       # поднять его выше, `go test ./...` пройдёт без изолятора, и sandbox-тесты
@@ -93,7 +94,7 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check -r plugins/community/ssl_info/requirements.lock
           python3 -m unittest discover -s tests/plugins -v
-      - name: wedra check (fmt, vet, lint, mod, build, test, conformance, pipelines, plugins, registry)
+      - name: wedra check (fmt, vet, lint, mod, versions, errcodes, schemas, supply, build, test, conformance, mcp, pipelines, plugins, registry)
         run: go run ./cmd/wedra check --race --timeout=720
       - name: build legacy tool
         run: go build -o tool ./cmd/tool

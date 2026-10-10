@@ -30,6 +30,90 @@ MCP path checks are a reference and path policy, not an operating-system
 sandbox. Do not treat an MCP client or a plugin manifest as a security boundary
 without separate OS-level isolation.
 
+## Supply chain: what a release artifact actually proves
+
+A release page is not a chain of custody by itself. This section states what is
+signed, by whom, and — just as important — what a signature here does **not**
+prove.
+
+**What is in a release.** Binaries for six platforms (`wedra-*`, legacy
+`tool-*`, `wedragui-windows-*`), a conformance archive, `SHA256SUMS`,
+`sbom.spdx.json`, and two Sigstore bundles `SHA256SUMS.sigstore.json` and
+`sbom.spdx.json.sigstore.json`. GitHub provenance attestations cover
+`dist/*`, including the bundles.
+
+**What is signed.** `SHA256SUMS` and `sbom.spdx.json`, with **keyless**
+signing: Sigstore Fulcio issues a short-lived certificate against the GitHub
+Actions OIDC token of the release job (`id-token: write`, already required for
+the provenance attestation), and the signing event is written to the public
+Rekor transparency log. Consequences worth stating plainly:
+
+- There is **no signing key in this repository and no secret**. Nothing has to
+  be configured, and a contributor who can trigger a release signs with the
+  token the runner already holds under that job's own permissions — no more
+  and no less.
+- A verifier does not take our word on a shared secret; they check a Fulcio
+  certificate and a public log entry.
+
+**What a verifier must pin.** The certificate identity, exactly:
+
+```
+https://github.com/wykserdex/wedra/.github/workflows/release.yml@refs/tags/vX.Y.Z
+```
+
+with issuer `https://token.actions.githubusercontent.com`. This is the
+`job_workflow_ref`-derived SAN that Fulcio puts in the certificate, and for a
+reusable workflow `job_workflow_ref` names the **called** workflow
+(`release.yml`), not the caller (`ci.yml`). Pinning it exactly is the control:
+a signature from another branch, another repository, or a fork fails.
+
+**Closing the loop.** Verifying `SHA256SUMS` covers every binary listed in it,
+so `sha256sum --check --strict SHA256SUMS` after the signature check is what
+turns "a signed list" into "these are the binaries". The release workflow does
+both, in that order, in the same run; full instructions for a person are in
+[`docs/supply-chain.md`](docs/supply-chain.md).
+
+**Fail-closed by construction.** The verification step names the two signed
+files explicitly. Discovering them by globbing `dist/*` would pass on zero
+bundles — i.e. the signing step could vanish and the check would stay green.
+Missing `cosign` fails the step with a message about the missing signature,
+not a bare `command not found`.
+
+**Two automated checks, on purpose.** The `cosign verify-blob` step above
+proves a signature is good. It does not prove the signing step still *exists*
+— deleting it breaks nothing anywhere. So `wedra check` step `supply` (and
+therefore CI) also requires, statically: every `uses:` in
+`.github/workflows/*.yml` pinned to a full 40-character SHA, and `release.yml`
+still containing `sigstore/cosign-installer`, `cosign sign-blob`,
+`cosign verify-blob`, both signed filenames in the signing and verification
+steps, and the `command -v cosign` guard. `supply` verifies no cryptography;
+that division of labour is the point.
+
+**Toolchain pinning.** The cosign version is pinned explicitly
+(`cosign-release: 'v3.1.3'`) rather than left to the installer default, which
+is v3.0.6. v3.1.3 carries the fix for **GHSA-fx35-mq7g-6g98**, a verification
+bypass via an unexpected public key in a legacy bundle. Verifying a signature
+with a vulnerable verifier is not verifying it. Dependabot updates pinned
+actions but not that input value; cosign must be bumped by hand.
+
+**Status, stated honestly.** The signing and verification steps are in the
+release workflow, but **no release has yet been produced through them**: a
+keyless signature needs a runner OIDC token and cannot be reproduced locally.
+The workflow YAML, the bash, the cosign flags (`--bundle`, `--yes`,
+`--certificate-identity`, `--certificate-oidc-issuer`, cross-checked against
+cosign v3.1.3 sources) and the certificate identity (cross-checked against
+Fulcio's `pkg/identity/github/principal.go`) were verified statically, and the
+pinned action SHAs against the GitHub API. **A CI run of the release job is
+still required** to confirm that Fulcio issues for this repository and that the
+public Sigstore instance is reachable from a runner. Until then, treat
+"releases are signed" as intended behaviour, not as a shipped fact.
+
+**What signing does not buy.** It does not protect the download itself (that is
+HTTPS plus the URL you typed), it does not attest that the build is correct
+(that is the provenance attestation, a separate object), and it does not make
+the build reproducible. Comparing a signed artifact against one you built
+yourself is a separate exercise, not automated here.
+
 ## Trust is granted by the kernel, not by the plugin
 ## The GUI HTTP server (`wedra gui`, `wedragui`, the `wedra mcp` gate console)
 

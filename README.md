@@ -206,6 +206,11 @@ pipeline:
 Стабильные сборки — в [GitHub Releases](https://github.com/wykserdex/wedra/releases):
 `wedra-{linux,darwin,windows}-{amd64,arm64}`, legacy `tool-*`, `wedragui-windows-*.exe`,
 conformance-пакет, `SHA256SUMS`, SBOM (`sbom.spdx.json`) и build provenance.
+Релизный воркфлоу подписывает `SHA256SUMS` и SBOM ключом без секретов
+(Sigstore keyless: Fulcio + Rekor, токен раннера, никаких секретов в
+репозитории) и проверяет подпись до публикации. Первый прогон этой схемы
+ещё не состоялся — что уже проверено и что ждёт CI, написано честно в
+[цепочке поставки](docs/supply-chain.md).
 Тег релиза (`vX.Y.Z`) совпадает с [`VERSION`](VERSION) — сейчас `0.34.0`;
 protocol version — [`protocol/VERSION`](protocol/VERSION) (`0.2`), версии независимы.
 Текущий релиз — `0.34.0`; бинарники для своей системы лежат на странице [Releases](https://github.com/wykserdex/wedra/releases). Состав изменений — в [CHANGELOG](CHANGELOG.md).
@@ -220,6 +225,7 @@ WEDRA находится в активной разработке версии 0
 
 - [Быстрый старт](docs/quickstart.md)
 - [Плагины и их создание](docs/plugin-dev.md)
+- [Цепочка поставки релизов и проверка подписи](docs/supply-chain.md)
 - [Формат пайплайна](protocol/v0.2/PROTOCOL.md)
 - [Обещание совместимости формата](docs/format-compatibility.md)
 - [Участие в проекте](CONTRIBUTING.md) · [Governance](GOVERNANCE.md)

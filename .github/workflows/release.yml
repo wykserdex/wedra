@@ -6,6 +6,9 @@ on:
 
 permissions:
   contents: write
+  # id-token — не «на всякий случай»: без него не работают ни keyless-подпись
+  # (cosign берёт OIDC-токен раннера), ни attest-build-provenance. Вызывающий
+  # джоб в ci.yml выдаёт те же права, и понизить их здесь нельзя.
   id-token: write
   attestations: write
 
@@ -86,6 +89,65 @@ jobs:
           upload-release-assets: false
       - name: checksums
         run: sha256sum dist/wedra-* dist/tool-* dist/wedragui-* dist/sbom.spdx.json > dist/SHA256SUMS
+      # Подпись без единого секрета. cosign берёт OIDC-токен раннера
+      # (`id-token: write` в permissions этого джоба — он и был нужен для
+      # attest-build-provenance), Fulcio выдаёт на него короткоживущий
+      # сертификат, Rekor пишет запись. Ключа в репозитории нет, секретов не
+      # требуется, от стороннего контрибьютора ничего не зависит: релиз
+      # подписывается тем токеном, который раннер и так получает по правам
+      # джоба.
+      #
+      # Версия cosign закреплена ЯВНО, а не дефолтом инсталлера: дефолт
+      # cosign-installer v4.1.2 — v3.0.6, а в v3.1.3 приходит фикс
+      # GHSA-fx35-mq7g-6g98 (обход проверки подписи через чужой ключ в
+      # legacy-бандле). Проверять подпись уязвимой версией cosign — значит
+      # не проверять её вовсе. Следствие: обновление cosign теперь требует
+      # правки этой строки, и это сделано намеренно.
+      - name: install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+      # Подписываются ровно два файла: SHA256SUMS (а через него — все
+      # бинарники) и сам SBOM. Остальное не подписывается отдельно намеренно:
+      # подпись каждого бинарника отдельно не даёт ничего, чего не даёт
+      # подпись списка сумм, и только удваивает число Rekor-записей.
+      - name: sign checksums and SBOM (keyless)
+        run: |
+          set -eu
+          command -v cosign >/dev/null 2>&1 || { echo "cosign не в PATH: артефакты уедут без подписи, релиз не публикуем" >&2; exit 1; }
+          cosign version
+          for f in dist/SHA256SUMS dist/sbom.spdx.json; do
+            cosign sign-blob "$f" --bundle "$f.sigstore.json" --yes
+          done
+      # Проверка подписи в том же прогоне, а не только в документации.
+      # Список файлов задан явно: «перебрать dist/*» прошло бы успехом и при
+      # нуле бандлов, то есть подпись исчезла бы, а шаг остался бы зелёным.
+      # Пропуск и провал здесь неотличимы — значит, шаг обязан падать.
+      - name: verify signatures (fail-closed)
+        env:
+          SIGSTORE_ISSUER: https://token.actions.githubusercontent.com
+          # Точный SAN, который Fulcio кладёт в сертификат: job_workflow_ref
+          # плюс ref. Это имя файла ИСПОЛЬЗУЕМОГО воркфлоу (release.yml), а
+          # не вызывающего (ci.yml), — проверено по коду
+          # sigstore/fulcio pkg/identity/github/principal.go, где SAN = baseURL
+          # + jobWorkflowRef.
+          SIGSTORE_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+        run: |
+          set -eu
+          command -v cosign >/dev/null 2>&1 || { echo "cosign не в PATH: подпись не проверена, релиз не публикуем" >&2; exit 1; }
+          for f in dist/SHA256SUMS dist/sbom.spdx.json; do
+            test -s "$f.sigstore.json" || { echo "нет бандла подписи: $f.sigstore.json" >&2; exit 1; }
+            cosign verify-blob "$f" \
+              --bundle "$f.sigstore.json" \
+              --certificate-identity "$SIGSTORE_IDENTITY" \
+              --certificate-oidc-issuer "$SIGSTORE_ISSUER"
+          done
+          # Конец цепочки: подпись покрывает SHA256SUMS, а значит — каждый
+          # бинарник из него. Без этой строки подпись говорила бы только о
+          # самом списке.
+          sha256sum --check --strict dist/SHA256SUMS
+      # provenance идёт ПОСЛЕ подписи, поэтому subject-path покрывает и сами
+      # бандлы: «эти бандлы — те, что лежат в этом релизе».
       - name: attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

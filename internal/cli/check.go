@@ -25,6 +25,7 @@ import (
 
 	"github.com/wykserdex/wedra/internal/errdoc"
 	"github.com/wykserdex/wedra/internal/schemacheck"
+	"github.com/wykserdex/wedra/internal/supply"
 	"github.com/wykserdex/wedra/internal/verdoc"
 )
 
@@ -95,6 +96,15 @@ func checkSteps() []checkStep {
 		{name: "schemas", desc: "schemas/ против примеров и манифестов", fast: true,
 			run: func(o checkOpts) (string, error) {
 				return schemacheck.CheckRepo(o.repo)
+			}},
+		// Цепочка поставки. Проверка статическая: она не трогает криптографию
+		// и не может доказать, что подпись верна — это делает cosign в
+		// release.yml. Она ловит другое и ловит раньше всех: шаг подписи или
+		// закрепление actions удаляются без единого красного прогона, если
+		// следить за этим некому.
+		{name: "supply", desc: "actions по SHA + подпись и проверка подписи в релизном воркфлоу", fast: true,
+			run: func(o checkOpts) (string, error) {
+				return supply.CheckRepo(o.repo)
 			}},
 		{name: "build", desc: "сборка всех точек входа", fast: false,
 			run: func(o checkOpts) (string, error) {
@@ -565,6 +575,7 @@ func printCheckHelp() {
   versions     VERSION ↔ README/docs, минимум Go ↔ директива в go.mod
   errcodes     коды ошибок в Go ↔ protocol/v0.2/ERRORS.md
   schemas      schemas/ против примеров и манифестов
+  supply       actions по SHA + подпись и проверка подписи в release.yml
   build        сборка cmd/wedra, cmd/wedragui, cmd/tool
   test         go test ./... (с --census — поштучно по пакетам)
   conformance  конформ фикстур плагинов
@@ -575,7 +586,7 @@ func printCheckHelp() {
 Флаги:
   --list              показать шаги и выйти
   --only=<step>       прогнать один шаг
-  --fast              только быстрые шаги (fmt, vet, mod, versions, errcodes, schemas, registry)
+  --fast              только быстрые шаги (fmt, vet, mod, versions, errcodes, schemas, supply, registry)
   --census            тесты поштучно по пакетам с пределом на пакет
   --pkg=<substr>      в census ограничить список пакетов подстрокой
   --per-package=<s>   предел на пакет в режиме census (по умолчанию 200)
