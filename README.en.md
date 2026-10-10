@@ -35,6 +35,102 @@ The primary CLI supports pipeline validation and execution, plugin registry
 operations, resume, the local GUI, and an MCP stdio adapter. Plugin manifests
 declare their own component version and protocol compatibility separately.
 
+## What WEDRA does not do
+
+The positioning is written plainly, because the disappointment usually comes from
+this list rather than from the feature set.
+
+- **It will not become a daemon.** There is no scheduler, no webhooks, and no
+  inbound triggers: no such command in the CLI and no such endpoint in the HTTP
+  console. Scheduling belongs to an outside system — cron, the Windows task
+  scheduler, CI — and the decision to run belongs to a person (terminal,
+  console, `wedra approve`) or to an agent call over MCP. A long-lived process
+  that decides by itself when to start a chain is a separate product with a
+  separate failure model; WEDRA deliberately does not build it.
+- **It will not become a cloud, and it is not a SaaS integration sold as a
+  product.** No accounts, no telemetry, and no server that holds your data for
+  you: it is a binary, a `plugins/` directory, and journals under `var/runs/`.
+  The console listens on `127.0.0.1` by default; exposing it is an explicit
+  operator flag (`--listen`, `--allow-remote`), not a mode of operation.
+  External services are not "WEDRA integrations" but ordinary plugins that read
+  your key from the environment.
+- **It does not chase plugin count.** The 99 plugins in the registry are not a
+  showcase: 43 of them wrap a third-party tool that WEDRA does not install
+  (`runtime.requires` can only `pip install package==version`), and 13 more
+  mention an installation that `wedra doctor` deliberately refuses to vouch for.
+  A plugin enters the registry because it passes the conformance gate and
+  declares `permissions` honestly, not because it was written.
+  `wedra doctor --json` lists every plugin that needs something installed and
+  the exact command for it.
+- **It does not build cloud orchestration for its own sake.** Orchestration here
+  is a DAG inside a single process: steps, `when`, `foreach`, and
+  `parallel_group` with a barrier. No distributed scheduler, no queues, no
+  service discovery: everything WEDRA does happens on one machine, in one run.
+
+**What WEDRA does:** a deterministic run of a chain described in YAML, where the
+decision to continue stays with a person. Steps and bindings are validated
+before the run, and the human is in the loop on `core/human_gate` rather than
+reviewing after the fact.
+
+## Pipeline format stability
+
+**What the format version means.** `format_version` in YAML is the version of the
+*format protocol*, not the version of the application. The axes are independent:
+the product version lives in the `VERSION` file, the protocol version lives in
+`protocol/VERSION` and moves rarely. It is checkable: `wedra pipeline validate`
+on a file with an unknown `format_version` returns the **error**
+`E_FORMAT_VERSION`, not a warning, and an empty field is the warning
+`W_FORMAT_VERSION_MISSING`. The supported values are listed in code and do not
+grow silently — today exactly `"0.1"` and `"0.2"`.
+
+**What is promised.** The format is not frozen, but the commitment is specific:
+
+> As long as the `format_version` in your file has not changed, a pipeline that
+> validated keeps validating and keeps running.
+
+The promise rests on things that can be checked rather than believed:
+
+- **Two values, two live formats.** `"0.1"` is not declared legacy: it is
+  accepted on equal terms with `"0.2"`, pipelines using it live in `examples/`,
+  and the `pipelines` step (`validate` + `lint` + `plan`) of a full `wedra check`
+  runs over them — the same run CI does.
+- **A breaking edit cannot be silent.** Per
+  [GOVERNANCE.md](../GOVERNANCE.md), a protocol change requires a public
+  proposal stating its compatibility impact, migration steps, tests, and the
+  version axis it changes; [CONTRIBUTING.md](../CONTRIBUTING.md) additionally
+  requires a migration note and compatibility tests. The outcome has to show up
+  in `protocol/CHANGELOG.md` together with the new value in
+  `protocol/VERSION` and a `protocol/vX.Y/` directory.
+- **The contract is checked mechanically.** The `errcodes` gate compares the
+  error codes in Go with `protocol/v0.2/ERRORS.md`, the `versions` gate compares
+  the versions in README and docs with the repository, and the `schemas` gate
+  compares `schemas/` with the examples and manifests.
+
+**What can still change** — the honest list, without which the promise above
+would be empty:
+
+- **The format grows.** New optional fields and new error codes can appear —
+  that has already happened (`snapshot_lost`, `E_AGENT_EXEC_AUDIT`). Old YAML does
+  not break because of it.
+- **There is no compatibility in the other direction.** Pipeline parsing is
+  strict (`KnownFields(true)` in `internal/pipeline/parser.go`): a WEDRA binary
+  older than your file refuses to open it rather than ignoring what it does not
+  know. An old binary reads old files, not new ones.
+- **Error codes and MCP tool names are not a frozen API.** The gates keep the Go
+  codes, the published contract, and this README in agreement; that is a
+  consistency check, not a ban on adding or renaming.
+- **A run depends on the plugins.** If a plugin left the registry or its donor
+  tool is not installed, the chain does not run. That is not about the format.
+- **The promise does not cover the CLI or the interface.** Command flags, the
+  MCP tool set, and console behavior live on the application axis and change
+  with a release.
+- **The format is not frozen forever.** The project is on the 0.x line, and
+  [SECURITY.md](../SECURITY.md) states plainly that only the current line
+  receives fixes. A new protocol version is allowed — it just has to be
+  announced as described above.
+
+Full breakdown with code references: [docs/format-compatibility.md](docs/format-compatibility.md).
+
 The local console (`wedra gui`) shows runs with a timeline, pipelines with a DAG,
 the plugin catalog, and a visual editor:
 

@@ -7,6 +7,8 @@
 - Python 3.9+ в PATH (`python3 --version` или `py --version`). Go НЕ нужен — бинарники приложены.
 - Опционально: `pip install dnspython` (иначе MX-проверка в паке A тихо деградирует — это ok).
 
+Ниже — ни одного API-ключа. Шаги 3 и 4 (демо и LLM-цепь) не ходят в сеть вообще; шаг 2 делает один DNS-запрос MX, и без интернета он тихо деградирует до пустого списка MX — ран всё равно идёт.
+
 ## Шаг 0 — бинарь под твою ОС
 
 ```
@@ -29,24 +31,53 @@ wedra pipeline validate examples/email_check.yaml
 ```bash
 wedra pipeline run examples/email_check.yaml
 ```
-Прогонит 3 email (третий — заведомо битый, смотри журнал событий). На паузе `human_gate`: Enter (без правки) → `a` (принять) или `r` (отклонить).
+Пройдёт 2 email из 3; третий заведомо битый, и ран на нём остановится — это ожидаемо, не поломка. В конце будет `ok=2 aborted=1`. На паузе `human_gate`: Enter (без правки) → `a` (принять) или `r` (отклонить).
 
-**3. Пак B — текстовый LLM-конвейер в mock-режиме:**
+**3. Человек в петле вообще без сети и без Python** — самый быстрый способ убедиться, что система живая:
 ```bash
-# Windows (cmd):    set LLM_MOCK=1 && set GEMINI_API_KEY=mock && set LLM_OAI_API_KEY=mock && wedra.exe pipeline run examples\llm_text_chain.yaml
-# PowerShell:       $env:LLM_MOCK=1; $env:GEMINI_API_KEY="mock"; $env:LLM_OAI_API_KEY="mock"; .\wedra.exe pipeline run examples\llm_text_chain.yaml
-# Linux/macOS:      LLM_MOCK=1 GEMINI_API_KEY=mock LLM_OAI_API_KEY=mock ./wedra pipeline run examples/llm_text_chain.yaml
+wedra demo
 ```
-На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку. Ключи всё равно должны существовать: preflight проверяет `pipeline.secrets`, даже когда mock-плагин не использует сеть. С настоящими ключами (`GEMINI_API_KEY`, `LLM_OAI_API_KEY`) то же самое по-настоящему.
+Это тот же ран с настоящим гейтом человека, только текст метрится встроенным кодом. Ни git, ни Python, ни сети. Если ты видишь `ok=1 aborted=0` — всё, дальше можно читать спокойно.
 
-**4. Собери свой плагин за минуту:**
+**4. Пак B — LLM-конвейер по-настоящему, тоже без сети и без ключей.**
+
+Ключи не нужны: плагины ходят не в Gemini, а в локальную заглушку, которая отвечает в их формате. Запусти заглушку в одном окне терминала и оставь её открытой:
+```bash
+python docs/llm_stub.py
+```
+Во втором окне — сам прогон:
+
+```bash
+# Windows (cmd):    set GEMINI_BASE_URL=http://127.0.0.1:8766 && set LLM_OAI_BASE_URL=http://127.0.0.1:8766/v1 && set GEMINI_API_KEY=local && set LLM_OAI_API_KEY=local && wedra.exe pipeline run examples\llm_text_chain.yaml
+# PowerShell:       $env:GEMINI_BASE_URL="http://127.0.0.1:8766"; $env:LLM_OAI_BASE_URL="http://127.0.0.1:8766/v1"; $env:GEMINI_API_KEY="local"; $env:LLM_OAI_API_KEY="local"; .\wedra.exe pipeline run examples\llm_text_chain.yaml
+# Linux/macOS:      GEMINI_BASE_URL=http://127.0.0.1:8766 LLM_OAI_BASE_URL=http://127.0.0.1:8766/v1 GEMINI_API_KEY=local LLM_OAI_API_KEY=local ./wedra pipeline run examples/llm_text_chain.yaml
+```
+
+Ожидаемый финал: `ok=1 aborted=0`.
+
+Значения `GEMINI_API_KEY` / `LLM_OAI_API_KEY` тут — заглушки, preflight требует лишь чтобы переменная была непустой; заглушка их игнорирует. `GEMINI_BASE_URL` и `LLM_OAI_BASE_URL` плагины объявляют у себя в манифестах, поэтому значение до них доходит — в этом и смысл.
+
+На гейте попробуй ввести правку (JSON-строка в кавычках) и нажми `a` — refine-шаг должен получить именно твою правку, а не исходный черновик. В окне заглушки будет видно оба запроса, а второй — с твоим текстом.
+
+С настоящими ключами то же самое по-настоящему — просто убери переменные `*_BASE_URL`:
+```bash
+# Linux/macOS:      GEMINI_API_KEY=<ключ Gemini> LLM_OAI_API_KEY=<ключ> ./wedra pipeline run examples/llm_text_chain.yaml
+```
+
+> **Про `LLM_MOCK=1`, который ты встретишь в старых записках и в комментариях `examples/*.yaml`.** Он не работает и не должен: ядро намеренно не пропускает такие переключатели в плагины при обычном запуске (иначе тестовый флаг из окружения подменял бы боевой прогон подделкой — см. CHANGELOG). Он работает только внутри `wedra plugin test plugins/official/llm_gemini`. Для обычного запуска путь один — `*_BASE_URL`, как выше.
+
+**5. Собери свой плагин за минуту:**
 ```bash
 wedra plugin create plugins/proba
 # отредактируй plugins/proba/main.py (там урок протокола в комментариях)
 wedra plugin test plugins/proba      # контракт-тесты — должны быть зелёными из коробки
 ```
 
-**5. Загляни в журнал:** `runs/<последняя папка>/journal.jsonl` — все события рана.
+**6. Загляни в журнал:** `var/runs/<последняя папка>/journal.jsonl` — все события рана, по одной строке на событие. То же самое, но разобранное и с входами-выходами:
+```bash
+wedra runs show <последний run_id> var/runs
+```
+(run_id — он в строке `запуск "<имя>" (журнал: ...)` при старте.)
 
 ## Что прислать в ответ (это и есть данные M5)
 
@@ -65,3 +96,4 @@ wedra plugin test plugins/proba      # контракт-тесты — долж�
 - Нет OS-песочницы для community-плагинов: они запускаются с правами текущего пользователя.
 - Секреты — только env-переменные; `permissions` — декларация и аудит, не изоляция.
 - SMTP-плагин (сырой 25-й порт) сознательно НЕ в витрине: у большинства провайдеров порт закрыт.
+- `pipelines/` в корне больше нет, пресеты лежат в `examples/`. Если встретил упоминание — это старый текст, не ищи каталог.
