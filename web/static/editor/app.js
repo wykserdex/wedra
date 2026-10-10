@@ -113,6 +113,12 @@ let state = {
   // «зажат узел целиком»: выход выбирается сам, если он один.
   // v0.38: + value/label — для протяжки от карточки артефакта (input.<имя>).
   linkDrag: null,
+  // Пояснения на холсте. Живут ОТДЕЛЬНО от state.doc: панель — это подсказка
+  // редактора, а не часть пайплайна. В state.doc она попала бы в
+  // /api/serialize/pipeline и сломала бы сериализацию — backend трогать нельзя.
+  notes: [],
+  noteSig: '',        // подпись состояния, под которое собрана авто-панель
+  noteOff: '',        // состояние, панель которого человек закрыл руками
   // Слой редактора: 'inputs' — только входные значения, 'pipeline' — только
   // шаги и связи. Первый экран — входы: с них начинается работа с пайплайном.
   layer: 'inputs',
@@ -578,7 +584,7 @@ function renderInputNodes() {
     const spec = inputSpec(inp);
     const file = isFileInput(inp);
     const val = inp.default == null ? '' : String(inp.default);
-    return `<div class="inode" data-inp="${i}" style="top:${IN_Y0 + i * IN_STEP}px">
+    return `<div class="inode" data-inp="${i}" data-role="input" style="top:${IN_Y0 + i * IN_STEP}px">
       <div class="ihead"><span class="dot"></span><b>${esc(inp.name)}</b>
         <span class="itype">${esc(inp.format || spec.type)}</span></div>
       ${file
@@ -942,6 +948,22 @@ function startPaletteDrag(e, pluginId) {
   document.addEventListener('mouseup', mu);
 }
 
+// Роль шага. Порядок важен: гейт — это всегда человек, даже если у него
+// включили when; условие важнее перебора, потому что when меняет СМЫСЛ шага,
+// а foreach — только количество повторов. Роли холодные: тёплое отдано
+// семантике (has-err), и красный «перебор» читался бы как сбой.
+const ROLE_LABEL = {
+  input: 'вход', step: 'шаг', gate: 'гейт',
+  when: 'условие', foreach: 'перебор', parallel: 'параллельно',
+};
+function stepRole(st) {
+  if (st.plugin === 'core/human_gate') return 'gate';
+  if (st.parallel_group) return 'parallel';
+  if (st.when) return 'when';
+  if (st.foreach || st.after_foreach || st.loop) return 'foreach';
+  return 'step';
+}
+
 function renderNodes() {
   const canvas = $('#canvas');
   canvas.querySelectorAll('.node').forEach(n => n.remove());
@@ -953,8 +975,10 @@ function renderNodes() {
   for (const st of state.doc.steps) {
     const gate = st.plugin === 'core/human_gate';
     const info = pluginInfo(st.plugin);
+    const role = stepRole(st);
     const node = document.createElement('div');
     node.className = 'node' + (gate ? ' gate' : '') + (state.sel === st.id ? ' selected' : '');
+    node.dataset.role = role;
     node.style.left = st.pos[0] + 'px';
     node.style.top = st.pos[1] + 'px';
     node.dataset.id = st.id;
@@ -975,7 +999,7 @@ function renderNodes() {
           return `<span class="outchip${armed ? ' armed' : ''}" data-out="${esc(o)}" title="зажми и веди к другому шагу — или щелчок, чтобы вооружить связь">${esc(o)}</span>`;
         }).join('') || '<span class="outchip">нет</span>');
     node.innerHTML = `
-      <div class="nh"><span class="nid">${esc(st.id)}</span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
+      <div class="nh"><span class="rwrap"><span class="rdot"></span><span class="nid">${esc(st.id)}</span><span class="rlabel">${esc(ROLE_LABEL[role] || '')}</span></span><span class="nplug">${gate ? 'human_gate' : esc((info && (info.id === st.plugin ? st.plugin.split('/').pop() : st.plugin)) || st.plugin)}</span></div>
       <div class="body">${ins}<div style="margin-top:6px">${outs}</div></div>
       <div class="foot"><span>on_err: ${esc(st.on_error || 'stop')}</span>${st.when ? `<span title="when: ${esc(st.when.path || '')}">⚖ when:${esc(st.when.op || '')}</span>` : ''}${st.foreach ? '<span title="foreach: ' + esc(st.foreach) + '">⤨ foreach</span>' : ''}${st.parallel_group ? `<span title="parallel_group">∥ ${esc(st.parallel_group)}</span>` : ''}${st.after_foreach ? `<span title="after_foreach">⤓ post</span>` : ''}${st.loop ? `<span title="цикл шага">⟳ loop</span>` : ''}${st.timeout ? `<span>${esc(st.timeout)}</span>` : ''}</div>`;
     canvas.appendChild(node);
@@ -1218,15 +1242,31 @@ function edgesTouch(id) {
     Object.values(s.bind || {}).some(v => String(v || '').startsWith(tag)));
 }
 
+function roleColorOf(nodeEl) {
+  if (!nodeEl || typeof getComputedStyle !== 'function') return '#8fa3b8';
+  const v = getComputedStyle(nodeEl).getPropertyValue('--role');
+  return String(v || '').trim() || '#8fa3b8';
+}
+
 function renderEdges() {
   const svg = $('#edges');
   const cRect = $('#canvas').getBoundingClientRect();
+  const portsSvg = $('#edge-ports');
   const path = (x1, y1, x2, y2) => {
     const mx = (x1 + x2) / 2;
     return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
   };
+  // Порт — точка на краю узла; отвод — короткая линия от порта в поле.
+  // Обе части считаются здесь, из живых getBoundingClientRect, поэтому при
+  // перетаскивании узла порт едет вместе с ним: renderEdges зовётся и в
+  // процессе перетаскивания (scheduleEdges), а не только на отпускании.
+  const dot = (x, y, c) => `<circle cx="${x}" cy="${y}" r="4" fill="${c}"`
+    + ` stroke="#12161a" stroke-width="1.5"/>`;
+  const lead = (ax, ay, bx, by, c) => `<path d="M${ax},${ay} L${bx},${by}" fill="none"`
+    + ` stroke="${c}" stroke-width="1.3" opacity=".5"/>`;
   let s = '';
   let stubs = ''; // подписанные начала связей input.* — они с другого слоя
+  let ports = ''; // порты и отводы: слой #edge-ports, он поверх узлов
   for (const st of state.doc.steps) {
     for (const [field, src] of Object.entries(st.bind || {})) {
       if (!src) continue;
@@ -1242,6 +1282,15 @@ function renderEdges() {
       const dstNode = dstEl.closest('.node');
       const nRect = dstNode ? dstNode.getBoundingClientRect() : dRect;
       const x2 = nRect.left - cRect.left - 6, y2 = dRect.top - cRect.top + dRect.height / 2;
+      // ПОРТ назначения: точка ролевого цвета на левом краю узла ровно на
+      // высоте поля + отвод в само поле — видно, в какое именно поле пришла
+      // связь. Отвод рисуется поверх узлов (слой #edge-ports), поэтому не
+      // тонет в корпусе; сама стрелка остаётся снаружи, у порта.
+      if (portsSvg && dstNode) {
+        const dc = roleColorOf(dstNode);
+        ports += dot(x2, y2, dc);
+        ports += lead(x2, y2, nRect.left - cRect.left + 8, y2, dc);
+      }
       let x1 = 0, y1 = 0, ok = true;
       if (m) {
         const chip = document.querySelector(`.node[data-id="${m[1]}"] .outchip[data-out="${m[2]}"]`);
@@ -1249,6 +1298,10 @@ function renderEdges() {
         else {
           const sRect = chip.getBoundingClientRect();
           x1 = sRect.right - cRect.left + 4; y1 = sRect.top - cRect.top + sRect.height / 2;
+          // ПОРТ источника: точка ролевого цвета сразу за чипом выхода.
+          // Чип подписан именем, но без точки начала всех линий читались
+          // одинаково — отличала только форма стрелки на конце.
+          if (portsSvg) ports += dot(x1, y1, roleColorOf(chip.closest('.node')));
         }
       } else {
         // input.* — вход живёт на другом слое. Начало линии помечаем точкой:
@@ -1256,13 +1309,15 @@ function renderEdges() {
         // была вторым тем же именем рядом — дважды одно и то же на экране.
         ok = false;
         x1 = 96; y1 = y2;
-        stubs += `<circle cx="10" cy="${y2}" r="3" fill="#c9482f"/>`;
+        // маркер входа — холодный: тёплое в палитре только за семантикой
+        stubs += `<circle cx="10" cy="${y2}" r="3" fill="#5f97c4"/>`;
       }
       s += `<path class="edge${ok ? '' : ' hi'}" d="${path(x1, y1, x2, y2)}"`
         + ` marker-end="url(#${ok ? 'edge-arr' : 'edge-arr-hi'})"/>`;
     }
   }
   svg.innerHTML = EDGE_DEFS + stubs + s;
+  if (portsSvg) portsSvg.innerHTML = ports;
   // Резиновая линия протяжки живёт в этом же svg, а innerHTML его снёс.
   // Восстанавливаем, если протяжка ещё идёт.
   drawGhost();
@@ -1829,6 +1884,7 @@ function renderAll() {
     renderNodes();
     renderInputStrip();
     renderEdges();
+    syncNote();
   }
   if (onInputs) renderInputNodes();
   renderProps();
@@ -1855,6 +1911,118 @@ function renderAll() {
   // хотя данные в bind уже есть.
   renderEdges();
   scheduleValidate();
+}
+
+// ── пояснения на холсте ───────────────────────────────────────────────────
+// Текст берётся из реальных данных проекта: ошибки валидации ядра, состав
+// текущей цепочки, объявленный foreach. Ничего не выдумывается — панель либо
+// повторяет то, что ядро уже сказало, либо перечисляет то, что реально лежит
+// в state.doc. Автопанель одна: она отвечает на «что делать сейчас».
+function noteSigNow() {
+  const errs = (state.valErrs || []).length;
+  return [errs, state.doc.steps.length, state.doc.foreach || '',
+    state.doc.network || '', (state.doc.gates || '')].join('|');
+}
+
+function autoNote() {
+  const errs = state.valErrs || [];
+  if (errs.length) {
+    return {
+      kind: 'err', title: 'Ошибки валидации',
+      body: '<span class="row"><span class="k">ядро вернуло:</span> <code>'
+        + esc(errs[0]) + '</code></span>'
+        + (errs.length > 1
+          ? `<span class="row"><span class="k">ещё ${errs.length - 1} — см. панель «ошибки» слева.</span></span>`
+          : '')
+        + '<span class="row">Панель можно убрать крестиком — ошибки всё равно видны на самом узле.</span>',
+    };
+  }
+  const steps = state.doc.steps || [];
+  if (!steps.length) {
+    return {
+      kind: 'hint', title: 'Слой пайплайна',
+      body: '<span class="row">Шагов пока нет. Перетащи плагин из палитры слева'
+        + ' на холст и протяни связь от выхода одного шага к полю другого.</span>',
+    };
+  }
+  const gates = steps.filter(s => s.plugin === 'core/human_gate').length;
+  const rows = ['<span class="row"><span class="k">шагов:</span> <code>' + steps.length + '</code>'
+    + (gates ? ' <span class="k">· гейтов:</span> <code>' + gates + '</code>' : '') + '</span>'];
+  if (state.doc.foreach) {
+    rows.push('<span class="row"><span class="k">перебор:</span> <code>'
+      + esc(state.doc.foreach) + '</code> — шаг выполняется на каждый элемент.</span>');
+  }
+  if (state.doc.network) {
+    rows.push('<span class="row"><span class="k">сеть:</span> <code>'
+      + esc(state.doc.network) + '</code></span>');
+  }
+  const unbound = steps.filter(s => s.plugin !== 'core/human_gate'
+    && inFields(s.plugin).some(f => !(s.bind || {})[f])).length;
+  if (unbound) {
+    rows.push('<span class="row"><span class="k">без входа:</span> <code>'
+      + unbound + '</code> — протяни связь к полю или выбери источник справа.</span>');
+  }
+  return { kind: 'info', title: 'Эта цепочка', body: rows.join('') };
+}
+
+function syncNote() {
+  const host = $('#notes');
+  if (!host) return;
+  const sig = noteSigNow();
+  if (sig !== state.noteSig) {
+    state.noteSig = sig;
+    if (state.noteOff !== sig) state.notes = [{ id: 'ctx', pos: [700, 420], ...autoNote() }];
+  }
+  renderNotes();
+}
+
+function renderNotes() {
+  const host = $('#notes');
+  if (!host) return;
+  host.innerHTML = '';
+  for (const n of state.notes) {
+    const el = document.createElement('div');
+    el.className = 'note' + (n.kind === 'err' ? ' err' : '');
+    el.style.left = n.pos[0] + 'px';
+    el.style.top = n.pos[1] + 'px';
+    el.dataset.note = n.id;
+    el.innerHTML = `<div class="nh"><b>${esc(n.title)}</b>`
+      + `<button class="nx" data-nx="${esc(n.id)}" title="убрать пояснение">×</button></div>`
+      + `<div class="nb">${n.body}</div>`;
+    el.querySelector('.nh').addEventListener('mousedown', e => startNoteDrag(e, n, el));
+    el.querySelector('.nx').addEventListener('click', e => {
+      e.stopPropagation();
+      if (n.id === 'ctx') state.noteOff = state.noteSig;
+      state.notes = state.notes.filter(x => x.id !== n.id);
+      renderNotes();
+    });
+    host.appendChild(el);
+  }
+}
+
+function startNoteDrag(e, n, el) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const sx = e.clientX, sy = e.clientY;
+  const ox = n.pos[0], oy = n.pos[1];
+  let moved = false;
+  const mm = ev => {
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+    el.style.left = (ox + dx) + 'px';
+    el.style.top = (oy + dy) + 'px';
+  };
+  const mu = ev => {
+    document.removeEventListener('mousemove', mm);
+    document.removeEventListener('mouseup', mu);
+    if (moved) {
+      n.pos = [Math.max(0, snap(ox + ev.clientX - sx)), Math.max(0, snap(oy + ev.clientY - sy))];
+      renderNotes();
+    }
+  };
+  document.addEventListener('mousemove', mm);
+  document.addEventListener('mouseup', mu);
 }
 
 // ── канвас: drop из палитры, drag узлов ───────────────────────────────────
@@ -2037,6 +2205,7 @@ async function doValidate() {
       wireIssueClicks();
     }
     paintIssues();
+    if (state.layer !== 'inputs') syncNote();
   } catch (e) {
     const b = $('#val-badge');
     b.textContent = 'ошибка'; b.className = 'badge err';

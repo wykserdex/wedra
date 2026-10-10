@@ -8,14 +8,43 @@
 /* ── Тишина вместо декора. Ни градиентов, ни зерна, ни рамок-рамок: тёмный
         нейтральный фон, волосяные линии, мелкая типографика. Цвет только там,
         где означает состояние (идёт / ждёт / ошибка / пропущено). ───────────── */
+  /* ── Палитра v0.39 ───────────────────────────────────────────────────────
+        Направление выбрано после разбора оформления конкурентов: холодный
+        графит вместо фиолетово-чёрного, глубина ЦВЕТОМ вместо теней, один
+        акцент на всё приложение.
+
+        ЧТО ЗДЕСЬ ПРИНЦИПИАЛЬНО, а не «какие-нибудь цвета»:
+
+        1. ОДИН акцент — --acc (бирюза). Живёт на главном действии, на живых
+           связях холста и на фокусе. Больше нигде.
+        2. ТЁПЛОЕ — только смысл. --err / --ok / --skip никогда не украшают.
+           Отсюда же ушла неразбериха: раньше --err (#cf5344) и --ver (#c9482f)
+           были почти одним оттенком, и «ошибка» не отличалась от главной
+           кнопки. Теперь акцент холодный, ошибка тёплая.
+        3. --acc в старой палитре был мёртвым: значение #dcdcdc совпадало с
+           --bone, то есть «акцент» не был акцентом. Токена больше нет.
+        4. --faint: в палитре задан #68757f, но он НЕ проходит WCAG AA для
+           обычного текста — 3.84 на фоне и 3.03 на самой светлой поверхности
+           при требуемых 4.5. Взят ближайший оттенок того же тона,
+           проходящий AA на всех пяти поверхностях: #86939d (худшая — 4.55).
+           Это осознанная плата: разрыв с --ash (#93a0aa) сжимается с 2.95
+           до 1.01 по контрасту, и два приглушённых уровня становятся близки.
+           Проверено функцией контраста, не на глаз.
+        5. Глубина — цветом: --ink → --ink2 → --ink3 → --ink4, вдавленные
+           поверхности — --sunken. Теней для глубины нет нигде.
+        ───────────────────────────────────────────────────────────────────── */
   :root{
-    --ink:#1a1a1a; --ink2:#202020; --ink3:#252525; --ink4:#2e2e2e;
-    --sunken:#151515;
-    --bone:#dcdcdc; --ash:#9c9c9c; --faint:#6b6b6b;
-    --hair:rgba(255,255,255,.075); --hair2:rgba(255,255,255,.14);
-    --acc:#dcdcdc;              /* структурный акцент — не цвет, а кость */
-    --ver:#c9482f;              /* живое: ран идёт, гейт, фокус */
-    --ok:#8ea07c; --err:#cf5344; --skip:#c19a4a; --par:#9a8fae;
+    /* поверхности: от базы вглубь */
+    --ink:#12161a; --ink2:#181d22; --ink3:#1e242a; --ink4:#242b32;
+    --sunken:#0e1215;
+    /* текст: базовый → приглушённый → совсем тихий */
+    --bone:#d7dde2; --ash:#93a0aa; --faint:#86939d;
+    /* волосяные линии — холодный белый, тот же тон, что у палитры */
+    --hair:rgba(198,214,226,.09); --hair2:rgba(198,214,226,.17);
+    /* акцент: ОДИН на всё приложение */
+    --acc:#2fa8a0; --acc-hi:#38bdb4;
+    /* семантика: тёплое только смысл, никогда украшение */
+    --ok:#5fa97a; --err:#e0524a; --skip:#d9a441; --par:#8b93a8;
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
@@ -24,12 +53,12 @@
   html,body{height:100%}
   body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);
     font-size:12.5px;line-height:1.5;-webkit-font-smoothing:antialiased}
-  ::selection{background:rgba(201,72,47,.35)}
-  *{scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
+  ::selection{background:rgba(47,168,160,.32)}
+  *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
-  ::-webkit-scrollbar-thumb{background:#333;border:3px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-thumb:hover{background:#4a4a4a;background-clip:content-box}
-  :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
+  ::-webkit-scrollbar-thumb{background:#2b343c;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b464f;background-clip:content-box}
+  :focus-visible{outline:1px solid var(--acc);outline-offset:2px}
 
   /* ── шапка: тонкая линия снизу, навигация — мелкими прописными ── */
   header{display:flex;align-items:center;gap:16px;height:var(--hdr);padding:0 16px;
@@ -43,10 +72,10 @@
     text-transform:uppercase;color:var(--ash)}
   .badge{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:1px 7px;
     border:1px solid var(--hair2);border-radius:var(--r);color:var(--ash);white-space:nowrap}
-  .badge.ok{color:var(--ok);border-color:rgba(142,160,124,.45)}
-  .badge.err{color:var(--err);border-color:rgba(207,83,68,.45)}
-  .badge.run{color:var(--ver);border-color:rgba(201,72,47,.5);animation:pulse 1.6s ease-in-out infinite}
-  .badge.skip{color:var(--skip);border-color:rgba(193,154,74,.45)}
+  .badge.ok{color:var(--ok);border-color:rgba(95,169,122,.45)}
+  .badge.err{color:var(--err);border-color:rgba(224,82,74,.45)}
+  .badge.run{color:var(--acc);border-color:rgba(47,168,160,.5);animation:pulse 1.6s ease-in-out infinite}
+  .badge.skip{color:var(--skip);border-color:rgba(217,164,65,.45)}
   @keyframes pulse{50%{opacity:.45}}
   nav{display:flex;gap:20px;align-self:stretch;margin-left:6px}
   nav button,nav a{all:unset;cursor:pointer;display:flex;align-items:center;
@@ -80,7 +109,7 @@
   .run-item{padding:11px 16px;border-bottom:1px solid var(--hair);cursor:pointer;
     border-left:2px solid transparent}
   .run-item:hover{background:var(--ink2)}
-  .run-item.active{background:var(--ink2);border-left-color:var(--ver)}
+  .run-item.active{background:var(--ink2);border-left-color:var(--bone)}
   .run-item .top{display:flex;justify-content:space-between;gap:8px;align-items:center}
   .run-item .pipeline{font-family:var(--sans);font-size:14px;font-weight:600;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
@@ -110,10 +139,10 @@
   .tl .ev .t{color:var(--faint);flex-shrink:0;font-size:10.5px}
   .tl .ev .m{color:var(--bone)}
   .tl .ev .x{color:var(--faint);font-size:10.5px}
-  .tl .ev.ok{border-left-color:rgba(142,160,124,.55)} .tl .ev.ok .m{color:var(--ok)}
-  .tl .ev.err{border-left-color:rgba(207,83,68,.7)}   .tl .ev.err .m{color:var(--err)}
-  .tl .ev.skip{border-left-color:rgba(193,154,74,.55)} .tl .ev.skip .m{color:var(--skip)}
-  .tl .ev.run{border-left-color:rgba(201,72,47,.7)}   .tl .ev.run .m{color:var(--bone)}
+  .tl .ev.ok{border-left-color:rgba(95,169,122,.55)} .tl .ev.ok .m{color:var(--ok)}
+  .tl .ev.err{border-left-color:rgba(224,82,74,.7)}   .tl .ev.err .m{color:var(--err)}
+  .tl .ev.skip{border-left-color:rgba(217,164,65,.55)} .tl .ev.skip .m{color:var(--skip)}
+  .tl .ev.run{border-left-color:rgba(47,168,160,.7)}   .tl .ev.run .m{color:var(--bone)}
   .tl .ev.par{border-left-color:rgba(155,140,184,.6)} .tl .ev.par .m{color:var(--par)}
   .tl .ev.dim .m{color:var(--ash)}
   .tl .item{border-left:1px solid var(--hair2);margin:8px 10px 4px 26px;padding-left:10px}
@@ -136,7 +165,7 @@
      а полный JSON под «подробности». */
   .jnl{padding:8px 0;background:var(--sunken);font-family:var(--mono);font-size:11px;
     line-height:1.5;max-height:640px;overflow-y:auto}
-  .jnl .ln{display:flex;gap:10px;align-items:baseline;padding:3px 14px;color:#b8b4ac;
+  .jnl .ln{display:flex;gap:10px;align-items:baseline;padding:3px 14px;color:var(--ash);
     white-space:normal;word-break:normal}
   .jnl .ln:hover{background:rgba(255,255,255,.03)}
   .jnl .ln .ts{color:var(--faint);flex:none}
@@ -145,7 +174,7 @@
   .jnl .ln .s.g{color:var(--ok)}
   .jnl .ln .s.e{color:var(--err)}
   .jnl .ln .je{color:var(--err)}
-  .jnl .ln.run{color:var(--ver)}
+  .jnl .ln.run{color:var(--bone)}
   .jnl .ln.err .bits{color:var(--err)}
   .jnl .ln.ok .bits{color:var(--bone)}
   .jnl .ln.dim .bits{color:var(--ash)}
@@ -161,62 +190,184 @@
   .autochip:hover{color:var(--bone);border-color:var(--hair2)}
   .autochip.on{color:var(--bone);border-color:var(--hair2)}
 
-  /* ── главный экран: никакой плиты. Заголовок — обычный текст, цифры — сбоку
-        тонкой линией, действия — тихие строки, а не плитки с рамками. ─────── */
-  #menu{padding:28px 30px 48px;overflow-y:auto;max-width:1120px;grid-column:1 / -1;
-    margin:0 auto;width:100%}
-  .hero{margin-bottom:26px}
-  #menu .lead{font-size:19px;line-height:1.3;font-weight:600;
-    margin:0 0 6px;letter-spacing:-.01em;color:var(--bone)}
-  #menu .sub{color:var(--ash);font-size:12.5px;margin:0 0 18px;line-height:1.6;max-width:62ch}
-  .hstats{display:flex;gap:0;flex-wrap:wrap;border-top:1px solid var(--hair);padding-top:11px}
-  .stat{display:inline-flex;flex-direction:column;gap:1px;padding:0 18px;
-    border-left:1px solid var(--hair);min-width:96px}
-  .stat:first-child{padding-left:0;border-left:0}
-  .stat b{font-family:var(--mono);font-size:13.5px;font-weight:500;color:var(--bone)}
-  .stat{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-  /* 2×2, а не auto-fill: при четырёх действиях auto-fill давал 3+1 и одинокий
-     ряд с пустотой справа — ровно то, что в образце считается небрежностью */
-  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
-    column-gap:34px;margin-bottom:32px}
-  /* действие — строка: нет рамки, нет заливки, нет подъёма на ховере. Вместо
-     этого сдвигается только стрелка-подсказка. */
-  .card-btn{background:transparent;border:0;border-top:1px solid var(--hair);
-    padding:13px 0 12px;cursor:pointer;text-align:left;color:var(--bone);font:inherit;
-    display:flex;gap:11px;align-items:flex-start;width:100%;
-    transition:color .12s}
-  .card-btn:hover .k{color:#fff}
-  .card-btn .ic{flex-shrink:0;width:20px;height:20px;display:flex;
-    align-items:center;justify-content:center;font-family:var(--mono);
-    font-size:11px;color:var(--faint);background:transparent;line-height:1}
-  .card-btn:hover .ic{color:var(--ash)}
-  .card-btn .cb{min-width:0}
-  .card-btn .k{font-family:var(--sans);font-size:13px;font-weight:600;margin-bottom:3px;
-    transition:color .12s}
-  .card-btn .d{font-size:11.5px;color:var(--ash);line-height:1.55}
-  .card-btn .go{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
-    margin-top:7px;transition:color .12s}
-  .card-btn:hover .go{color:var(--ver)}
-  #menu h4{margin:0 0 12px}
-  #menu h4 .tsub{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px}
-  /* пресет — тоже строка, разделённая линией сверху, без рамки и заливки */
-  .pcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0 26px}
-  .pcard{display:flex;flex-direction:column;gap:4px;padding:12px 0 11px;
-    border-top:1px solid var(--hair)}
-  .pcard .pname{font-family:var(--mono);font-size:11.5px;color:var(--bone);cursor:pointer;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pcard .pname:hover{color:#fff;text-decoration:underline;text-decoration-color:var(--ver)}
-  .pcard .pdesc{font-size:11px;color:var(--ash);line-height:1.5;
+/* ── каркас: тонкий список разделов слева, объект справа ────────────────
+        Референс — редактор n8n. Ключевая идея: главного экрана НЕТ. Открываешь
+        — сразу объект, над которым работаешь; разделы тонкой полосой слева.
+
+        Что здесь принципиально:
+        * .rail — единственная навигация приложения. Шесть пунктов верхней
+          полосы разбирались на «что за раздел» и «где инструмент» одновременно;
+          теперь это разные вещи: РАЗДЕЛ слева, РЕЖИМ над объектом.
+        * .modes — режимы объекта (Редактор | Прогоны | Артефакты). Раньше
+          «Артефакты» был разделом приложения рядом с «Плагинами», хотя
+          относится к конкретному пайплайну.
+        * «+» рядом с названием — создать пайплайн, как в референсе.
+        Раскраска узлов и жёлтые пояснения — следующая фаза, здесь только каркас. ── */
+  .shell{display:flex;height:100vh;overflow:hidden}
+
+  .rail{width:206px;flex:none;display:flex;flex-direction:column;
+    background:var(--sunken);border-right:1px solid var(--hair);overflow-y:auto}
+  .rail-top{display:flex;align-items:center;gap:8px;padding:0 12px;
+    height:var(--hdr);border-bottom:1px solid var(--hair);flex:none}
+  .rail-logo{font-size:12.5px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--bone);white-space:nowrap}
+  .rail-top .sp{margin-left:auto}
+  /* «+» — создать пайплайн. Единственная кнопка со знаком в рельсе. */
+  .rail-new{width:22px;height:22px;border:1px solid var(--hair2);border-radius:var(--r);
+    background:transparent;color:var(--ash);cursor:pointer;font-size:14px;line-height:1;
+    display:flex;align-items:center;justify-content:center;padding:0;flex:none}
+  .rail-new:hover{color:var(--bone);border-color:var(--bone)}
+  .rail-sec{margin:14px 0 4px;padding:0 12px;font-size:9px;letter-spacing:.17em;
+    text-transform:uppercase;color:var(--faint)}
+  .rail-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 12px;
+    background:transparent;border:0;border-left:2px solid transparent;
+    color:var(--ash);font:inherit;font-size:12px;text-align:left;cursor:pointer;
+    text-decoration:none;transition:color .12s,background .12s}
+  .rail-item:hover{color:var(--bone);background:rgba(255,255,255,.03)}
+  .rail-item.active{color:var(--bone);border-left-color:var(--bone);background:rgba(255,255,255,.04)}
+  .rail-item .ri-dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
+  .rail-item.active .ri-dot{background:var(--bone)}
+  .rail-item .ri-n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  /* Помощь и «Что нового» — внизу, отдельной зоной (в референсе там же
+     Templates/Variables/Help): вторичное, не конкурирует с разделами. */
+  .rail-foot{margin-top:auto;padding:10px 0 12px;border-top:1px solid var(--hair);flex:none}
+  .rail-note{padding:8px 12px 0;font-size:10.5px;color:var(--faint);line-height:1.55}
+
+  /* Правая часть: шапка объекта с режимами + рабочая область. */
+  .work{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
+    border-bottom:1px solid var(--hair);background:var(--ink);flex:none}
+  .modes{display:flex;gap:2px;align-items:center;height:100%}
+  .modes button,.modes a{display:flex;align-items:center;height:100%;padding:0 13px;
+    background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);
+    font:inherit;font-size:11.5px;cursor:pointer;text-decoration:none;transition:color .12s}
+  .modes button:hover,.modes a:hover{color:var(--bone)}
+  .modes button.active{color:var(--bone);border-bottom-color:var(--bone)}
+  .modes .objname{font-family:var(--mono);font-size:11.5px;color:var(--faint);
+    margin-left:8px;padding-left:13px;border-left:1px solid var(--hair);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:34ch}
+  .topbar .sp{margin-left:auto}
+
+  /* Сетка прежняя: список слева (300–340), содержимое справа. Меняется только
+     то, что над ней, поэтому все aside/detail продолжают работать. */
+  .shell main{flex:1;min-height:0;overflow:hidden}
+  @media (max-width:1180px){
+    .rail{width:180px}
+  }
+  @media (max-width:1000px){
+    .rail{width:52px}
+    .rail-item span.lbl,.rail-logo,.rail-note,.rail-sec{display:none}
+    .rail-item{justify-content:center;padding:9px 0}
+  }
+  /* ── главный экран: рабочий стол, а не витрина ───────────────────────────
+        Правила, которые здесь закреплены, родились из трёх жалоб на старый
+        экран: «как презентация», «пусто», «шаблонно». Каждая строка ниже —
+        ответ на конкретную из них, иначе правка откатится при следующем
+        рефакторинге.
+
+        1. Одно главное действие на весь экран (.mprimary). Всё остальное —
+           тихие строки справа. Раньше вес был одинаковый у всех четырёх
+           карточек, и глаз не знал, куда нажать.
+        2. Никаких метрик. Полоса «99/99, 12 пресетов, 2 ранов» занимала место
+           и не помогала начать. Состояние работы показывает блок недавних
+           ранов — он и правда про работу пользователя.
+        3. Плотный список строк, а не плитки. Строка = узел + название +
+           одна короткая строка описания + действия справа. Плотность как в
+           списке файлов.
+        4. Акцент ОДИН. --acc живёт только на главном действии, на живых
+           сигналах и на фокусе. Зелёный (--ok) остаётся семантикой «готов»
+           у плагинов и украшением нигде.
+        5. Мотив — цепочка: узел и проходящая связь (.chain). Продукт буквально
+           про графы шагов, и это отличает экран от любого шаблона. ────────── */
+  #menu{padding:0 0 56px;overflow-y:auto;grid-column:1 / -1;width:100%}
+  /* Контент прижат к левому краю области набора, а не отцентрован: на широком
+     мониторе центрирование оставляло слева пустую колонку и главный экран
+     читался как пустой. */
+  #menu .wrap{max-width:1060px;padding:0 30px}
+
+  /* Заголовок раздела заметно крупнее названия задачи — иерархия кеглей, а не
+     одна плотность текста на весь экран. */
+  #menu .mhead{display:flex;align-items:baseline;gap:11px;padding:24px 0 0;
+    border-bottom:1px solid var(--hair2);margin-bottom:2px}
+  #menu .mhead h2{margin:0;font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--bone)}
+  /* Подпись прижата вправо и ограничена шириной: на 1760px текст в одну
+     строку не влезал и переносился на две, ломая ритм заголовка. */
+  #menu .mhead .mh-sub{font-size:11px;color:var(--faint);margin-left:auto;text-align:right;
+    line-height:1.5;max-width:70ch;white-space:nowrap}
+
+  /* Мотив цепочки: узел с проходящей связью. Один и тот же знак в заголовке
+     секций, в главном действии и в пустом состоянии. */
+  /* Мотив цепочки: узел и проходящая связь. Первый вариант был 17×9 со
+     stroke-width 1.1 — на тёмном фоне он читался как точка, а не как знак,
+     то есть мотив не работал. Теперь узел заметен, связь проходит через него. */
+  .chain{display:inline-flex;align-items:center;flex-shrink:0}
+  .chain svg{display:block;width:22px;height:11px}
+  .chain .cn{fill:none;stroke:var(--bone);stroke-width:2;opacity:1}
+  .chain .cc{stroke:var(--bone);stroke-width:1.6;fill:none;stroke-linecap:butt;opacity:.45}
+  .chain.acc .cn{stroke:var(--acc);opacity:1}
+  .chain.acc .cc{stroke:var(--acc);opacity:.7}
+
+  /* Единственное место с цветом: начать новый запуск. */
+  #menu .mprimary{display:flex;align-items:center;gap:13px;width:100%;
+    background:transparent;border:1px solid rgba(47,168,160,.42);border-radius:var(--r);
+    color:var(--bone);font:inherit;text-align:left;cursor:pointer;
+    padding:14px 16px;margin:18px 0 0;transition:border-color .13s,background .13s}
+  #menu .mprimary:hover{border-color:var(--acc);background:rgba(47,168,160,.08)}
+  #menu .mprimary .mp-k{font-size:13.5px;font-weight:600;display:block;margin-bottom:2px}
+  #menu .mprimary .mp-d{font-size:11.5px;color:var(--ash);line-height:1.5;display:block}
+  #menu .mprimary .mp-go{margin-left:auto;flex-shrink:0;font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--acc);padding-left:12px}
+
+  /* Группа задач. Отступы держат ритм: подзаголовок группы, затем строки,
+     разделённые волосяной линией — как список файлов. */
+  #menu .mgroup{padding-top:26px}
+  #menu .mgroup > .gh{display:flex;align-items:center;gap:9px;margin:0 0 3px;
+    font-size:9.5px;letter-spacing:.17em;text-transform:uppercase;color:var(--ash);
+    font-weight:500}
+  #menu .mgroup > .gh .gc{font-family:var(--mono);letter-spacing:0;color:var(--faint)}
+  #menu .mgroup > .gn{font-size:11px;color:var(--faint);margin:0 0 10px;line-height:1.55;
+    max-width:74ch}
+
+  /* Строка задачи. Один в один повторяющийся ритм: узел · текст · действия. */
+  #menu .trow{display:grid;grid-template-columns:20px minmax(0,1fr) auto;
+    gap:12px;align-items:start;padding:11px 2px 12px 0;
+    border-top:1px solid var(--hair);transition:background .12s}
+  #menu .trow:hover{background:rgba(255,255,255,.022)}
+  #menu .trow:last-child{border-bottom:1px solid var(--hair)}
+  #menu .trow .tk{font-family:var(--mono);font-size:12px;color:var(--bone);
+    cursor:pointer;display:inline-block}
+  #menu .trow .tk:hover{color:#fff;text-decoration:underline;text-decoration-color:var(--ash)}
+  #menu .trow .td{font-size:11.5px;color:var(--ash);line-height:1.55;margin-top:2px;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .pcard .pacts{display:flex;gap:6px;margin-top:auto;padding-top:3px}
-  .pcard .mini{background:transparent;border:0;color:var(--faint);
-    padding:3px 0;font-size:9px;letter-spacing:.13em;text-transform:uppercase;
-    cursor:pointer;font-family:inherit;border-bottom:1px solid transparent}
-  .pcard .mini:hover{color:var(--bone);border-bottom-color:var(--hair2)}
-  .pcard .mini.go{color:var(--ash)}
-  .pcard .mini.go:hover{color:var(--bone)}
-  .pcard .mini[disabled]{color:#4a4a4a;cursor:not-allowed}
-  .pcard .mini[disabled]:hover{border-bottom-color:transparent}
+  #menu .trow .tacts{display:flex;gap:12px;align-items:center;padding-top:1px}
+  #menu .trow .mini{background:transparent;border:0;color:var(--faint);
+    padding:2px 0;font-size:9px;letter-spacing:.13em;text-transform:uppercase;
+    cursor:pointer;font-family:inherit;border-bottom:1px solid transparent;white-space:nowrap}
+  #menu .trow .mini:hover{color:var(--bone);border-bottom-color:var(--hair2)}
+  #menu .trow .mini.go{color:var(--ash)}
+  #menu .trow .mini.go:hover{color:var(--bone)}
+  #menu .trow .mini[disabled]{color:var(--hair2);cursor:not-allowed}
+  #menu .trow .mini[disabled]:hover{border-bottom-color:transparent}
+
+  /* Недавние прогоны: единственный блок, который показывает состояние работы.
+     Вместо витринных метрик. */
+  #menu .rrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    gap:12px;align-items:center;padding:7px 2px;border-top:1px solid var(--hair);
+    cursor:pointer;transition:background .12s}
+  #menu .rrow:hover{background:rgba(255,255,255,.022)}
+  #menu .rrow .rp{font-family:var(--mono);font-size:11.5px;color:var(--bone);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #menu .rrow .rm{font-size:10.5px;color:var(--faint);font-family:var(--mono);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #menu .rrow .rt{font-size:10px;color:var(--faint);white-space:nowrap}
+
+  /* Пустое состояние тоже несёт мотив цепочки — иначе экран без данных
+     становится пустым серым прямоугольником. */
+  #menu .mempty{display:flex;align-items:center;gap:13px;padding:20px 0;
+    border-top:1px solid var(--hair);color:var(--faint);font-size:11.5px;line-height:1.6}
+
+  #menu .note{font-size:11px;color:var(--faint);margin-top:26px;line-height:1.7;
+    border-left:1px solid var(--hair2);padding-left:12px;max-width:74ch}
   .dbox{border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
     padding:11px 0;display:flex;flex-direction:column;gap:5px;align-items:flex-start;margin-top:6px}
   .dbox .dlist{font-family:var(--mono);font-size:12px;color:var(--bone);line-height:1.7}
@@ -248,12 +399,12 @@
   .plug .prow b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tdot{flex-shrink:0;width:6px;height:6px;border-radius:50%;background:transparent;
     border:1px solid var(--faint)}
-  .tdot.ok{background:var(--ok);border-color:var(--ok);box-shadow:0 0 6px rgba(142,160,124,.55)}
+  .tdot.ok{background:var(--ok);border-color:var(--ok);box-shadow:0 0 6px rgba(95,169,122,.45)}
   .prt{margin-left:auto;flex-shrink:0;font-family:var(--mono);font-size:9.5px;color:var(--faint);
     border:1px solid var(--hair);border-radius:var(--r);padding:0 5px;letter-spacing:.06em}
   .ptag{flex-shrink:0;font-size:9px;letter-spacing:.1em;text-transform:uppercase;border-radius:var(--r);
     padding:0 5px;border:1px solid var(--hair);color:var(--faint)}
-  .ptag.net{color:var(--skip);border-color:rgba(193,154,74,.45)}
+  .ptag.net{color:var(--skip);border-color:rgba(217,164,65,.45)}
   .ptag.agent{color:var(--par);border-color:rgba(155,140,184,.45)}
 
   /* ── вкладка «Плагины» ── */
@@ -273,16 +424,16 @@
   .pitem{padding:9px 16px;border-left:2px solid transparent;cursor:pointer;font-size:12.5px;
     display:flex;align-items:center;gap:9px;justify-content:space-between}
   .pitem:hover{background:var(--ink2)}
-  .pitem.active{background:var(--ink2);border-left-color:var(--ver)}
+  .pitem.active{background:var(--ink2);border-left-color:var(--bone)}
   .pitem small{color:var(--faint);font-family:var(--mono);font-size:10px;white-space:nowrap}
   #pdetail{padding:18px 22px;overflow-y:auto}
   #pdetail pre.yaml{background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);
     padding:13px;font-size:11.5px;overflow:auto;max-height:300px;font-family:var(--mono);
-    line-height:1.6;color:#c6c2ba;margin:0}
+    line-height:1.6;color:var(--ash);margin:0}
   #dag{width:100%;min-height:340px;background:var(--sunken);border:1px solid var(--hair);
     border-radius:var(--r)}
   .dagnode{fill:var(--ink3);stroke:var(--hair2);stroke-width:1}
-  .dagnode.pre{stroke:#8d8981}.dagnode.foreach{stroke:var(--bone)}.dagnode.post{stroke:var(--ok)}
+  .dagnode.pre{stroke:var(--skip)}.dagnode.foreach{stroke:var(--bone)}.dagnode.post{stroke:var(--ok)}
   .daggrp{fill:rgba(155,140,184,.06);stroke:rgba(155,140,184,.55);stroke-dasharray:5 4;stroke-width:1}
   .dagtxt{fill:var(--bone);font-size:12px;font-family:var(--mono)}
   .dagtxt.dim{fill:var(--ash);font-size:10px}
@@ -294,8 +445,8 @@
   .empty{color:var(--faint);padding:44px 24px;text-align:center;font-size:12.5px;line-height:1.7}
 
   /* ── гейт-карточка: единственное место, где интерфейс требует человека ── */
-  #gate-card{background:var(--ink2);border:1px solid var(--ver);border-radius:var(--r);
-    margin-bottom:18px;padding:16px 18px;box-shadow:0 0 0 1px rgba(201,72,47,.22),0 14px 30px -24px #000}
+  #gate-card{background:var(--ink2);border:1px solid var(--hair2);border-radius:var(--r);
+    margin-bottom:18px;padding:16px 18px;box-shadow:0 0 0 1px rgba(47,168,160,.22),0 14px 30px -24px #000}
   #gate-card h3{margin:0 0 12px;font-family:var(--sans);font-size:15px;font-weight:600;
     color:var(--bone);letter-spacing:0;text-transform:none;border:0;padding:0;background:none;display:block}
   #gate-card .gfield{margin:10px 0}
@@ -303,7 +454,7 @@
     color:var(--faint);font-family:var(--mono);margin-bottom:4px}
   #gate-card .gfield input{width:100%;background:var(--sunken);color:var(--bone);
     border:1px solid var(--hair2);border-radius:var(--r);padding:7px 9px;font-family:var(--mono);font-size:12px}
-  #gate-card .gfield input:focus{outline:none;border-color:var(--ver)}
+  #gate-card .gfield input:focus{outline:none;border-color:var(--acc)}
   #gate-card .gfield input[readonly]{color:var(--ash);background:var(--ink3);border-color:var(--hair)}
   #gate-card .gactions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
   #gate-card .gactions button{background:transparent;color:var(--bone);border:1px solid var(--hair2);
@@ -326,7 +477,7 @@
   #wedra-session-box input{width:100%;box-sizing:border-box;background:var(--sunken);color:var(--bone);
     border:1px solid var(--hair2);border-radius:var(--r);padding:10px 11px;font-family:var(--mono);
     font-size:14px;letter-spacing:.14em}
-  #wedra-session-box input:focus{outline:none;border-color:var(--ver)}
+  #wedra-session-box input:focus{outline:none;border-color:var(--acc)}
   #wedra-session-box .serr{color:var(--err);font-size:11.5px;margin-top:9px;min-height:16px}
   #wedra-session-box button{margin-top:12px;width:100%;background:var(--bone);color:var(--ink);
     border:1px solid var(--bone);border-radius:var(--r);padding:11px;font-size:10.5px;
@@ -351,17 +502,18 @@
   #detail .card:nth-of-type(2){animation-delay:.05s}
   #gate-card{animation:gateIn .3s cubic-bezier(.22,.61,.36,1)}
   .empty{animation:fadeIn .3s ease-out}
-  .hero{animation:viewIn .3s cubic-bezier(.22,.61,.36,1) both}
-  .cards .card-btn{animation:viewIn .3s cubic-bezier(.22,.61,.36,1) both}
-  .cards .card-btn:nth-child(2){animation-delay:.045s}
-  .cards .card-btn:nth-child(3){animation-delay:.09s}
-  .cards .card-btn:nth-child(4){animation-delay:.135s}
+  /* Главная: появление строк задач каскадом. Классы hero/cards/card-btn
+     удалены вместе с разметкой — правила на них остались бы мёртвыми и
+     маскировали бы, что мотив и структура прежние. */
+  #menu .trow{animation:viewIn .3s cubic-bezier(.22,.61,.36,1) both}
+  #menu .trow:nth-child(2){animation-delay:.04s}
+  #menu .trow:nth-child(3){animation-delay:.08s}
+  #menu .trow:nth-child(4){animation-delay:.12s}
 
   nav button,nav a,.btn,button.primary,.mini,.sectbtn,.autochip,.rtabs button,
-  select,input[type=search],.run-item,.pitem,.plug,.card-btn,.badge,.tl .ev{
+  select,input[type=search],.run-item,.pitem,.plug,#menu .trow,#menu .mprimary,.badge,.tl .ev{
     transition:color .16s ease,background-color .16s ease,border-color .16s ease,
       box-shadow .18s ease,transform .18s ease,opacity .16s ease}
-  .card-btn:hover{box-shadow:0 16px 30px -24px #000}
   /* точка доверия загорается, а не переключается */
   .tdot{transition:background-color .4s ease,border-color .4s ease,box-shadow .4s ease}
 
@@ -387,65 +539,93 @@
 </style>
 </head>
 <body>
-<header>
-  <h1><span class="mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 20 20"><path d="M10 1.5v17" stroke="currentColor" stroke-width="1.1"/><path d="M9.4 6.2 2.5 2.8l1.9 4.6zM9.4 12 2.5 8.6l1.9 4.6zM10.6 6.2l6.9-3.4-1.9 4.6zM10.6 12l6.9-3.4-1.9 4.6z" fill="currentColor"/></svg></span>WEDRA<span class="sep">·</span><span class="thin">консоль</span></h1>
-  <span id="ver" class="badge">…</span>
-  <nav>
-    <button id="tab-menu" class="active">Главная</button>
-    <button id="tab-runs">Раны</button>
-    <button id="tab-pipelines">Пайплайны</button>
-    <button id="tab-plugins">Плагины</button>
-    <span class="div"></span>
-    <a href="/editor/">Редактор</a>
-    <a href="/artifacts/">Артефакты</a>
+<div class="shell">
+  <!-- Разделы приложения. Тонкой полосой слева, как в референсе: шесть
+       пунктов верхней полосы смешивали «что за раздел» и «где инструмент»,
+       а Прогоны и Артефакты относятся к конкретному пайплайну и живут
+       теперь режимами над объектом. -->
+  <nav class="rail">
+    <div class="rail-top">
+      <span class="rail-logo">WEDRA</span>
+      <span class="sp"></span>
+      <button class="rail-new" id="rail-new" title="Новый пайплайн" aria-label="Новый пайплайн">+</button>
+    </div>
+
+    <div class="rail-sec">Проекты</div>
+    <button class="rail-item" id="tab-pipelines"><span class="ri-dot"></span><span class="lbl">Пайплайны</span><span class="ri-n" id="rail-pip-count"></span></button>
+    <button class="rail-item" id="tab-plugins"><span class="ri-dot"></span><span class="lbl">Плагины</span><span class="ri-n" id="rail-plug-count"></span></button>
+    <a class="rail-item" id="rail-artifacts" href="/artifacts/"><span class="ri-dot"></span><span class="lbl">Артефакты</span></a>
+
+    <div class="rail-foot">
+      <button class="rail-item" id="rail-help"><span class="lbl">Помощь</span></button>
+      <button class="rail-item" id="rail-whatsnew"><span class="lbl">Что нового</span></button>
+      <div class="rail-note">Плагины — исполняемый код. Перед установкой проверяй
+        источник и права в манифесте.</div>
+    </div>
   </nav>
-</header>
 
-<main>
-  <!-- МЕНЮ (главный экран) -->
-  <div id="menu" style="display:none"></div>
+  <div class="work">
+    <!-- Режимы объекта, а не разделы приложения. Прогоны и артефакты
+         принадлежат конкретному пайплайну, поэтому они здесь. -->
+    <header class="topbar">
+      <nav class="modes">
+        <button id="mode-editor">Редактор</button>
+        <button id="mode-runs">Прогоны</button>
+        <a id="mode-artifacts" href="/artifacts/">Артефакты</a>
+        <span class="objname" id="obj-name"></span>
+      </nav>
+      <span class="sp"></span>
+      <span id="ver" class="badge">…</span>
+    </header>
 
-  <!-- RUNS -->
-  <aside id="runs-aside">
-    <div class="panel">
-      <h3>Новый ран</h3>
-      <select id="run-select"></select>
-      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);margin-top:8px;cursor:pointer">
-        <input type="checkbox" id="run-gate" checked style="width:auto"/>
-        человек в гейте — в браузере
-      </label>
-      <button id="run-btn" class="primary">Запустить</button>
-      <div class="hint">Гейт: ран ждёт, решение — кнопкой прямо в консоли (v0.24).
-      Без галочки — <b>--yes</b>: гейты авто-приняты. Один ран за раз.</div>
-      <div id="run-status" class="hint"></div>
-    </div>
-    <div class="panel" style="border-bottom:none">
-      <h3>Раны <span id="runs-count" style="text-transform:none"></span></h3>
-      <div id="runs-list"><div class="empty">загрузка…</div></div>
-    </div>
-  </aside>
-  <div id="detail"><div class="empty">Выбери ран слева — таймлайн, контекст и live-журнал появятся здесь</div></div>
+    <main>
+      <!-- ВИТРИНА. Вторична: точкой входа служит редактор последнего
+           открытого пайплайна, сюда попадают, только когда пайплайнов нет. -->
+      <div id="menu" style="display:none"></div>
 
-  <!-- PIPELINES (скрыт) -->
-  <aside id="pip-aside" style="display:none">
-    <div class="panel" style="border-bottom:none">
-      <h3>Пайплайны <span id="pip-count" style="text-transform:none"></span></h3>
-      <div class="plist" id="pip-list"></div>
-    </div>
-  </aside>
-  <div id="pdetail" style="display:none"><div class="empty">Выбери пайплайн</div></div>
+      <!-- RUNS -->
+      <aside id="runs-aside">
+        <div class="panel">
+          <h3>Новый ран</h3>
+          <select id="run-select"></select>
+          <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);margin-top:8px;cursor:pointer">
+            <input type="checkbox" id="run-gate" checked style="width:auto"/>
+            человек в гейте — в браузере
+          </label>
+          <button id="run-btn" class="primary">Запустить</button>
+          <div class="hint">Гейт: ран ждёт, решение — кнопкой прямо в консоли (v0.24).
+          Без галочки — <b>--yes</b>: гейты авто-приняты. Один ран за раз.</div>
+          <div id="run-status" class="hint"></div>
+        </div>
+        <div class="panel" style="border-bottom:none">
+          <h3>Раны <span id="runs-count" style="text-transform:none"></span></h3>
+          <div id="runs-list"><div class="empty">загрузка…</div></div>
+        </div>
+      </aside>
+      <div id="detail"><div class="empty">Выбери ран слева — таймлайн, контекст и live-журнал появятся здесь</div></div>
 
-  <!-- PLUGINS (скрыт) -->
-  <aside id="plug-aside" style="display:none">
-    <div class="panel" style="border-bottom:none">
-      <h3>Плагины <span id="plug-tab-count" style="text-transform:none"></span></h3>
-      <input type="search" id="plug-tab-search" placeholder="поиск…" spellcheck="false"
-        style="background:#0a0d12;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12px;width:100%;font-family:inherit;margin-bottom:8px"/>
-      <div class="plist" id="plug-tab-list"></div>
-    </div>
-  </aside>
-  <div id="plugdetail" style="display:none"><div class="empty">Выбери плагин</div></div>
-</main>
+      <!-- PIPELINES -->
+      <aside id="pip-aside" style="display:none">
+        <div class="panel" style="border-bottom:none">
+          <h3>Пайплайны <span id="pip-count" style="text-transform:none"></span></h3>
+          <div class="plist" id="pip-list"></div>
+        </div>
+      </aside>
+      <div id="pdetail" style="display:none"><div class="empty">Выбери пайплайн</div></div>
+
+      <!-- PLUGINS -->
+      <aside id="plug-aside" style="display:none">
+        <div class="panel" style="border-bottom:none">
+          <h3>Плагины <span id="plug-tab-count" style="text-transform:none"></span></h3>
+          <input type="search" id="plug-tab-search" placeholder="поиск…" spellcheck="false"
+            style="background:var(--sunken);color:var(--bone);border:1px solid var(--hair2);border-radius:var(--r);padding:7px 10px;font-size:12px;width:100%;font-family:inherit;margin-bottom:8px"/>
+          <div class="plist" id="plug-tab-list"></div>
+        </div>
+      </aside>
+      <div id="plugdetail" style="display:none"><div class="empty">Выбери плагин</div></div>
+    </main>
+  </div>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>

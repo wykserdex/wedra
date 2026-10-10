@@ -92,6 +92,110 @@ async function wedraSession() {
   return false;
 }
 
+// ── каркас: разделы слева, режимы объекта, вход через последний пайплайн ────
+// Референс — редактор n8n. Главного экрана там нет: открываешь — сразу
+// объект. Поэтому:
+//
+//   * разделы приложения живут в тонкой рельсе слева (#tab-pipelines,
+//     #tab-plugins, /artifacts/);
+//   * прогоны и артефакты относятся к конкретному пайплайну, поэтому они
+//     не разделы, а РЕЖИМЫ над объектом;
+//   * точкой входа служит редактор последнего открытого пайплайна, а витрина
+//     (#menu) остаётся вторичной и показывается, только когда выбирать нечего.
+//
+// Нижняя зона рельсы (Помощь, Что нового) — как Templates/Variables/Help в
+// референсе: вторичное, не конкурирует с разделами.
+
+// Последний открытый пайплайн: помним между сессиями. Ключ с версией схемы,
+// иначе смена формата сделала бы старое значение нечитаемым молча.
+const LAST_PIPELINE_KEY = 'wedra.lastPipeline.v1';
+
+function rememberPipeline(file) {
+  if (!file) return;
+  try { localStorage.setItem(LAST_PIPELINE_KEY, file); } catch (e) { /* приватный режим */ }
+}
+
+function lastPipeline() {
+  try { return localStorage.getItem(LAST_PIPELINE_KEY) || ''; } catch (e) { return ''; }
+}
+
+// enterLastPipeline — увести в редактор последнего пайплайна.
+//
+// Переход идёт через sessionStorage 'wedra.open': это тот же способ, которым
+// режим артефактов открывает собранный пайплайн в редакторе (см.
+// editor/app.js), то есть второй способ открытия не появляется.
+//
+// Витрина показывается в двух случаях: пайплайнов нет вовсе, либо сохранённый
+// файл исчез с диска. Во втором случае ссылка на него убирается, иначе вход
+// вёл бы в пустоту.
+function enterLastPipeline() {
+  const file = lastPipeline();
+  if (file && state.pipelines.some(p => p.file === file)) {
+    try { sessionStorage.setItem('wedra.open', file); } catch (e) { /* приватный режим */ }
+    location.href = '/editor/';
+    return;
+  }
+  if (file) {
+    rememberPipeline('');
+    try { sessionStorage.removeItem(LAST_PIPELINE_KEY); } catch (e) { /* пусто */ }
+  }
+  setTab('menu');
+  renderMenu();
+}
+
+// Помнить пайплайн, когда человек открыл его в списке: это и есть «последний
+// открытый», из которого вход строит редактор.
+function wireRail() {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('#tab-pipelines', () => setTab('pipelines'));
+  on('#tab-plugins', () => { setTab('plugins'); loadPluginsTab(); });
+  on('#mode-runs', () => setTab('runs'));
+  // Редактор и артефакты живут на своих страницах; из консоли в редактор —
+  // с текущим пайплайном, иначе просто на холст.
+  on('#mode-editor', () => {
+    const file = state.currentPipe || lastPipeline();
+    if (file) {
+      try { sessionStorage.setItem('wedra.open', file); } catch (e) { /* приватный */ }
+    }
+    location.href = '/editor/';
+  });
+  on('#rail-new', () => {
+    setTab('pipelines');
+    try { sessionStorage.setItem('wedra.open', ''); } catch (e) { /* приватный */ }
+    location.href = '/editor/';
+  });
+  // Помощь и «Что нового» — заглушки честные: содержимого ещё нет, и делать
+  // вид, что есть, хуже, чем сказать прямо.
+  on('#rail-help', () => alert(
+    'Помощь: docs/quickstart.md и docs/architecture.md в дереве репозитория.\n' +
+    'Диагностика окружения: wedra doctor --json'));
+  on('#rail-whatsnew', () => alert('Что нового: раздел ещё не наполнен.'));
+}
+
+// setModeHighlight — какая вкладка РЕЖИМА подсвечена. Разделы (рельса) и
+// режимы (шапка) — разные шкалы, и подсвечивать надо обе согласованно.
+function setModeHighlight() {
+  // Режимы относятся к объекту-пайплайну. На «Плагинах» объекта нет, и
+  // подсвечивать там «Редактор» значило бы врать: ни один режим не открыт.
+  const objTab = state.tab === 'runs' || state.tab === 'pipelines' || state.tab === 'menu';
+  const mode = state.tab === 'runs' ? 'runs' : (objTab ? 'editor' : '');
+  const me = $('#mode-editor'), mr = $('#mode-runs');
+  if (me) me.classList.toggle('active', mode === 'editor');
+  if (mr) mr.classList.toggle('active', mode === 'runs');
+  const obj = $('#obj-name');
+  if (obj) {
+    obj.textContent = state.currentPipe
+      ? state.currentPipe
+      : (state.tab === 'runs' ? 'прогоны' : '');
+  }
+}
+
+function setRailCounts(pipelines, plugins) {
+  const pip = $('#rail-pip-count'), plug = $('#rail-plug-count');
+  if (pip && pipelines) pip.textContent = pipelines.length || '';
+  if (plug && plugins) plug.textContent = plugins.length || '';
+}
+
 // ── header ───────────────────────────────────────────────────────────────
 async function init() {
   // H4: без сессии /api/* закрыт, поэтому сначала вход, потом интерфейс
@@ -101,10 +205,8 @@ async function init() {
     $('#ver').textContent = 'v' + h.version;
     state.version = h.version;
   } catch { $('#ver').textContent = 'оффлайн'; state.version = ''; }
-  $('#tab-menu').onclick = () => setTab('menu');
-  $('#tab-runs').onclick = () => setTab('runs');
-  $('#tab-pipelines').onclick = () => setTab('pipelines');
-  $('#tab-plugins').onclick = () => { setTab('plugins'); loadPluginsTab(); };
+  wireRail();
+  setRailCounts([], []);
   $('#run-btn').onclick = startRun;
   // v0.35: меню считает пайплайны («из N запустить»), поэтому список должен
   // прийти до отрисовки, а не гонкой с ним.
@@ -116,21 +218,36 @@ async function init() {
   const runParam = new URLSearchParams(location.search).get('run');
   // Разделы консоли — вкладки одной страницы, поэтому из редактора и режима
   // артефактов на них приходится приходить адресом: /#runs открывает «Раны».
+  // Прямой заход адресом работает как раньше: /#runs открывает «Прогоны».
+  // Разве что витрина переехала из точки входа в запасной экран.
   const hash = (location.hash || '').replace('#', '');
   if (runParam) { setTab('runs'); openRunDetail(runParam, true); }
   else if (['runs', 'pipelines', 'plugins', 'menu'].includes(hash)) {
     setTab(hash);
     if (hash === 'menu') renderMenu();
     else if (hash === 'plugins') loadPluginsTab();
-  } else { setTab('menu'); renderMenu(); }
+  } else if (!state.pipelines.length) {
+    // Пайплайнов нет — витрина единственное, что можно показать.
+    setTab('menu'); renderMenu();
+  } else {
+    enterLastPipeline();
+    return;  // уходим на /editor/, сценарий ниже не нужен
+  }
+}
+
+// rail — кнопки разделов в левой рельсе. Раньше здесь жил ещё #tab-menu
+// (витрина), но витрина стала запасным экраном и в рельсе ей не место, поэтому
+// переключение идёт по наличию элемента, а не по предположению.
+function markSection(el, on) {
+  if (el) el.classList.toggle('active', on);
 }
 
 function setTab(t) {
   state.tab = t;
-  $('#tab-menu').classList.toggle('active', t === 'menu');
-  $('#tab-runs').classList.toggle('active', t === 'runs');
-  $('#tab-pipelines').classList.toggle('active', t === 'pipelines');
-  $('#tab-plugins').classList.toggle('active', t === 'plugins');
+  markSection($('#tab-runs'), t === 'runs');
+  markSection($('#tab-pipelines'), t === 'pipelines');
+  markSection($('#tab-plugins'), t === 'plugins');
+  setModeHighlight();
   $('#menu').style.display = t === 'menu' ? '' : 'none';
   $('#runs-aside').style.display = t === 'runs' ? '' : 'none';
   $('#pip-aside').style.display = t === 'pipelines' ? '' : 'none';
@@ -140,10 +257,40 @@ function setTab(t) {
   $('#plugdetail').style.display = t === 'plugins' ? '' : 'none';
 }
 
-// ── главное меню (v0.35) ──────────────────────────────────────────────────
+// ── главная: рабочий стол, а не витрина (v0.35) ───────────────────────────
 // Собирается из уже существующих /api/* — своего состояния у меню нет.
-// Порядок карточек — по частоте вопросов: продолжить, начать, готовое,
-// собрать, каталог.
+//
+// Структура и её причины (иначе вернётся «слайд презентации»):
+//
+//	заголовок малого кегля  — не landing page, а рабочий экран;
+//	одно главное действие    — раньше вес был одинаковый у всех карточек;
+//	недавние прогоны         — вместо витринных метрик; единственное, что
+//	                          показывает состояние работы пользователя;
+//	список задач по группам  — сначала то, что человек делает, потом
+//	                          технические примеры; раньше они были смешаны;
+//	строка, а не плитка      — плотность как в списке файлов.
+//
+// Мотив цепочки (узел + связь) живёт в заголовке секций, в главном действии и
+// в пустом состоянии: продукт буквально про граф шагов, и без этого знака
+// экран неотличим от любого шаблона.
+
+// chainSVG — фирменный знак: узел и проходящая связь. Один раз здесь, дальше
+// только переиспользование, иначе мотив расползётся по разной геометрии.
+function chainSVG(accent) {
+  return `<span class="chain${accent ? ' acc' : ''}" aria-hidden="true"><svg viewBox="0 0 22 11" width="22" height="11">
+    <path class="cc" d="M0 5.5h7.5M14.5 5.5H22"/>
+    <circle class="cn" cx="11" cy="5.5" r="3.5"/>
+  </svg></span>`;
+}
+
+// технические примеры: демонстрации механики, а не задачи человека.
+// Список задан здесь, а не выводится по эвристике «в описании есть foreach»:
+// состав реестра меняется, и тогда демки молча переедут в задачи.
+const TECHNICAL_PRESETS = new Set([
+  'when_demo', 'foreach_step_demo', 'parallel_demo',
+  'csv_foreach', 'csv_foreach_summary', 'llm_text_chain',
+]);
+
 async function renderMenu() {
   const [presets, runs, plugins] = await Promise.all([
     api('/api/presets').catch(() => ({available: false, reason: 'нет связи с ядром', presets: []})),
@@ -151,108 +298,114 @@ async function renderMenu() {
     api('/api/plugins').catch(() => []),
   ]);
   state.presets = presets.presets || [];
-  const lastRun = runs.find(r => r.status === 'running' || r.status === 'waiting')
-    || runs[0];
+  const recent = (runs || []).slice(0, 3);
 
-  const cards = [];
-  cards.push({
-    ic: '▶', tone: 'acc',
-    k: 'Продолжить',
-    d: lastRun
-      ? `Ран «${lastRun.pipeline || lastRun.id}» — ${lastRun.status || '?'}. Открыть таймлайн, контекст и журнал.`
-      : 'Ранов пока нет. Запусти первый — журнал каждого шага будет здесь.',
-    go: lastRun ? 'открыть ран →' : 'начать новый ↓',
-    act: () => { setTab('runs'); if (lastRun) openRunDetail(lastRun.id, true); },
-  });
-  cards.push({
-    ic: '+', tone: 'ok',
-    k: 'Начать новый запуск',
-    // count берём только если список действительно загружен: иначе на экране
-    // появилось бы «из 0 пайплайнов» — правдоподобная, но ложная цифра.
-    d: (state.pipelines.length
-      ? `Выбрать пайплайн из ${state.pipelines.length} и запустить. `
-      : 'Выбрать пайплайн и запустить. ')
-      + 'Гейт можно оставить человеку или принять автоматически.',
-    go: 'к списку пайплайнов →',
-    act: () => setTab('pipelines'),
-  });
-  cards.push({
-    ic: '▤', tone: 'par',
-    k: 'Готовые сценарии',
-    d: presets.available
-      ? `${state.presets.length} пресетов из реестра с описанием. Открыть можно готовый или взять как основу.`
-      : `Реестр недоступен (${presets.reason || 'причина неизвестна'}). Пресеты показывать не из чего.`,
-    go: 'список ниже ↓',
-    act: () => {},
-  });
-  cards.push({
-    ic: '✎', tone: 'skip',
-    k: 'Собрать пайплайн',
-    d: 'Визуальный редактор: перетаскивание шагов, связи, входы, циклы и гейты. Round-trip через ядро, YAML не теряется.',
-    go: 'открыть редактор →',
-    act: () => { location.href = '/editor/'; },
-  });
+  // Одно главное действие. Второстепенные — строками ниже, без крупных кнопок.
+  const primary = `
+    <button class="mprimary" id="m-new-run">
+      ${chainSVG(true)}
+      <span>
+        <span class="mp-k">Начать новый запуск</span>
+        <span class="mp-d">${state.pipelines.length
+          ? `Выбрать пайплайн из ${state.pipelines.length} и запустить.`
+          : 'Выбрать пайплайн и запустить.'} Гейт можно оставить человеку или принять автоматически.</span>
+      </span>
+      <span class="mp-go">к списку →</span>
+    </button>`;
 
-  const presetCards = state.presets.map(p => `
-    <div class="pcard">
-      <div class="pname" data-preset-open="${esc(p.file)}">${esc(p.file.replace(/\.ya?ml$/i, ''))}</div>
-      <div class="pdesc">${esc(p.description || 'без описания')}</div>
-      <div class="pacts">
+  // Недавние прогоны — единственный блок про состояние работы. Раньше здесь
+  // стояла полоса метрик (99/99 доверенных, 12 пресетов), которая занимала
+  // место и не помогала начать.
+  const runsBlock = recent.length
+    ? recent.map(r => `
+      <div class="rrow" data-run-open="${esc(r.id)}">
+        <span class="rt">${esc(r.status || '?')}</span>
+        <span class="rp">${esc(r.pipeline || r.id)}</span>
+        <span class="rm">${esc(r.id)}</span>
+      </div>`).join('')
+    : `<div class="mempty">${chainSVG(false)}<span>Ранов пока нет. Начни новый запуск — здесь появится таймлайн, контекст и журнал каждого шага.</span></div>`;
+
+  // Список задач. Сначала то, что человек делает, потом — отдельно —
+  // технические примеры: раньше они стояли вперемешку, и это была половина
+  // претензии «шаблонно».
+  const nameOf = p => (p.file || p.name || '').replace(/\.ya?ml$/i, '');
+  // МАССИВ строк, а не склеенная строка: ниже он фильтруется по группам, и
+  // обращение rows[i] к строке молча отдало бы символ вместо разметки.
+  const rows = state.presets.map(p => `
+    <div class="trow">
+      ${chainSVG(false)}
+      <span>
+        <span class="tk" data-preset-open="${esc(p.file)}">${esc(nameOf(p))}</span>
+        <span class="td">${esc(p.description || 'без описания')}</span>
+      </span>
+      <span class="tacts">
         <button class="mini" data-preset-open="${esc(p.file)}">открыть</button>
         <button class="mini go" data-preset-run="${esc(p.file)}"
           ${p.installed ? '' : 'disabled title="файла нет в examples/"'}>запустить</button>
-      </div>
-    </div>`).join('');
+      </span>
+    </div>`);
 
-  const trustedN = (plugins || []).filter(p => p.trusted).length;
-  const stat = (v, l) => `<span class="stat"><b>${v}</b>${l}</span>`;
-  const heroStats = stat(esc(state.version ? 'v' + state.version : '—'), 'ядро')
-    + stat(`${trustedN}/${plugins.length}`, 'доверенных')
-    + stat(`${state.presets.length}`, 'пресетов')
-    + stat(`${(runs || []).length}`, 'ранов');
+  const isTech = p => TECHNICAL_PRESETS.has(nameOf(p));
+  const human = state.presets.filter(p => !isTech(p));
+  const tech = state.presets.filter(isTech);
+  const block = list => (list.length
+    ? list.map(p => rows[state.presets.indexOf(p)]).join('')
+    : `<div class="mempty">${chainSVG(false)}<span>пусто</span></div>`);
+
+  const presetsBody = presets.available
+    ? (state.presets.length ? '' : '<div class="mempty">В реестре нет пресетов</div>')
+    : `<div class="mempty">${chainSVG(false)}<span>Реестр недоступен (${esc(presets.reason || 'причина неизвестна')}) — пресеты показывать не из чего.</span></div>`;
 
   $('#menu').innerHTML = `
-    <div class="hero">
-      <div class="htext">
-        <p class="lead">WEDRA · консоль контрактных цепочек</p>
-        <p class="sub">Плагины — отдельные процессы, данные — между шагами, человек — в гейте.
-          Выбери готовое, начни с нуля или открой редактор.</p>
-        <div class="hstats">${heroStats}</div>
+    <div class="wrap">
+      <div class="mhead">
+        ${chainSVG(false)}
+        <h2>Запустить цепочку</h2>
+        <span class="mh-sub">Строка ниже — готовая цепочка шагов с человеком в гейте.</span>
       </div>
-    </div>
-    <div class="cards">${cards.map((c, i) => `
-      <button class="card-btn" data-card="${i}">
-        <span class="ic ${esc(c.tone || '')}">${esc(c.ic || '·')}</span>
-        <span class="cb">
-          <div class="k">${esc(c.k)}</div>
-          <div class="d">${esc(c.d)}</div>
-          <div class="go">${esc(c.go)}</div>
-        </span>
-      </button>`).join('')}</div>
+      ${primary}
 
-    <h4>Готовые сценарии${presets.available ? ` · реестр, ${plugins.length} плагинов` : ''}</h4>
-    ${presets.available
-      ? (presetCards ? `<div class="pcards">${presetCards}</div>` : '<div class="empty">В реестре нет пресетов</div>')
-      : '<div class="empty">Реестр недоступен — поставь WEDRA из исходников, чтобы увидеть пресеты</div>'}
+      <div class="mgroup">
+        <h3 class="gh">Недавние прогоны <span class="gc">${recent.length ? recent.length : ''}</span></h3>
+        ${runsBlock}
+      </div>
 
-    <button class="sectbtn" id="goto-plugins">
-      <span>Каталог плагинов</span><span class="cnt">${plugins.length}</span>
-      <span class="tsub">${trustedN} доверенных · поиск, манифест, установка зависимостей</span><span class="chev">→</span>
-    </button>
-    <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
+      <div class="mgroup">
+        <h3 class="gh">Рабочие задачи</h3>
+        <p class="gn">Почта, телефоны, IBAN, дубликаты — то, что человек делает руками.</p>
+        ${presets.available ? block(human) : ''}
+      </div>
+
+      <div class="mgroup">
+        <h3 class="gh">Технические примеры</h3>
+        <p class="gn">Показывают механику — условия, циклы, параллельность, секреты.
+          Это демонстрации возможностей, а не рабочие задачи.</p>
+        ${presetsBody ? '' : block(tech)}
+      </div>
+
+      <button class="sectbtn" id="goto-plugins">
+        <span>Каталог плагинов</span><span class="cnt">${plugins.length}</span>
+        <span class="tsub">${(plugins || []).filter(p => p.trusted).length} доверенных · поиск, манифест, установка зависимостей</span><span class="chev">→</span>
+      </button>
+      <div class="note">Плагины — исполняемый код. Перед установкой проверяй источник и объявленные
         в манифесте права: <span style="font-family:var(--mono)">network</span>,
         <span style="font-family:var(--mono)">filesystem</span>,
-        <span style="font-family:var(--mono)">secrets</span>.</div>`;
+        <span style="font-family:var(--mono)">secrets</span>.</div>
+    </div>`;
 
-  cards.forEach((c, i) => { const el = $(`[data-card="${i}"]`); if (el) el.onclick = c.act; });
-  const gotoPl = $('#goto-plugins');
-  if (gotoPl) gotoPl.onclick = () => { setTab('plugins'); loadPluginsTab(); };
+  const newRun = $('#m-new-run');
+  if (newRun) newRun.onclick = () => setTab('pipelines');
+  $('#menu').querySelectorAll('[data-run-open]').forEach(el => {
+    el.onclick = () => { setTab('runs'); openRunDetail(el.dataset.runOpen, true); };
+  });
   $('#menu').querySelectorAll('[data-preset-run]').forEach(b => {
     b.onclick = () => runPreset(b.dataset.presetRun);
   });
   $('#menu').querySelectorAll('[data-preset-open]').forEach(el => {
     el.onclick = () => { setTab('pipelines'); openPipeline(el.dataset.presetOpen); };
   });
+  const gotoPl = $('#goto-plugins');
+  if (gotoPl) gotoPl.onclick = () => { setTab('plugins'); loadPluginsTab(); };
 }
 
 // Запуск пресета из меню: тот же путь, что у кнопки «Запустить» на вкладке
@@ -333,6 +486,7 @@ function renderPipList() {
     </div>`).join('');
   el.querySelectorAll('[data-pipeline-file]').forEach(item => item.addEventListener('click', () => openPipeline(item.dataset.pipelineFile)));
   $('#pip-count').textContent = `(${state.pipelines.length})`;
+  setRailCounts(state.pipelines, null);
 }
 
 // ── вкладка «Плагины»: полный каталог, кликабельная деталка, установка зависимостей ──
@@ -347,6 +501,7 @@ async function loadPluginsTab() {
   const s = $('#plug-tab-search');
   if (s) s.oninput = () => renderPluginsTabList(s.value);
   $('#plug-tab-count').textContent = `(${state.pluginsFull.length})`;
+  setRailCounts(state.pipelines, state.pluginsFull);
 }
 
 function renderPluginsTabList(q) {
@@ -716,6 +871,10 @@ function renderJournal(newEvents, append) {
 // ── пайплайны + DAG ──────────────────────────────────────────────────────
 async function openPipeline(file) {
   state.currentPipe = file;
+  // Открытый в консоли пайплайн становится точкой входа в редактор: именно
+  // к нему вернёмся, когда откроем консоль без адреса.
+  rememberPipeline(file);
+  setModeHighlight();
   renderPipList();
   $('#pdetail').innerHTML = '<div class="empty">загрузка…</div>';
   let yaml, plan;

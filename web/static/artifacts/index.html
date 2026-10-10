@@ -8,13 +8,43 @@
   /* Третий экран — тот же язык: чернила, костяная бумага, один акцент.
      Здесь акцент тратится на «горячее» в подборе цепочки: точное совпадение
      типа, чужая зависимость и активный шаг. ───────────────────────────── */
+  /* ── Палитра v0.39 ───────────────────────────────────────────────────────
+        Направление выбрано после разбора оформления конкурентов: холодный
+        графит вместо фиолетово-чёрного, глубина ЦВЕТОМ вместо теней, один
+        акцент на всё приложение.
+
+        ЧТО ЗДЕСЬ ПРИНЦИПИАЛЬНО, а не «какие-нибудь цвета»:
+
+        1. ОДИН акцент — --acc (бирюза). Живёт на главном действии, на живых
+           связях холста и на фокусе. Больше нигде.
+        2. ТЁПЛОЕ — только смысл. --err / --ok / --skip никогда не украшают.
+           Отсюда же ушла неразбериха: раньше --err (#cf5344) и --ver (#c9482f)
+           были почти одним оттенком, и «ошибка» не отличалась от главной
+           кнопки. Теперь акцент холодный, ошибка тёплая.
+        3. --acc в старой палитре был мёртвым: значение #dcdcdc совпадало с
+           --bone, то есть «акцент» не был акцентом. Токена больше нет.
+        4. --faint: в палитре задан #68757f, но он НЕ проходит WCAG AA для
+           обычного текста — 3.84 на фоне и 3.03 на самой светлой поверхности
+           при требуемых 4.5. Взят ближайший оттенок того же тона,
+           проходящий AA на всех пяти поверхностях: #86939d (худшая — 4.55).
+           Это осознанная плата: разрыв с --ash (#93a0aa) сжимается с 2.95
+           до 1.01 по контрасту, и два приглушённых уровня становятся близки.
+           Проверено функцией контраста, не на глаз.
+        5. Глубина — цветом: --ink → --ink2 → --ink3 → --ink4, вдавленные
+           поверхности — --sunken. Теней для глубины нет нигде.
+        ───────────────────────────────────────────────────────────────────── */
   :root{
-    --ink:#1a1a1a; --ink2:#202020; --ink3:#252525; --ink4:#2e2e2e;
-    --sunken:#151515;
-    --bone:#dcdcdc; --ash:#9c9c9c; --faint:#6b6b6b;
-    --hair:rgba(255,255,255,.075); --hair2:rgba(255,255,255,.14);
-    --acc:#dcdcdc; --ver:#c9482f; --warn:#c19a4a;
-    --ok:#8ea07c; --err:#cf5344; --par:#9a8fae;
+    /* поверхности: от базы вглубь */
+    --ink:#12161a; --ink2:#181d22; --ink3:#1e242a; --ink4:#242b32;
+    --sunken:#0e1215;
+    /* текст: базовый → приглушённый → совсем тихий */
+    --bone:#d7dde2; --ash:#93a0aa; --faint:#86939d;
+    /* волосяные линии — холодный белый, тот же тон, что у палитры */
+    --hair:rgba(198,214,226,.09); --hair2:rgba(198,214,226,.17);
+    /* акцент: ОДИН на всё приложение */
+    --acc:#2fa8a0; --acc-hi:#38bdb4;
+    /* семантика: тёплое только смысл, никогда украшение */
+    --ok:#5fa97a; --err:#e0524a; --skip:#d9a441; --par:#8b93a8;
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
@@ -23,15 +53,15 @@
   body{margin:0;background:var(--ink);color:var(--bone);
     font:12.5px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
     -webkit-font-smoothing:antialiased}
-  ::selection{background:rgba(201,72,47,.35)}
-  *{scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
+  ::selection{background:rgba(47,168,160,.32)}
+  *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
-  ::-webkit-scrollbar-thumb{background:#333;border:3px solid transparent;background-clip:content-box}
-  ::-webkit-scrollbar-thumb:hover{background:#4a4a4a;background-clip:content-box}
-  :focus-visible{outline:1px solid var(--ver);outline-offset:2px}
+  ::-webkit-scrollbar-thumb{background:#2b343c;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#3b464f;background-clip:content-box}
+  :focus-visible{outline:1px solid var(--acc);outline-offset:2px}
 
   header{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
-    background:linear-gradient(180deg,#101011,var(--ink));border-bottom:1px solid var(--hair);
+    background:linear-gradient(180deg,var(--sunken),var(--ink));border-bottom:1px solid var(--hair);
     position:sticky;top:0;z-index:10;flex-wrap:nowrap;overflow-x:auto}
   header h1{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:16px;
     margin:0;font-weight:600;letter-spacing:.13em;text-transform:uppercase}
@@ -64,14 +94,14 @@
   #drop{border:1px dashed var(--hair2);border-radius:var(--r);padding:26px 14px;text-align:center;
     color:var(--ash);cursor:pointer;transition:border-color .12s,background .12s,color .12s;
     background:var(--sunken)}
-  #drop:hover,#drop.over{border-color:var(--ver);color:var(--bone);background:rgba(201,72,47,.05)}
+  #drop:hover,#drop.over{border-color:var(--acc);color:var(--bone);background:rgba(47,168,160,.06)}
   #drop b{color:var(--bone);font-weight:600}
   input[type=file]{display:none}
 
   .alist{display:flex;flex-direction:column;gap:8px;margin-top:14px}
   .a{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--ink3);
     border:1px solid var(--hair);border-left:2px solid var(--hair2);border-radius:var(--r)}
-  .a.on{border-left-color:var(--ver);background:var(--ink4)}
+  .a.on{border-left-color:var(--bone);background:var(--ink4)}
   .a .nm{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .a .sz{color:var(--faint);font-size:10.5px;white-space:nowrap;font-family:var(--mono)}
@@ -88,7 +118,7 @@
 
   input[type=text],input[type=search]{background:var(--sunken);color:var(--bone);border:1px solid var(--hair);
     border-radius:var(--r);padding:7px 10px;font-size:12px;font-family:var(--mono);width:100%}
-  input[type=text]:focus,input[type=search]:focus{outline:none;border-color:var(--ver)}
+  input[type=text]:focus,input[type=search]:focus{outline:none;border-color:var(--acc)}
   input::placeholder{color:var(--faint)}
 
   /* Цепочка: шаги пронумерованы и соединены нитью, как список в блокноте */
@@ -104,8 +134,8 @@
   .cstep .rm{background:none;border:none;color:var(--faint);padding:0 4px;font-size:15px;cursor:pointer;
     letter-spacing:0}
   .cstep .rm:hover{color:var(--err);border:none}
-  .cstep .miss{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--warn);white-space:nowrap}
-  .cstep .amb{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ver);white-space:nowrap}
+  .cstep .miss{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--skip);white-space:nowrap}
+  .cstep .amb{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ash);white-space:nowrap}
   .cstep .pick{font-family:var(--mono);font-size:10px;padding:1px 7px;margin:0 2px;
     border:1px solid var(--hair2);border-radius:var(--r);line-height:1.5;color:var(--bone);
     background:var(--sunken)}
@@ -121,22 +151,22 @@
   .plug .why{font-size:10px;color:var(--faint);white-space:nowrap;font-family:var(--mono)}
   .tag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:1px 6px;
     border:1px solid var(--hair2);border-radius:var(--r);color:var(--faint);white-space:nowrap;flex:none}
-  .tag.file{border-color:rgba(142,160,124,.5);color:var(--ok)}
-  .tag.exact{border-color:var(--ver);color:var(--ver)}
-  .tag.any{border-color:rgba(193,154,74,.5);color:var(--warn)}
-  .tag.ext{border-color:rgba(207,83,68,.5);color:var(--err)}
+  .tag.file{border-color:rgba(95,169,122,.5);color:var(--ok)}
+  .tag.exact{border-color:var(--hair2);color:var(--bone)}
+  .tag.any{border-color:rgba(217,164,65,.5);color:var(--skip)}
+  .tag.ext{border-color:rgba(224,82,74,.5);color:var(--err)}
   .extw{font-size:10px;color:var(--err);white-space:nowrap}
 
   .empty{color:var(--faint);font-size:12.5px;padding:14px 0;line-height:1.7}
   #status{margin-top:12px;padding:8px 11px;border-radius:var(--r);font-size:12px;
     background:var(--sunken);border:1px solid var(--hair);min-height:18px}
   #status:empty{display:none}
-  #status.ok{color:var(--ok);border-color:rgba(142,160,124,.4)}
-  #status.err{color:var(--err);border-color:rgba(207,83,68,.4)}
-  #status.busy{color:var(--bone);border-color:var(--ver)}
+  #status.ok{color:var(--ok);border-color:rgba(95,169,122,.4)}
+  #status.err{color:var(--err);border-color:rgba(224,82,74,.4)}
+  #status.busy{color:var(--bone);border-color:var(--acc)}
   pre#out{background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);padding:11px;
     font-family:var(--mono);font-size:11px;overflow:auto;max-height:280px;margin:12px 0 0;
-    white-space:pre-wrap;color:#c6c2ba;line-height:1.6}
+    white-space:pre-wrap;color:var(--ash);line-height:1.6}
 
   /* ── переходы ───────────────────────────────────────────────────────────
      Цепочка и список плагинов перерисовываются при каждом изменении выбора,
