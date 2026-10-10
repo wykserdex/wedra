@@ -48,11 +48,16 @@
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
+    /* Плотность. Умолчания — РОВНО текущие значения: у того, кто ничего не
+       настраивал, вид не меняется ни на пиксель (важно для опубликованных
+       скриншотов в README и демо-гифа). Меняет их только prefs.js. */
+    --fs-base:12.5px; --row-py:7px; --row-px:12px; --item-py:9px; --item-px:16px;
+    --rail-w:206px;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);
-    font-size:12.5px;line-height:1.5;-webkit-font-smoothing:antialiased}
+    font-size:var(--fs-base);line-height:1.5;-webkit-font-smoothing:antialiased}
   ::selection{background:rgba(47,168,160,.32)}
   *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
@@ -205,7 +210,7 @@
         Раскраска узлов и жёлтые пояснения — следующая фаза, здесь только каркас. ── */
   .shell{display:flex;height:100vh;overflow:hidden}
 
-  .rail{width:206px;flex:none;display:flex;flex-direction:column;
+  .rail{width:var(--rail-w);flex:none;display:flex;flex-direction:column;
     background:var(--sunken);border-right:1px solid var(--hair);overflow-y:auto}
   .rail-top{display:flex;align-items:center;gap:8px;padding:0 12px;
     height:var(--hdr);border-bottom:1px solid var(--hair);flex:none}
@@ -219,7 +224,7 @@
   .rail-new:hover{color:var(--bone);border-color:var(--bone)}
   .rail-sec{margin:14px 0 4px;padding:0 12px;font-size:9px;letter-spacing:.17em;
     text-transform:uppercase;color:var(--faint)}
-  .rail-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 12px;
+  .rail-item{display:flex;align-items:center;gap:9px;width:100%;padding:var(--row-py) var(--row-px);
     background:transparent;border:0;border-left:2px solid transparent;
     color:var(--ash);font:inherit;font-size:12px;text-align:left;cursor:pointer;
     text-decoration:none;transition:color .12s,background .12s}
@@ -228,6 +233,13 @@
   .rail-item .ri-dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
   .rail-item.active .ri-dot{background:var(--bone)}
   .rail-item .ri-n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  /* Свёрнутая рельса — пресет настройки. Раньше это умела только media-query
+     на узком экране; теперь тем же набором правил рулит класс на <html>. */
+  html.rail-collapsed .rail-item span.lbl,html.rail-collapsed .rail-logo,
+  html.rail-collapsed .rail-note,html.rail-collapsed .rail-sec{display:none}
+  html.rail-collapsed .rail-item{justify-content:center;padding:9px 0}
+  .rail-item .ri-ico{display:none;font-size:13px;line-height:1}
+  html.rail-collapsed .rail-item .ri-ico{display:inline}
   /* Помощь и «Что нового» — внизу, отдельной зоной (в референсе там же
      Templates/Variables/Help): вторичное, не конкурирует с разделами. */
   .rail-foot{margin-top:auto;padding:10px 0 12px;border-top:1px solid var(--hair);flex:none}
@@ -259,6 +271,43 @@
     .rail-item span.lbl,.rail-logo,.rail-note,.rail-sec{display:none}
     .rail-item{justify-content:center;padding:9px 0}
   }
+  /* ── панель настроек ─────────────────────────────────────────────────────
+     Слой поверх экрана, карточка по центру. Ни одной тени: глубина в этой
+     палитре делается цветом, тень здесь выглядела бы чужеродно. ─────────── */
+  .prefs{position:fixed;inset:0;z-index:60;display:flex;align-items:center;
+    justify-content:center;background:rgba(10,13,15,.62)}
+  .prefs[hidden]{display:none}
+  .prefs-card{width:420px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);
+    overflow:auto;background:var(--ink2);border:1px solid var(--hair2);
+    border-radius:var(--r)}
+  .prefs-hd{display:flex;align-items:center;padding:12px 16px;font-size:9.5px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+    border-bottom:1px solid var(--hair)}
+  .prefs-hd b{color:var(--bone);font-weight:600;letter-spacing:.14em}
+  .prefs-hd button{margin-left:auto;background:none;border:0;color:var(--faint);
+    font-size:17px;line-height:1;cursor:pointer;padding:0 2px}
+  .prefs-hd button:hover{color:var(--bone)}
+  .prefs-bd{padding:14px 16px 16px}
+  .pf-grp{margin-bottom:16px}
+  .pf-grp>label{display:block;font-size:9.5px;letter-spacing:.13em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .pf-opts{display:flex;flex-wrap:wrap;gap:7px}
+  .pf-opt{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;
+    background:transparent;border:1px solid var(--hair2);border-radius:var(--r);
+    color:var(--ash);font-size:12px;font-family:inherit}
+  .pf-opt:hover{border-color:var(--bone);color:var(--bone)}
+  .pf-opt[aria-pressed="true"]{border-color:var(--acc);color:var(--bone);
+    background:rgba(47,168,160,.09)}
+  .pf-swatch{width:11px;height:11px;border-radius:50%;flex:none;
+    border:1px solid rgba(255,255,255,.22)}
+  .pf-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ash);
+    cursor:pointer;padding:3px 0}
+  .pf-check input{accent-color:var(--acc);width:auto}
+  .pf-hint{font-size:11px;color:var(--faint);line-height:1.6;margin:8px 0 0}
+  .pf-reset{background:transparent;border:1px solid var(--hair2);border-radius:var(--r);
+    color:var(--ash);font:inherit;font-size:12px;padding:7px 13px;cursor:pointer}
+  .pf-reset:hover{border-color:var(--err);color:var(--err)}
+
   /* ── главный экран: рабочий стол, а не витрина ───────────────────────────
         Правила, которые здесь закреплены, родились из трёх жалоб на старый
         экран: «как презентация», «пусто», «шаблонно». Каждая строка ниже —
@@ -421,7 +470,8 @@
 
   /* ── пайплайны ── */
   .plist{padding:4px 0}
-  .pitem{padding:9px 16px;border-left:2px solid transparent;cursor:pointer;font-size:12.5px;
+  .pitem{padding:var(--item-py) var(--item-px);border-left:2px solid transparent;
+    cursor:pointer;font-size:var(--fs-base);
     display:flex;align-items:center;gap:9px;justify-content:space-between}
   .pitem:hover{background:var(--ink2)}
   .pitem.active{background:var(--ink2);border-left-color:var(--bone)}
@@ -557,6 +607,7 @@
     <a class="rail-item" id="rail-artifacts" href="/artifacts/"><span class="ri-dot"></span><span class="lbl">Артефакты</span></a>
 
     <div class="rail-foot">
+      <button class="rail-item" id="rail-prefs"><span class="ri-ico">⚙</span><span class="lbl">Настройки</span></button>
       <button class="rail-item" id="rail-help"><span class="lbl">Помощь</span></button>
       <button class="rail-item" id="rail-whatsnew"><span class="lbl">Что нового</span></button>
       <div class="rail-note">Плагины — исполняемый код. Перед установкой проверяй
@@ -626,6 +677,49 @@
     </main>
   </div>
 </div>
+
+<!-- Панель настроек. Отдельный экран заставил бы перезагружать страницу —
+     а требование «мгновенно, без перезагрузки» важнее контекста. Поэтому это
+     слой поверх текущего экрана: видно и сами настройки, и то, к чему они
+     относятся. -->
+<div id="prefs" class="prefs" hidden>
+  <div class="prefs-card" role="dialog" aria-modal="true" aria-labelledby="prefs-hd">
+    <div class="prefs-hd">
+      <b id="prefs-hd">Настройки интерфейса</b>
+      <button id="prefs-close" title="закрыть" aria-label="закрыть настройки">×</button>
+    </div>
+    <div class="prefs-bd">
+      <div class="pf-grp">
+        <label>Плотность</label>
+        <div class="pf-opts" id="pf-density"></div>
+      </div>
+      <div class="pf-grp">
+        <label>Акцент</label>
+        <div class="pf-opts" id="pf-accent"></div>
+        <p class="pf-hint">Тёмная тема одна: полной светлой палитры нет, обещать её
+          в интерфейсе рано.</p>
+      </div>
+      <div class="pf-grp">
+        <label>Узлы на холсте</label>
+        <div class="pf-opts">
+          <label class="pf-check"><input type="checkbox" id="pf-roles" checked/>
+            <span>Ролевые цвета узлов</span></label>
+          <label class="pf-check"><input type="checkbox" id="pf-role-labels" checked/>
+            <span>Подписи ролей</span></label>
+        </div>
+      </div>
+      <div class="pf-grp">
+        <label>Рельса</label>
+        <div class="pf-opts" id="pf-rail"></div>
+      </div>
+      <button id="pf-reset" class="pf-reset">Сбросить к умолчаниям</button>
+      <p class="pf-hint">Хранится локально в этом браузере. На других устройствах
+        и в приватном окне настройки будут свои.</p>
+    </div>
+  </div>
+</div>
+
+<script src="/prefs.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

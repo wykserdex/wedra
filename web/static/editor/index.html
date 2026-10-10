@@ -59,10 +59,15 @@
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
+    /* Базовый кегль редактора — 13px, он и был до появления настроек.
+       Значение по умолчанию живёт здесь, а не в prefs.js: у консоли свой
+       (12.5px), и общий токен со значением по умолчанию сдвинул бы одну из
+       страниц. prefs.js переопределяет его только для нестандартной плотности. */
+    --fs-base:13px;
   }
   *{box-sizing:border-box}
-  body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);font-size:13px;
-    line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{font-family:var(--sans);margin:0;background:var(--ink);color:var(--bone);
+    font-size:var(--fs-base);line-height:1.5;-webkit-font-smoothing:antialiased}
   ::selection{background:rgba(47,168,160,.32)}
   *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
   ::-webkit-scrollbar{width:9px;height:9px}
@@ -284,6 +289,13 @@
   .node[data-role="when"]    {--role:var(--role-when);    --role-wash:rgba(90,108,128,.12)}
   .node[data-role="foreach"] {--role:var(--role-foreach); --role-wash:rgba(132,150,168,.10)}
   .node[data-role="parallel"]{--role:var(--role-parallel);--role-wash:rgba(87,116,143,.11)}
+  /* Выключатели из настроек: роли и подписи ролей — независимые переключатели,
+     а не часть плотности. Класс ставит prefs.js на <html>. */
+  html.no-roles .node{border-left-color:var(--hair)}
+  html.no-roles .node .nh{border-bottom-color:var(--hair);background:transparent}
+  html.no-roles .node .nh .rdot{background:var(--faint)}
+  html.no-role-labels .node .nh .rlabel{display:none}
+
   .node{position:absolute;width:218px;background:transparent;border:1px solid var(--hair);
     border-radius:var(--r);font-size:11.5px}
   /* Полоса роли — ПОСЛЕ базовой рамки: `border` в шорткате сбрасывает
@@ -559,6 +571,7 @@
   <div class="hd"><b>YAML (сериализовано ядром)</b><button id="close-yaml">закрыть</button></div>
   <pre id="yaml-pre"></pre>
 </div></div>
+<script src="/prefs.js"></script>
 <script src="/editor/app.js"></script>
 </body>
 </html>

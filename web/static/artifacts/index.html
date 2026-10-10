@@ -48,10 +48,13 @@
     --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,Menlo,monospace;
     --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
     --r:3px; --hdr:42px;
+    /* см. комментарий в консоли: базовый кегль по умолчанию — свой у каждой
+       страницы, prefs.js переопределяет только для нестандартной плотности */
+    --fs-base:12.5px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--ink);color:var(--bone);
-    font:12.5px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+    font-size:var(--fs-base);line-height:1.55;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
     -webkit-font-smoothing:antialiased}
   ::selection{background:rgba(47,168,160,.32)}
   *{scrollbar-width:thin;scrollbar-color:#2b343c transparent}
@@ -248,6 +251,7 @@
   </section>
 </main>
 
+<script src="/prefs.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
