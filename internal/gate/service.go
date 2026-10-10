@@ -86,6 +86,12 @@ type GateUI interface {
 // StdinUI — читает из os.Stdin (дефолт).
 // Один bufio.Reader на весь гейт: новый на каждый ReadLine съел бы
 // забференный остаток предыдущей строки.
+//
+// Жизненный цикл: владелец — ран, он создаёт ОДИН StdinUI на прогон и не
+// закрывает его. Закрывать нечего и нельзя: os.Stdin принадлежит процессу,
+// а не гейту, и закрытие сломало бы следующий гейт и любой другой читатель
+// stdin. Владение UI, пришедшим снаружи (ChannelUI, MCP-элицитация), — у
+// вызывающего: ран их не создавал и закрывать не должен.
 type StdinUI struct {
 	reader *bufio.Reader
 }
@@ -111,6 +117,17 @@ func NewServiceWithUI(ui GateUI) *Service {
 		return NewService()
 	}
 	return &Service{UI: ui}
+}
+
+// ui — ввод этого сервиса. Ленивая инициализация ОДИН раз на Service, а не
+// на каждый Run: иначе Service без явного UI (нулевое значение) на каждый
+// гейт завёл бы свой bufio.Reader и второй гейт получил бы EOF — ровно тот
+// баг, ради которого комментарий над StdinUI.
+func (s *Service) ui() GateUI {
+	if s.UI == nil {
+		s.UI = NewStdinUI()
+	}
+	return s.UI
 }
 
 // StructuredUI — необязательный интерфейс не-терминального ввода (v0.24):
@@ -220,10 +237,7 @@ func (s *Service) Run(st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, op
 		fmt.Println("  [--yes] не действует: гейт требует решения человека (approval: human / gates: human_only / политика)")
 	}
 
-	ui := s.UI
-	if ui == nil {
-		ui = NewStdinUI()
-	}
+	ui := s.ui()
 	// v0.24: не-терминальный ввод (браузер) — структурированный круг,
 	// не построчный поток. Терминальный путь ниже не тронут.
 	if su, ok := ui.(StructuredUI); ok {

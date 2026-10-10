@@ -33,6 +33,10 @@ type RunOptions struct {
 	RunID string
 	// v0.24: фабрика не-терминального ввода гейта (GUI/API). Вызывается на
 	// каждом встроенном gate-шаге; nil — терминальный stdin (дефолт).
+	//
+	// Жизненный цикл UI из фабрики принадлежит вызывающему, а не рану:
+	// Server.clearGate/cancel закрывает ChannelUI сам, ран не трогает чужой
+	// ввод (у API их по одному на гейт, и они переживают конец шага).
 	GateUI func(*pipeline.Step) gate.GateUI
 	// Agent-track policy: --yes never approves gates for MCP runs.
 	NoAutoApprove bool
@@ -63,6 +67,23 @@ type RunOptions struct {
 	// по 1000 итераций давали 10 000 запусков плагина, хотя имя константы
 	// обещало «глобальный».
 	loopBudget *loopBudgetCounter
+
+	// gateUI — терминальный ввод гейтов на весь ран. Указатель по той же
+	// причине, что и loopBudget: опции копируются по значению на каждом
+	// шаге, а экземпляр ввода обязан быть общим.
+	//
+	// Раньше терминальный UI создавался в runStep на КАЖДЫЙ гейт
+	// (gate.NewService() → NewStdinUI() → bufio.NewReader(os.Stdin)).
+	// При TTY это не видно, а при stdin из pipe первый гейт забирал в буфер
+	// весь ввод разом, и второй получал EOF: скриптованные прогоны с
+	// несколькими гейтами не работали. Чинить перечитыванием stdin нельзя —
+	// потерянный остаток уже не вернуть; нужен один буфер на прогон.
+	//
+	// Владелец — ран, и он его НЕ закрывает: os.Stdin принадлежит процессу,
+	// закрывать его нечем и нельзя (сломались бы следующий ран и любой
+	// другой читатель stdin). Закрывать требуется UI из GateUI — это зона
+	// вызывающего, см. поле выше.
+	gateUI gate.GateUI
 }
 
 // loopBudgetCounter — счётчик итераций loop на ран. Указатель в RunOptions:
@@ -411,6 +432,20 @@ func runWithStore(pf *pipeline.PipelineFile, eng Engine, opts RunOptions, store 
 	// лимит текущего рана — нет.
 	if opts.loopBudget == nil {
 		opts.loopBudget = &loopBudgetCounter{}
+	}
+	// Терминальный ввод гейтов — один на весь ран. Читать из os.Stdin
+	// можно только одним буфером: bufio.Reader забирает из дескриптора
+	// столько, сколько там есть, и остаток живёт в нём, а не в pipe.
+	// Новый reader на каждый гейт отдавал второму гейту EOF (обход TTY).
+	//
+	// Заводится здесь, а не в runStep, ровно по той же причине, что и
+	// loopBudget: опции копируются по значению, общий экземпляр обязан
+	// быть указателем. Закрывать нечего — os.Stdin не наш (см. RunOptions.gateUI).
+	//
+	// MCP-рену терминальный ввод запрещён (stdin занят JSON-RPC), поэтому
+	// там UI не заводится, а гейт без фабрики падает в runStep.
+	if opts.gateUI == nil && opts.GateUI == nil && !opts.MCPMode {
+		opts.gateUI = gate.NewStdinUI()
 	}
 	// Политика доверия к коду плагинов задаётся ядром (allow-list оператора +
 	// --deny-untrusted-plugins / --allow-untrusted-plugins) и наследуется всеми
@@ -1081,6 +1116,29 @@ func runStepLoop(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *
 	return "ok", nil
 }
 
+// gateService — UI гейта для шага. Единственное место, где выбирается
+// источник ввода, чтобы правило «один терминальный ввод на ран» нельзя было
+// обойти, создав Service прямо в runStep.
+//
+// Порядок веток значим: MCP-рену терминальный ввод запрещён, и проверка
+// должна идти до подстановки stdin, иначе запрет перестал бы действовать.
+func (o RunOptions) gateService(st *pipeline.Step) (*gate.Service, error) {
+	switch {
+	case o.GateUI != nil:
+		// GUI/API/MCP: свой UI на шаг, жизненным циклом владеет вызывающий.
+		return gate.NewServiceWithUI(o.GateUI(st)), nil
+	case o.MCPMode:
+		// stdin занят JSON-RPC: терминальный гейт съел бы сообщения клиента.
+		return nil, runErr("E_NO_GATE_UI", "шаг %s: human_gate без GateUI в MCP-режиме (терминальный ввод запрещён)", st.ID)
+	case o.gateUI != nil:
+		// Терминал: экземпляр заведён на весь ран (runWithStore).
+		return gate.NewServiceWithUI(o.gateUI), nil
+	default:
+		// runStep мимо рана (прямой вызов в тесте): берём терминал, как раньше.
+		return gate.NewService(), nil
+	}
+}
+
 func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runctx.Ctx, j *journal.Journal, opts RunOptions) (string, error) {
 	if plugin.IsBuiltin(st.Plugin) {
 		// Встроенных модулей больше одного, и гейт — не единственный из них.
@@ -1090,14 +1148,9 @@ func runStep(eng Engine, pf *pipeline.PipelineFile, st *pipeline.Step, ctx *runc
 		if canonical != common.HumanGatePluginRef {
 			return runBuiltinDataStep(eng, st, ctx, j, opts)
 		}
-		var svc *gate.Service
-		if opts.GateUI != nil {
-			svc = gate.NewServiceWithUI(opts.GateUI(st))
-		} else if opts.MCPMode {
-			// stdin занят JSON-RPC: терминальный гейт съел бы сообщения клиента
-			return "", runErr("E_NO_GATE_UI", "шаг %s: human_gate без GateUI в MCP-режиме (терминальный ввод запрещён)", st.ID)
-		} else {
-			svc = gate.NewService()
+		svc, err := opts.gateService(st)
+		if err != nil {
+			return "", err
 		}
 		action := svc.Run(st, ctx, j, gate.GateOptions{
 			Yes: opts.Yes, Quiet: opts.Quiet,
