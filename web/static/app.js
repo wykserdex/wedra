@@ -170,6 +170,69 @@ function wireRail() {
     'Помощь: docs/quickstart.md и docs/architecture.md в дереве репозитория.\n' +
     'Диагностика окружения: wedra doctor --json'));
   on('#rail-whatsnew', () => alert('Что нового: раздел ещё не наполнен.'));
+  wirePrefs();
+}
+
+// ── панель настроек ───────────────────────────────────────────────────────
+// Живёт в prefs.js (общий модуль для трёх страниц). Здесь только обвязка:
+// наполнение кнопок из списков пресетов и перерисовка «pressed».
+function wirePrefs() {
+  if (!window.WPrefs) return;
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  const panel = $('#prefs');
+  if (!panel) return;
+  const P = window.WPrefs;
+
+  const mkOpt = (val, label, swatch) =>
+    `<button class="pf-opt" type="button" data-v="${esc(val)}" aria-pressed="false">`
+    + (swatch ? `<span class="pf-swatch" style="background:${esc(swatch)}"></span>` : '')
+    + `<span>${esc(label)}</span></button>`;
+
+  const dens = $('#pf-density'), acc = $('#pf-accent'), rail = $('#pf-rail');
+  if (dens) dens.innerHTML = Object.keys(P.DENSITY).map(k => mkOpt(k, P.DENSITY[k].label)).join('');
+  if (acc) {
+    acc.innerHTML = Object.keys(P.ACCENT).map(k => mkOpt(k, P.ACCENT[k].label, P.ACCENT[k].acc)).join('');
+  }
+  if (rail) rail.innerHTML = Object.keys(P.RAIL).map(k => mkOpt(k, P.RAIL[k].label)).join('');
+
+  const groups = [[dens, 'density'], [acc, 'accent'], [rail, 'rail']];
+  for (const [host, key] of groups) {
+    if (!host) continue;
+    host.addEventListener('click', e => {
+      const b = e.target.closest('.pf-opt');
+      if (!b) return;
+      P.set({ [key]: b.dataset.v });
+    });
+  }
+
+  const cr = $('#pf-roles'), cl = $('#pf-role-labels');
+  if (cr) cr.addEventListener('change', () => P.set({ roles: cr.checked }));
+  if (cl) cl.addEventListener('change', () => P.set({ roleLabels: cl.checked }));
+
+  const reset = $('#pf-reset');
+  if (reset) reset.addEventListener('click', () => P.reset());
+
+  const open = () => { panel.hidden = false; refresh(); };
+  const close = () => { panel.hidden = true; };
+  const refresh = () => {
+    const p = P.get();
+    for (const [host, key] of groups) {
+      if (!host) continue;
+      host.querySelectorAll('.pf-opt').forEach(b => {
+        b.setAttribute('aria-pressed', b.dataset.v === p[key] ? 'true' : 'false');
+      });
+    }
+    if (cr) cr.checked = p.roles;
+    if (cl) cl.checked = p.roleLabels;
+  };
+
+  on('#rail-prefs', open);
+  on('#prefs-close', close);
+  panel.addEventListener('click', e => { if (e.target === panel) close(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !panel.hidden) close();
+  });
+  P.onChange = refresh;
 }
 
 // setModeHighlight — какая вкладка РЕЖИМА подсвечена. Разделы (рельса) и
