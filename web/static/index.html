@@ -250,6 +250,9 @@
   .topbar{display:flex;align-items:center;gap:14px;height:var(--hdr);padding:0 16px;
     border-bottom:1px solid var(--hair);background:var(--ink);flex:none}
   .modes{display:flex;gap:2px;align-items:center;height:100%}
+  /* display:flex перебивает браузерное [hidden]{display:none} — без этого
+     правила скрытая группа всё равно занимала бы место в шапке. */
+  .modes[hidden]{display:none}
   .modes button,.modes a{display:flex;align-items:center;height:100%;padding:0 13px;
     background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);
     font:inherit;font-size:11.5px;cursor:pointer;text-decoration:none;transition:color .12s}
@@ -307,6 +310,19 @@
   .pf-reset{background:transparent;border:1px solid var(--hair2);border-radius:var(--r);
     color:var(--ash);font:inherit;font-size:12px;padding:7px 13px;cursor:pointer}
   .pf-reset:hover{border-color:var(--err);color:var(--err)}
+  /* содержимое «Помощи» и «Что нового»: команды моноширинные, как их печатает
+     wedra --help, чтобы человек мог скопировать и вставить. */
+  .hb-g{margin-bottom:14px}
+  .hb-g:last-child{margin-bottom:0}
+  .hb-g>b{display:block;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:7px}
+  .hb-cmd{display:block;font-family:var(--mono);font-size:11px;color:var(--bone);
+    background:var(--sunken);border:1px solid var(--hair);border-radius:var(--r);
+    padding:6px 9px;margin:0 0 5px;white-space:pre-wrap;word-break:break-word}
+  .hb-cmd i{color:var(--faint);font-style:normal}
+  .hb-path{display:block;font-family:var(--mono);font-size:11px;color:var(--ash);
+    padding:3px 0}
+  .hb-ver{font-family:var(--mono);font-size:11px;color:var(--bone);margin-bottom:10px}
 
   /* ── главный экран: рабочий стол, а не витрина ───────────────────────────
         Правила, которые здесь закреплены, родились из трёх жалоб на старый
@@ -619,11 +635,20 @@
     <!-- Режимы объекта, а не разделы приложения. Прогоны и артефакты
          принадлежат конкретному пайплайну, поэтому они здесь. -->
     <header class="topbar">
-      <nav class="modes">
+      <nav class="modes" id="modes-obj">
         <button id="mode-editor">Редактор</button>
         <button id="mode-runs">Прогоны</button>
         <a id="mode-artifacts" href="/artifacts/">Артефакты</a>
         <span class="objname" id="obj-name"></span>
+      </nav>
+      <!-- На «Плагинах» объекта-пайплайна нет, поэтому режимы объекта там
+           врали бы: подсветить «Редактор» там, где редактора нет. Вместо них
+           группа по реальному признаку из /api/plugins — trusted. -->
+      <nav class="modes" id="modes-plug" hidden>
+        <button id="plug-filter-all" class="active">Все</button>
+        <button id="plug-filter-ok">В allow-list</button>
+        <button id="plug-filter-no">Вне allow-list</button>
+        <span class="objname" id="plug-filter-count"></span>
       </nav>
       <span class="sp"></span>
       <span id="ver" class="badge">…</span>
@@ -662,7 +687,7 @@
           <div class="plist" id="pip-list"></div>
         </div>
       </aside>
-      <div id="pdetail" style="display:none"><div class="empty">Выбери пайплайн</div></div>
+      <div id="pdetail" style="display:none"><div class="empty">загрузка…</div></div>
 
       <!-- PLUGINS -->
       <aside id="plug-aside" style="display:none">
@@ -716,6 +741,29 @@
       <p class="pf-hint">Хранится локально в этом браузере. На других устройствах
         и в приватном окне настройки будут свои.</p>
     </div>
+  </div>
+</div>
+
+<!-- «Помощь» и «Что нового». Раньше здесь был alert: он притворялся, что
+     содержимое есть, а его не было. Теперь это настоящие панели; наполнение
+     переиспользует ту же карточку, что и настройки. -->
+<div id="helpbox" class="prefs" hidden>
+  <div class="prefs-card" role="dialog" aria-modal="true" aria-labelledby="helpbox-hd">
+    <div class="prefs-hd">
+      <b id="helpbox-hd">Помощь</b>
+      <button id="helpbox-close" title="закрыть" aria-label="закрыть помощь">×</button>
+    </div>
+    <div class="prefs-bd" id="helpbox-bd"></div>
+  </div>
+</div>
+
+<div id="newsbox" class="prefs" hidden>
+  <div class="prefs-card" role="dialog" aria-modal="true" aria-labelledby="newsbox-hd">
+    <div class="prefs-hd">
+      <b id="newsbox-hd">Что нового</b>
+      <button id="newsbox-close" title="закрыть" aria-label="закрыть что нового">×</button>
+    </div>
+    <div class="prefs-bd" id="newsbox-bd"></div>
   </div>
 </div>
 

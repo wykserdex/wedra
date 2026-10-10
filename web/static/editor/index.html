@@ -366,7 +366,11 @@
   .node.drop-target{border-color:var(--par);box-shadow:0 0 0 1px rgba(155,140,184,.5)}
   .inrow.hovered{background:rgba(155,140,184,.22);outline:1px solid var(--par);outline-offset:-1px}
   /* запуск — единственная «живая» кнопка в шапке: акцент тратится на неё */
-  #btn-run{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  /* Надпись тёмная, а не белая: белый на акценте давал 2.31–3.12 при
+     требуемых 4.5, то есть главное действие не проходило AA ни на одной из
+     трёх палитр акцента. Тёмная надпись даёт 6.03–8.16 на всех трёх и на
+     hover-состояниях, и работает независимо от выбранной палитры. */
+  #btn-run{background:var(--acc);border-color:var(--acc);color:var(--sunken);font-weight:600}
   #btn-run:hover{background:var(--acc-hi);border-color:var(--acc-hi)}
   .chips{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
   .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:transparent;

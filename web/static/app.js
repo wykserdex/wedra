@@ -22,6 +22,7 @@ let state = {
   pipelines: [],
   currentPipe: null,
   presets: [],
+  plugFilter: 'all', // фильтр каталога плагинов по реальному признаку trusted
   timers: {},
 };
 
@@ -145,6 +146,61 @@ function enterLastPipeline() {
 
 // Помнить пайплайн, когда человек открыл его в списке: это и есть «последний
 // открытый», из которого вход строит редактор.
+// Помощь и «Что нового». Раньше здесь стоял alert: он притворялся, что
+// содержимое есть, а его не было — хуже, чем сказать прямо. Теперь это
+// настоящие панели.
+//
+// Список команд НЕ выдуман: он переписан из printHelp() в internal/cli/root.go
+// (верхнеуровневые команды и подкоманды pipeline/plugin/runs). При изменении
+// CLI этот список надо синхронизировать — копия, автопоиска здесь быть не может.
+const CLI_COMMANDS = [
+  ['Сценарии', [
+    'wedra pipeline run <file.yaml> [--yes] [--resume=<run_id>]',
+    'wedra pipeline install <name|file.yaml|url>',
+    'wedra pipeline validate <file.yaml> [--json]',
+    'wedra pipeline plan <file.yaml>',
+    'wedra pipeline lint <file.yaml>',
+  ]],
+  ['Плагины', [
+    'wedra plugin install <name>[@version]',
+    'wedra plugin validate <dir>',
+    'wedra plugin test <dir> [--conformance]',
+    'wedra plugin create <dir>',
+    'wedra plugin inspect <dir>',
+    'wedra plugin search <query>',
+    'wedra plugin list',
+  ]],
+  ['Прогоны и консоль', [
+    'wedra runs list [var/runs]',
+    'wedra runs show <run_id> [var/runs]',
+    'wedra runs resume <run_id> <pipeline.yaml>',
+    'wedra gui [--listen 127.0.0.1:8765] [--open]',
+    'wedra approve <run_id> <step_id>',
+  ]],
+  ['Диагностика', [
+    'wedra doctor [--json] [--plugins=<dir>]',
+    'wedra check [--list|--fast|--census]',
+    'wedra demo [--runs-dir=<dir>]',
+    'wedra mcp --plugins=<dir>',
+  ]],
+];
+const CLI_DOCS = [
+  'protocol/v0.2/PROTOCOL.md', 'protocol/v0.2/ERRORS.md',
+  'docs/quickstart.md', 'docs/architecture.md', 'docs/mcp.md',
+];
+
+function wireSheet(id, fill) {
+  const el = $(id);
+  if (!el) return;
+  const close = () => { el.hidden = true; };
+  fill();
+  el.hidden = false; // открыть: без этой строки панель наполнялась и оставалась скрытой
+  const x = $(id + '-close');
+  if (x) x.onclick = close;
+  el.addEventListener('click', e => { if (e.target === el) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !el.hidden) close(); });
+}
+
 function wireRail() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('#tab-pipelines', () => setTab('pipelines'));
@@ -164,12 +220,30 @@ function wireRail() {
     try { sessionStorage.setItem('wedra.open', ''); } catch (e) { /* приватный */ }
     location.href = '/editor/';
   });
-  // Помощь и «Что нового» — заглушки честные: содержимого ещё нет, и делать
-  // вид, что есть, хуже, чем сказать прямо.
-  on('#rail-help', () => alert(
-    'Помощь: docs/quickstart.md и docs/architecture.md в дереве репозитория.\n' +
-    'Диагностика окружения: wedra doctor --json'));
-  on('#rail-whatsnew', () => alert('Что нового: раздел ещё не наполнен.'));
+  // Помощь и «Что нового» — настоящие панели, см. CLI_COMMANDS выше.
+  on('#rail-help', () => wireSheet('#helpbox', () => {
+    const bd = $('#helpbox-bd');
+    if (!bd) return;
+    bd.innerHTML = CLI_COMMANDS.map(([grp, cmds]) =>
+      `<div class="hb-g"><b>${esc(grp)}</b>`
+      + cmds.map(c => `<code class="hb-cmd">${esc(c)}</code>`).join('')
+      + '</div>').join('')
+      + '<div class="hb-g"><b>Документация в репозитории</b>'
+      + CLI_DOCS.map(p => `<span class="hb-path">${esc(p)}</span>`).join('')
+      + '<p class="pf-hint">Полный список с флагами — <code>wedra --help</code> '
+      + 'в терминале.</p></div>';
+  }));
+  on('#rail-whatsnew', () => wireSheet('#newsbox', () => {
+    const bd = $('#newsbox-bd');
+    if (!bd) return;
+    // Версия — из /api/health, не выдуманная: та же, что в углу шапки.
+    bd.innerHTML = `<div class="hb-ver">установлено: v${esc(state.version || '—')}</div>`
+      + '<p class="pf-hint" style="margin-top:0">Что изменилось в этой и прошлых '
+      + 'версиях — в файле <code>CHANGELOG.md</code> в корне репозитория.</p>'
+      + '<div class="hb-g" style="margin-top:14px"><b>Документы проекта</b>'
+      + CLI_DOCS.map(p => `<span class="hb-path">${esc(p)}</span>`).join('')
+      + '</div>';
+  }));
   wirePrefs();
 }
 
@@ -305,6 +379,30 @@ function markSection(el, on) {
   if (el) el.classList.toggle('active', on);
 }
 
+// Пустой правый экран списка пайплайнов («Выбери пайплайн») — самое заметное
+// расхождение с референсом: там справа сразу объект. Решено НЕ отдельным
+// экраном и не переходом в редактор, а превью: превью уже собирается из
+// существующих API (/api/pipelines/<file> + /api/plan/pipeline — имя, формат,
+// число шагов, состав плагинов, гейты, ошибки и предупреждения валидации, плюс
+// DAG). Ничего нового выдумывать не пришлось, и выбор остаётся неразрушающим:
+// клик по строке НЕ уводит из консоли. Поэтому при входе на вкладку
+// подставляется превью — последнего открытого, иначе первого в списке.
+function ensurePipelinePreview() {
+  if (state.currentPipe && state.pipelines.some(p => p.file === state.currentPipe)) return;
+  if (!state.pipelines.length) {
+    // Списка нет — выбирать нечего, и «выбери пайплайн» было бы враньём.
+    const d = $('#pdetail');
+    if (d) {
+      d.innerHTML = '<div class="empty">Пайплайнов пока нет. Создай первый'
+        + ' в редакторе или положи файл в каталог сценариев.</div>';
+    }
+    return;
+  }
+  const want = lastPipeline();
+  const file = state.pipelines.some(p => p.file === want) ? want : state.pipelines[0].file;
+  openPipeline(file);
+}
+
 function setTab(t) {
   state.tab = t;
   markSection($('#tab-runs'), t === 'runs');
@@ -317,7 +415,13 @@ function setTab(t) {
   $('#plug-aside').style.display = t === 'plugins' ? '' : 'none';
   $('#detail').style.display = t === 'runs' ? '' : 'none';
   $('#pdetail').style.display = t === 'pipelines' ? '' : 'none';
+  // Правый экран списка не должен оставаться пустым: справа сразу превью.
+  if (t === 'pipelines') ensurePipelinePreview();
   $('#plugdetail').style.display = t === 'plugins' ? '' : 'none';
+  // Группы в шапке переключаются вместе с разделом: на «Плагинах» объекта
+  // нет, и режимы объекта («Редактор») там были бы враньём.
+  $('#modes-obj').hidden = t === 'plugins';
+  $('#modes-plug').hidden = t !== 'plugins';
 }
 
 // ── главная: рабочий стол, а не витрина (v0.35) ───────────────────────────
@@ -563,15 +667,37 @@ async function loadPluginsTab() {
   renderPluginsTabList('');
   const s = $('#plug-tab-search');
   if (s) s.oninput = () => renderPluginsTabList(s.value);
+  // Фильтр держится в состоянии, а не в замыкании: переживает повторный
+  // вход на вкладку и перерисовку поиска.
+  for (const [id, val] of [['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'], ['#plug-filter-no', 'no']]) {
+    const b = $(id);
+    if (b) b.onclick = () => { state.plugFilter = val; renderPluginsTabList(s ? s.value : ''); };
+  }
   $('#plug-tab-count').textContent = `(${state.pluginsFull.length})`;
   setRailCounts(state.pipelines, state.pluginsFull);
 }
 
 function renderPluginsTabList(q) {
   const needle = (q || '').trim().toLowerCase();
-  const hit = !needle ? state.pluginsFull : state.pluginsFull.filter(p =>
+  let hit = !needle ? state.pluginsFull : state.pluginsFull.filter(p =>
     (p.id || '').toLowerCase().includes(needle) ||
     (p.description || '').toLowerCase().includes(needle));
+  // Фильтр по реальному признаку из /api/plugins (trusted), а не по
+  // придуманной категории: в allow-list плагин пройдёт trust-гейт реестра,
+  // вне — нет. Счётчик показывает, сколько таких на самом деле.
+  const f = state.plugFilter || 'all';
+  if (f === 'ok') hit = hit.filter(p => p.trusted);
+  else if (f === 'no') hit = hit.filter(p => !p.trusted);
+  const c = $('#plug-filter-count');
+  if (c) {
+    const total = state.pluginsFull.length;
+    const ok = state.pluginsFull.filter(p => p.trusted).length;
+    c.textContent = `${total} всего · ${ok} в allow-list`;
+  }
+  for (const [id, val] of [['#plug-filter-all', 'all'], ['#plug-filter-ok', 'ok'], ['#plug-filter-no', 'no']]) {
+    const b = $(id);
+    if (b) b.classList.toggle('active', f === val);
+  }
   $('#plug-tab-list').innerHTML = hit.map(p => {
     const dot = p.trusted ? '<span class="tdot ok"></span>' : '<span class="tdot"></span>';
     return `<div class="pitem" data-plugin-id="${esc(p.id)}">${dot} ${esc(p.id)}`
